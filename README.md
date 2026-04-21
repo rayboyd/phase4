@@ -62,7 +62,7 @@ Once installation finishes, restart your PowerShell or Command Prompt to refresh
 
 ### Linux
 
-On Ubuntu or Debian, install the native audio build dependencies. These are required for the `cpal` or `alsa` crates used by Phase4.
+On Ubuntu or Debian, install the native audio build dependencies. These are required for the `cpal` crate used by Phase4.
 
 ```sh
 sudo apt-get update

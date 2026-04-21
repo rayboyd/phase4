@@ -108,3 +108,53 @@ impl Drop for Controller {
         let _ = disable_raw_mode();
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crossterm::event::KeyEventKind;
+
+    fn controller_with_state() -> (Controller, Arc<AppState>) {
+        let state = Arc::new(AppState::new());
+        (Controller::new(state.clone()), state)
+    }
+
+    #[test]
+    fn press_event_toggles_broadcasting_once() {
+        let (controller, state) = controller_with_state();
+
+        controller.handle_key_event(KeyEvent::new_with_kind(
+            KeyCode::Char('b'),
+            KeyModifiers::NONE,
+            KeyEventKind::Press,
+        ));
+
+        assert!(state.is_broadcasting.load(Ordering::Acquire));
+    }
+
+    #[test]
+    fn release_event_does_not_toggle_broadcasting() {
+        let (controller, state) = controller_with_state();
+
+        controller.handle_key_event(KeyEvent::new_with_kind(
+            KeyCode::Char('b'),
+            KeyModifiers::NONE,
+            KeyEventKind::Release,
+        ));
+
+        assert!(!state.is_broadcasting.load(Ordering::Acquire));
+    }
+
+    #[test]
+    fn repeat_event_does_not_toggle_broadcasting() {
+        let (controller, state) = controller_with_state();
+
+        controller.handle_key_event(KeyEvent::new_with_kind(
+            KeyCode::Char('b'),
+            KeyModifiers::NONE,
+            KeyEventKind::Repeat,
+        ));
+
+        assert!(!state.is_broadcasting.load(Ordering::Acquire));
+    }
+}
