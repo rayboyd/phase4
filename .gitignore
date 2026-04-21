@@ -1,0 +1,20 @@
+target
+debug
+**/*.rs.bk
+**/mutants.out*/
+*.pdb
+log/
+*.log
+*.dump
+.DS_Store
+.AppleDouble
+.LSOverride
+.vscode/
+.idea/
+*.swp
+*.swo
+.env
+
+# Project
+recordings/
+*.wav

@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Validates that the commit message follows the Conventional Commits spec.
+# See: https://www.conventionalcommits.org/
+
+COMMIT_MSG_FILE="$1"
+COMMIT_MSG=$(cat "$COMMIT_MSG_FILE")
+
+# Skip merge commits and fixup/squash commits.
+if echo "$COMMIT_MSG" | grep -qE "^(Merge |fixup! |squash! )"; then
+    exit 0
+fi
+
+# type(scope)!: description
+# type!: description
+# type: description
+PATTERN="^(feat|fix|refactor|docs|style|test|chore|build|ci|perf|revert)(\(.+\))?(!)?: .{1,100}"
+
+if ! echo "$COMMIT_MSG" | grep -qE "$PATTERN"; then
+    echo ""
+    echo "  ERROR: Commit message does not follow Conventional Commits format."
+    echo ""
+    echo "  Format:  type(scope): short description"
+    echo ""
+    echo "  Examples:"
+    echo "    feat(audio): add device hot-swap support"
+    echo "    fix(mapper): correct bin boundary calculation"
+    echo "    refactor(server): simplify broadcast loop"
+    echo "    docs(readme): update build instructions"
+    echo "    chore: bump dependencies"
+    echo ""
+    echo "  Breaking change:"
+    echo "    feat(api)!: redesign WebSocket payload format"
+    echo ""
+    echo "  With ticket reference (in footer):"
+    echo "    feat(audio): add device hot-swap support"
+    echo ""
+    echo "    Closes PHA4-123"
+    echo ""
+    echo "  Valid types: feat, fix, refactor, docs, style, test, chore, build, ci, perf, revert"
+    echo ""
+    exit 1
+fi

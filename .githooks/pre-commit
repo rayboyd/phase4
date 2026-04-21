@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+echo "- pre-commit: fmt"
+cargo ci-fmt
+
+echo "- pre-commit: clippy"
+cargo ci-clippy
+
+echo "- pre-commit passed"
