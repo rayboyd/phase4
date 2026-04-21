@@ -66,6 +66,10 @@ impl Controller {
     }
 
     fn handle_key_event(&self, key: KeyEvent) {
+        if !key.is_press() {
+            return;
+        }
+
         match key.code {
             KeyCode::Char('b' | 'B') => {
                 let was_broadcasting = self.state.is_broadcasting.load(Ordering::Acquire);
