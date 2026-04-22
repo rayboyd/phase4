@@ -12,12 +12,11 @@
 //! grace period to exit, which prevents one stalled worker from hanging the
 //! main thread indefinitely.
 
-use crate::config::{AppConfig, AppConfigError};
+use crate::config::{validate_vocoder_sample_rate, AppConfig};
 use crate::controller::Controller;
-use crate::dsp::{DisplayPayload, RawPayload};
+use crate::dsp::{vocoder::VOCODER_BANDS, DisplayPayload, RawPayload};
 use crate::managers::{Generator, Input, Mapper, Processor, Server, Specs, Writer};
 use anyhow::Result;
-use ringbuf::traits::Split;
 use std::sync::{
     atomic::{AtomicBool, AtomicUsize, Ordering},
     Arc,
@@ -249,16 +248,12 @@ impl App {
             let (d, c, s) = input_device.get_device(idx)?;
             (s, Some((d, c)))
         };
+        validate_vocoder_sample_rate(vocoder_config.freq_high, specs.sample_rate)?;
 
-        Self::validate_vocoder_sample_rate(vocoder_config.freq_high, specs.sample_rate)?;
-
-        let (record_tx, record_rx) = Self::create_audio_channel(specs, RECORD_BUFFER_MS);
-        let (analyse_tx, analyse_rx) = Self::create_audio_channel(specs, ANALYSE_BUFFER_MS);
+        let (record_tx, record_rx) = Input::create_audio_buffer_pair(specs, RECORD_BUFFER_MS);
+        let (analyse_tx, analyse_rx) = Input::create_audio_buffer_pair(specs, ANALYSE_BUFFER_MS);
         let channels = specs.channels as usize;
-        let (raw_tx, raw_rx) = watch::channel(RawPayload::new(
-            channels,
-            crate::dsp::vocoder::VOCODER_BANDS,
-        ));
+        let (raw_tx, raw_rx) = watch::channel(RawPayload::new(channels, VOCODER_BANDS));
         let initial_display = serde_json::to_string(&DisplayPayload::new(channels))
             .expect("failed to serialise initial display payload");
         let (display_tx, display_rx) = watch::channel(Utf8Bytes::from(initial_display));
@@ -370,46 +365,6 @@ impl App {
         self.workers.shutdown();
 
         log::info!("Shutdown complete");
-    }
-
-    fn create_audio_channel(
-        specs: Specs,
-        ms_safety: u32,
-    ) -> (ringbuf::HeapProd<f32>, ringbuf::HeapCons<f32>) {
-        let samples_per_sec = specs.sample_rate as usize * specs.channels as usize;
-        let capacity = (samples_per_sec * ms_safety as usize) / 1000;
-
-        // Power-of-two capacity enables bitmask wrapping (index & (len-1)) inside
-        // the ringbuf, replacing modulo division on every push/pop. In the audio
-        // callback (hot path) integer division has variable latency that risks
-        // buffer underruns, where a single AND instruction is constant-time.
-        ringbuf::HeapRb::<f32>::new(capacity.next_power_of_two()).split()
-    }
-
-    fn validate_vocoder_sample_rate(
-        freq_high: f32,
-        sample_rate: u32,
-    ) -> Result<(), AppConfigError> {
-        let sample_rate_hz = sample_rate as f32;
-        let nyquist_hz = sample_rate_hz / 2.0;
-        if freq_high >= nyquist_hz {
-            return Err(AppConfigError::VocoderHighFrequencyAboveNyquist {
-                sample_rate,
-                freq_high,
-                nyquist_hz,
-            });
-        }
-
-        let max_safe_hz = sample_rate_hz * 0.45;
-        if freq_high > max_safe_hz {
-            return Err(AppConfigError::VocoderHighFrequencyAboveSafetyCeiling {
-                sample_rate,
-                freq_high,
-                max_safe_hz,
-            });
-        }
-
-        Ok(())
     }
 }
 

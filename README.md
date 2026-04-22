@@ -71,9 +71,8 @@ sudo apt-get install -y libasound2-dev pkg-config
 
 ## Roadmap
 
-- Improve: Drop implementation from `src/app.rs` joins threads in a specific sequence. If a worker thread (like the `recorder_thread`) is blocked on a system call or a heavy I/O operation and doesn't check the `keep_running` flag immediately, the main thread will hang at that `.join()` call. A timed join or a mechanism to force-close the underlying resources (like the file handle or socket) before joining to ensure the thread unblocks
-- Improve: In `src/managers/mapper.rs`, when `DISPLAY_BINS` is greater than `VOCODER_BANDS`, I'm performing a simple "spread" (filling multiple display slots with the same raw value), which is also cool, but I need to improve this and learn more DSP, e.g. linear interpolation between the raw bins when upsampling.
-- Improve: Overflow strategy. If the `record_tx` ring buffer is full we increment a couner, that's it. This prevents the audio thread from blocking, but it means the recording will have a "jump" in time. `RECORD_BUFFER_MS` is currently set to 5000ms (5 seconds), which is quite large. However, if users are recording to a slow external drive or a network drive, 5 seconds might not be enough to absorb disk write jitter. Monitoring `record_ring_overflow_events` is essential. I've not encountered any overflows (even in early versions), cool story.
+- Improve: In `src/managers/mapper.rs`, when `DISPLAY_BINS` is greater than `VOCODER_BANDS`, I'm performing a simple "spread" (filling multiple display slots with the same raw value)
+- Improve: Overflow strategy. If the `record_tx` ring buffer is full we increment a couner, that's it. This prevents the audio thread from blocking, but it means the recording will have a "jump" in time. `RECORD_BUFFER_MS` is currently set to 5000ms (5 seconds), which is quite large. However, if users are recording to a slow external drive or a network drive, 5 seconds might not be enough to absorb disk write jitter. Monitoring `record_ring_overflow_events` is essential. I've not encountered any overflows (even in early versions), but it will happen.
 
 ## Licence
 

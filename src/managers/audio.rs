@@ -14,7 +14,7 @@ use crate::app::AppState;
 use anyhow::{Context, Result};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::SampleFormat;
-use ringbuf::traits::Producer;
+use ringbuf::traits::{Producer, Split};
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
@@ -45,6 +45,34 @@ impl Input {
     #[must_use]
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Creates a producer and consumer pair sized for approximately `buffer_ms`
+    /// milliseconds of interleaved audio at `specs`.
+    ///
+    /// The exact sample count is rounded up to the next power of two so the
+    /// underlying ring buffer can use bitmask wrapping in the audio callback hot
+    /// path. This means the actual capacity may be larger than the exact duration
+    /// requested.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `buffer_ms` is 0.
+    #[must_use]
+    pub fn create_audio_buffer_pair(
+        specs: Specs,
+        buffer_ms: u32,
+    ) -> (ringbuf::HeapProd<f32>, ringbuf::HeapCons<f32>) {
+        assert!(buffer_ms > 0);
+
+        let samples_per_sec = specs.sample_rate as usize * specs.channels as usize;
+        let capacity = (samples_per_sec * buffer_ms as usize) / 1000;
+
+        // Power-of-two capacity enables bitmask wrapping (index & (len-1)) inside
+        // the ringbuf, replacing modulo division on every push/pop. In the audio
+        // callback (hot path) integer division has variable latency that risks
+        // buffer underruns, where a single AND instruction is constant-time.
+        ringbuf::HeapRb::<f32>::new(capacity.next_power_of_two()).split()
     }
 
     /// Retrieves a concrete handle to the device and its default info. This allows
@@ -180,6 +208,7 @@ impl Input {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ringbuf::traits::Observer;
 
     fn check_samples_for_ms(sample_rate: u32, channels: u16, ms: u32, expected: usize) {
         let specs = Specs {
@@ -252,5 +281,45 @@ mod tests {
     #[test]
     fn samples_for_ms_large_duration_no_overflow() {
         check_samples_for_ms(192_000, 16, 3_600_000, 11_059_200_000);
+    }
+
+    #[test]
+    fn create_audio_buffer_pair_keeps_exact_power_of_two_capacity() {
+        let specs = Specs {
+            sample_rate: 32_000,
+            channels: 1,
+        };
+
+        let (p, c) = Input::create_audio_buffer_pair(specs, 1);
+
+        assert_eq!(p.capacity().get(), 32);
+        assert_eq!(p.vacant_len(), 32);
+        assert_eq!(c.occupied_len(), 0);
+    }
+
+    #[test]
+    fn create_audio_buffer_pair_rounds_up_to_next_power_of_two() {
+        let specs = Specs {
+            sample_rate: 48_000,
+            channels: 2,
+        };
+
+        let (p, c) = Input::create_audio_buffer_pair(specs, 10);
+
+        assert_eq!(p.capacity().get(), 1_024);
+        assert_eq!(p.vacant_len(), 1_024);
+        assert_eq!(c.occupied_len(), 0);
+    }
+
+    #[test]
+    fn create_audio_buffer_pair_counts_all_channels_when_sizing() {
+        let specs = Specs {
+            sample_rate: 48_000,
+            channels: 6,
+        };
+
+        let (p, _) = Input::create_audio_buffer_pair(specs, 10);
+
+        assert_eq!(p.capacity().get(), 4_096);
     }
 }
