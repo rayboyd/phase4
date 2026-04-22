@@ -1,7 +1,8 @@
 use futures_util::StreamExt;
 use phase4::app::AppState;
+use phase4::config::DEFAULT_MAX_CLIENTS;
 use phase4::dsp::DisplayPayload;
-use phase4::managers::{server::MAX_CLIENTS, Server};
+use phase4::managers::Server;
 use std::io::ErrorKind;
 use std::net::SocketAddr;
 use std::sync::{atomic::Ordering, Arc};
@@ -92,7 +93,7 @@ async fn client_receives_current_payload_immediately_on_connect() {
     let (_display_tx, display_rx) = watch::channel(Utf8Bytes::from(initial_display.clone()));
     let state = Arc::new(AppState::new());
 
-    let handle = Server::new(address, false)
+    let handle = Server::new(address, false, DEFAULT_MAX_CLIENTS)
         .spawn(display_rx, state.clone())
         .unwrap();
 
@@ -111,7 +112,7 @@ async fn server_sends_close_frame_on_shutdown() {
     let (_display_tx, display_rx) = watch::channel(Utf8Bytes::from(initial_display.clone()));
     let state = Arc::new(AppState::new());
 
-    let handle = Server::new(address, false)
+    let handle = Server::new(address, false, DEFAULT_MAX_CLIENTS)
         .spawn(display_rx, state.clone())
         .unwrap();
 
@@ -142,7 +143,7 @@ async fn multiple_clients_receive_close_frames_on_shutdown() {
     let (_display_tx, display_rx) = watch::channel(Utf8Bytes::from(initial_display.clone()));
     let state = Arc::new(AppState::new());
 
-    let handle = Server::new(address, false)
+    let handle = Server::new(address, false, DEFAULT_MAX_CLIENTS)
         .spawn(display_rx, state.clone())
         .unwrap();
 
@@ -179,7 +180,7 @@ async fn idle_tcp_client_is_closed_after_handshake_timeout() {
     let (_display_tx, display_rx) = watch::channel(Utf8Bytes::from(initial_display));
     let state = Arc::new(AppState::new());
 
-    let handle = Server::new(address, false)
+    let handle = Server::new(address, false, DEFAULT_MAX_CLIENTS)
         .spawn(display_rx, state.clone())
         .unwrap();
 
@@ -221,7 +222,7 @@ async fn client_with_origin_header_is_rejected_when_flag_set() {
     let (_display_tx, display_rx) = watch::channel(Utf8Bytes::from(initial_display));
     let state = Arc::new(AppState::new());
 
-    let handle = Server::new(address, true)
+    let handle = Server::new(address, true, DEFAULT_MAX_CLIENTS)
         .spawn(display_rx, state.clone())
         .unwrap();
 
@@ -261,17 +262,18 @@ async fn client_with_origin_header_is_rejected_when_flag_set() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn extra_client_is_refused_while_existing_clients_keep_working() {
     let address = free_local_address();
+    let max_clients = 2;
     let initial_display = serde_json::to_string(&DisplayPayload::new(1))
         .expect("failed to serialise initial display payload");
     let (display_tx, display_rx) = watch::channel(Utf8Bytes::from(initial_display.clone()));
     let state = Arc::new(AppState::new());
 
-    let handle = Server::new(address, false)
+    let handle = Server::new(address, false, max_clients)
         .spawn(display_rx, state.clone())
         .unwrap();
 
-    let mut clients = Vec::with_capacity(MAX_CLIENTS);
-    for _ in 0..MAX_CLIENTS {
+    let mut clients = Vec::with_capacity(max_clients);
+    for _ in 0..max_clients {
         clients.push(connect_client(address).await);
     }
 
@@ -294,7 +296,7 @@ async fn extra_client_is_refused_while_existing_clients_keep_working() {
         Ok(Err(_)) => {}
         Ok(Ok((_stream, _response))) => {
             panic!(
-                "expected the extra client to be refused once {MAX_CLIENTS} clients are connected"
+                "expected the extra client to be refused once {max_clients} clients are connected"
             )
         }
         Err(error) => {

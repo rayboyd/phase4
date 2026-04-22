@@ -476,7 +476,7 @@ mod tests {
         let mut state = State::new(
             test_specs(),
             BitDepth::Int16,
-            crate::config::FILENAME_PATTERN.to_string(),
+            crate::config::DEFAULT_FILENAME_PATTERN.to_string(),
         );
         state.phase = RecordingPhase::Recording;
 
@@ -500,7 +500,7 @@ mod tests {
         let mut state = State::new(
             test_specs(),
             BitDepth::Int16,
-            crate::config::FILENAME_PATTERN.to_string(),
+            crate::config::DEFAULT_FILENAME_PATTERN.to_string(),
         );
         state.phase = RecordingPhase::Recording;
 
@@ -573,7 +573,7 @@ mod tests {
         let state = State::new(
             test_specs(),
             BitDepth::Int16,
-            crate::config::FILENAME_PATTERN.to_string(),
+            crate::config::DEFAULT_FILENAME_PATTERN.to_string(),
         );
 
         let path = state.recording_path(123);
