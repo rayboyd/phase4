@@ -104,7 +104,7 @@ impl State {
             out.bins.copy_from_slice(self.analysers[ch].current_bins());
         }
 
-        if self.app.is_broadcasting.load(Ordering::Acquire) {
+        if self.app.is_broadcasting_websocket.load(Ordering::Acquire) {
             if self.raw_tx.is_closed() {
                 log::warn!("Mapper receiver has dropped, analysis frames will be discarded");
                 return;
@@ -141,7 +141,7 @@ impl Processor {
     ///
     /// The thread drains `consumer`, runs per-channel peak and vocoder envelope
     /// analysis on each `CHUNK_SIZE_MS` block, and sends the result to `watch_tx` when
-    /// `is_broadcasting` is set. The thread exits when `keep_running` is cleared
+    /// `is_broadcasting_websocket` is set. The thread exits when `keep_running` is cleared
     /// and the ringbuf is empty.
     ///
     /// # Panics

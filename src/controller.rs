@@ -72,9 +72,10 @@ impl Controller {
 
         match key.code {
             KeyCode::Char('b' | 'B') => {
-                let was_broadcasting_websocket = self.state.is_broadcasting.load(Ordering::Acquire);
+                let was_broadcasting_websocket =
+                    self.state.is_broadcasting_websocket.load(Ordering::Acquire);
                 self.state
-                    .is_broadcasting
+                    .is_broadcasting_websocket
                     .store(!was_broadcasting_websocket, Ordering::Release);
                 let status = if was_broadcasting_websocket {
                     "OFF"
@@ -137,7 +138,7 @@ mod tests {
             KeyEventKind::Press,
         ));
 
-        assert!(state.is_broadcasting.load(Ordering::Acquire));
+        assert!(state.is_broadcasting_websocket.load(Ordering::Acquire));
     }
 
     #[test]
@@ -150,7 +151,7 @@ mod tests {
             KeyEventKind::Release,
         ));
 
-        assert!(!state.is_broadcasting.load(Ordering::Acquire));
+        assert!(!state.is_broadcasting_websocket.load(Ordering::Acquire));
     }
 
     #[test]
@@ -163,6 +164,6 @@ mod tests {
             KeyEventKind::Repeat,
         ));
 
-        assert!(!state.is_broadcasting.load(Ordering::Acquire));
+        assert!(!state.is_broadcasting_websocket.load(Ordering::Acquire));
     }
 }

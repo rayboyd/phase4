@@ -34,7 +34,7 @@ const ANALYSE_BUFFER_MS: u32 = 500;
 /// Shared application state flags for cross-thread synchronisation.
 pub struct AppState {
     pub record_ring_overflow_events: AtomicUsize,
-    pub is_broadcasting: AtomicBool,
+    pub is_broadcasting_websocket: AtomicBool,
     pub is_recording: AtomicBool,
     pub is_analysing: AtomicBool,
     pub keep_running: AtomicBool,
@@ -44,7 +44,7 @@ impl Default for AppState {
     fn default() -> Self {
         Self {
             record_ring_overflow_events: AtomicUsize::new(0),
-            is_broadcasting: AtomicBool::new(false),
+            is_broadcasting_websocket: AtomicBool::new(false),
             is_recording: AtomicBool::new(false),
             is_analysing: AtomicBool::new(false),
             keep_running: AtomicBool::new(true),
