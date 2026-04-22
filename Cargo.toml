@@ -46,3 +46,6 @@ crossterm = { version = "0.29.0" }
 
 [dev-dependencies]
 testing_logger = "0.1.1"
+
+[build-dependencies]
+time = { version = "0.3", features = ["formatting"] }
