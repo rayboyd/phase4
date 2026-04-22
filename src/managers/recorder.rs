@@ -321,6 +321,7 @@ impl Writer {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::DEFAULT_FILENAME_PATTERN;
 
     fn test_specs() -> Specs {
         Specs {
@@ -476,7 +477,7 @@ mod tests {
         let mut state = State::new(
             test_specs(),
             BitDepth::Int16,
-            crate::config::DEFAULT_FILENAME_PATTERN.to_string(),
+            DEFAULT_FILENAME_PATTERN.to_string(),
         );
         state.phase = RecordingPhase::Recording;
 
@@ -500,7 +501,7 @@ mod tests {
         let mut state = State::new(
             test_specs(),
             BitDepth::Int16,
-            crate::config::DEFAULT_FILENAME_PATTERN.to_string(),
+            DEFAULT_FILENAME_PATTERN.to_string(),
         );
         state.phase = RecordingPhase::Recording;
 
@@ -573,14 +574,14 @@ mod tests {
         let state = State::new(
             test_specs(),
             BitDepth::Int16,
-            crate::config::DEFAULT_FILENAME_PATTERN.to_string(),
+            DEFAULT_FILENAME_PATTERN.to_string(),
         );
 
         let path = state.recording_path(123);
 
         assert_eq!(
             path,
-            std::path::Path::new(crate::config::RECORDINGS_DIR).join("rec_123_48000hz_16bit.wav")
+            std::path::Path::new(RECORDINGS_DIR).join("rec_123_48000hz_16bit.wav")
         );
     }
 
