@@ -34,12 +34,12 @@ const RECORDER_THREAD_PRIORITY: u8 = 45;
 /// Internal state machine for the recorder's lifecycle.
 ///
 /// Transitions:
-/// - `Idle` -> `Recording`: user toggles on
-/// - `Recording` -> `Draining`: user toggles off (ringbuf may still have data)
-/// - `Draining` -> `Idle`: ringbuf empty, writer finalised
-/// - `Draining` -> `Recording`: user toggles on again before drain completes
+/// - `Idle` to `Recording`: user toggles on
+/// - `Recording` to `Draining`: user toggles off (ringbuf may still have data)
+/// - `Draining` to `Idle`: ringbuf empty, writer finalised
+/// - `Draining` to `Recording`: user toggles on again before drain completes
 ///   (close current file immediately, open a new one)
-/// - `Recording` -> `Idle`: fatal write error (via `handle_fatal_write_error`)
+/// - `Recording` to `Idle`: fatal write error (via `handle_fatal_write_error`)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum RecordingPhase {
     Idle,
@@ -536,18 +536,18 @@ mod tests {
             State::new_in_recordings_dir(test_specs(), BitDepth::Int16, pattern, dir.clone());
         let is_recording = AtomicBool::new(true);
 
-        // Start recording (Idle -> Recording).
+        // Start recording (Idle to Recording).
         state.update_recording_status(&is_recording, true);
         assert_eq!(state.phase, RecordingPhase::Recording);
         assert!(state.writer.is_some());
 
-        // User toggles off (Recording -> Draining). Buffer is not empty yet.
+        // User toggles off (Recording to Draining). Buffer is not empty yet.
         is_recording.store(false, Ordering::Release);
         state.update_recording_status(&is_recording, false);
         assert_eq!(state.phase, RecordingPhase::Draining);
         assert!(state.writer.is_some(), "writer stays open while draining");
 
-        // User toggles on again before drain completes (Draining -> Recording).
+        // User toggles on again before drain completes (Draining to Recording).
         // Must close the first file and open a second one.
         is_recording.store(true, Ordering::Release);
 
