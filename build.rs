@@ -1,13 +1,18 @@
-//! Cargo build script that embeds Git metadata at compile time.
+//! Cargo build script that embeds build metadata at compile time.
 //!
-//! Resolves the current short commit hash and appends a `-dirty` suffix when
-//! the working tree has uncommitted changes. The result is exposed to the
-//! crate as the `BUILD_GIT_HASH` environment variable, which [`clap`] picks
-//! up via `env!()` for the `--version` long output.
+//! Resolves the current short commit hash, appends a `-dirty` suffix when the
+//! working tree has uncommitted package changes, then includes the build
+//! timestamp and target architecture. The result is exposed to the crate as
+//! the `BUILD_GIT_HASH` environment variable, which [`clap`] picks up via
+//! `env!()` for the `--version` long output.
 
-use std::process::Command;
+use std::{env, process::Command};
+use time::format_description::well_known::Rfc3339;
+use time::OffsetDateTime;
 
 fn main() {
+    emit_rerun_instructions();
+
     // Abbreviated commit hash, e.g. "a3f8c12".
     let hash = Command::new("git")
         .args(["rev-parse", "--short", "HEAD"])
@@ -19,13 +24,58 @@ fn main() {
             |o| String::from_utf8_lossy(&o.stdout).trim().to_string(),
         );
 
-    // `git diff --quiet` exits non-zero when there are uncommitted changes.
-    let dirty = Command::new("git")
+    let dirty = git_dirty_suffix();
+    let build_timestamp = OffsetDateTime::now_utc()
+        .format(&Rfc3339)
+        .unwrap_or_else(|_| "unknown".into());
+    let target_arch = env::var("CARGO_CFG_TARGET_ARCH").unwrap_or_else(|_| "unknown".into());
+
+    println!(
+        "cargo::rustc-env=BUILD_GIT_HASH={hash}{dirty}, built {build_timestamp}, arch {target_arch}"
+    );
+}
+
+fn emit_rerun_instructions() {
+    for path in ["build.rs", "Cargo.toml", "src", "tests"] {
+        println!("cargo::rerun-if-changed={path}");
+    }
+
+    for path in ["HEAD", "index", "packed-refs"] {
+        if let Some(git_path) = git_path(path) {
+            println!("cargo::rerun-if-changed={git_path}");
+        }
+    }
+
+    if let Some(head_ref) =
+        git_stdout(["symbolic-ref", "-q", "HEAD"]).and_then(|head_ref| git_path(head_ref.trim()))
+    {
+        println!("cargo::rerun-if-changed={head_ref}");
+    }
+
+    println!("cargo::rerun-if-env-changed=CARGO_CFG_TARGET_ARCH");
+}
+
+fn git_dirty_suffix() -> &'static str {
+    // `git diff --quiet HEAD` exits with status 1 when tracked files are dirty.
+    match Command::new("git")
         .args(["diff", "--quiet", "HEAD"])
         .status()
-        .map_or("", |s| if s.success() { "" } else { "-dirty" });
+    {
+        Ok(status) if status.code() == Some(1) => "-dirty",
+        _ => "",
+    }
+}
 
-    // Only re-run when HEAD moves (new commit, branch switch, rebase, etc.).
-    println!("cargo::rerun-if-changed=.git/HEAD");
-    println!("cargo::rustc-env=BUILD_GIT_HASH={hash}{dirty}");
+fn git_path(path: &str) -> Option<String> {
+    git_stdout(["rev-parse", "--git-path", path])
+}
+
+fn git_stdout<const N: usize>(args: [&str; N]) -> Option<String> {
+    Command::new("git")
+        .args(args)
+        .output()
+        .ok()
+        .filter(|output| output.status.success())
+        .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_string())
+        .filter(|value| !value.is_empty())
 }
