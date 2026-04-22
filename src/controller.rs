@@ -72,11 +72,15 @@ impl Controller {
 
         match key.code {
             KeyCode::Char('b' | 'B') => {
-                let was_broadcasting = self.state.is_broadcasting.load(Ordering::Acquire);
+                let was_broadcasting_websocket = self.state.is_broadcasting.load(Ordering::Acquire);
                 self.state
                     .is_broadcasting
-                    .store(!was_broadcasting, Ordering::Release);
-                let status = if was_broadcasting { "OFF" } else { "ON" };
+                    .store(!was_broadcasting_websocket, Ordering::Release);
+                let status = if was_broadcasting_websocket {
+                    "OFF"
+                } else {
+                    "ON"
+                };
                 log::info!("Broadcasting: {status}");
             }
 
