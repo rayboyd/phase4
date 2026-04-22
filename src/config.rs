@@ -8,9 +8,10 @@ use std::net::SocketAddr;
 use std::path::{Component, Path};
 use thiserror::Error;
 
-pub const ADDR_PATTERN: &str = "127.0.0.1:8889";
-pub const RECORDINGS_DIR: &str = "recordings";
-pub const FILENAME_PATTERN: &str = "rec_{timestamp}_{sample_rate}hz_{bit_depth}bit.wav";
+pub const DEFAULT_ADDR_PATTERN: &str = "127.0.0.1:8889";
+pub const DEFAULT_FILENAME_PATTERN: &str = "rec_{timestamp}_{sample_rate}hz_{bit_depth}bit.wav";
+pub const DEFAULT_MAX_CLIENTS: usize = 8;
+pub const RECORDINGS_DIR: &str = "recordings"; // This can't be config'ed, yet.
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct VocoderConfig {
@@ -102,12 +103,18 @@ pub enum AppConfigError {
 
     #[error("Invalid broadcast rate: {0}")]
     InvalidBroadcastRate(&'static str),
+
+    #[error("Invalid max clients: {0}")]
+    InvalidMaxClients(&'static str),
 }
 
 #[derive(Debug)]
 pub struct AppConfig {
     /// WebSocket server bind address.
     pub addr: SocketAddr,
+
+    /// Maximum number of concurrent WebSocket clients.
+    pub max_clients: usize,
 
     /// Recording bit depth.
     pub bit_depth: BitDepth,
@@ -138,9 +145,10 @@ impl Default for AppConfig {
     fn default() -> Self {
         Self {
             addr: SocketAddr::from(([127, 0, 0, 1], 8889)),
+            max_clients: DEFAULT_MAX_CLIENTS,
             bit_depth: BitDepth::Int24,
             device_index: None,
-            filename_pattern: FILENAME_PATTERN.to_string(),
+            filename_pattern: DEFAULT_FILENAME_PATTERN.to_string(),
             test_hz: None,
             test_sweep: None,
             vocoder_config: VocoderConfig::default(),
@@ -173,8 +181,15 @@ impl TryFrom<&Args> for AppConfig {
             }
         }
 
+        if args.max_clients == 0 {
+            return Err(AppConfigError::InvalidMaxClients(
+                "max clients must be greater than 0",
+            ));
+        }
+
         Ok(Self {
             addr: args.addr,
+            max_clients: args.max_clients,
             bit_depth: args.bit_depth,
             device_index,
             filename_pattern: args.filename_pattern.clone(),
@@ -273,10 +288,11 @@ mod tests {
 
     fn args_with_device(device: Option<usize>) -> Args {
         Args {
-            addr: ADDR_PATTERN.parse().unwrap(),
+            addr: DEFAULT_ADDR_PATTERN.parse().unwrap(),
+            max_clients: DEFAULT_MAX_CLIENTS,
             bit_depth: BitDepth::Int24,
             device,
-            filename_pattern: FILENAME_PATTERN.to_string(),
+            filename_pattern: DEFAULT_FILENAME_PATTERN.to_string(),
             list: false,
             test_hz: None,
             test_sweep: None,
@@ -321,8 +337,12 @@ mod tests {
     #[test]
     fn default_config_matches_constants() {
         let config = AppConfig::default();
-        assert_eq!(config.addr, ADDR_PATTERN.parse::<SocketAddr>().unwrap());
-        assert_eq!(config.filename_pattern, FILENAME_PATTERN);
+        assert_eq!(
+            config.addr,
+            DEFAULT_ADDR_PATTERN.parse::<SocketAddr>().unwrap()
+        );
+        assert_eq!(config.max_clients, DEFAULT_MAX_CLIENTS);
+        assert_eq!(config.filename_pattern, DEFAULT_FILENAME_PATTERN);
         assert_eq!(config.vocoder_config, VocoderConfig::default());
     }
 
@@ -500,6 +520,31 @@ mod tests {
     fn default_config_has_no_broadcast_rate() {
         let config = AppConfig::default();
         assert!(config.broadcast_rate.is_none());
+    }
+
+    // A valid max client count is forwarded into the config.
+    #[test]
+    fn try_from_forwards_max_clients() {
+        let mut args = args_with_device(Some(0));
+        args.max_clients = 16;
+
+        let config = AppConfig::try_from(&args).unwrap();
+
+        assert_eq!(config.max_clients, 16);
+    }
+
+    // Zero is not a valid client limit.
+    #[test]
+    fn try_from_rejects_zero_max_clients() {
+        let mut args = args_with_device(Some(0));
+        args.max_clients = 0;
+
+        let result = AppConfig::try_from(&args);
+
+        assert!(
+            matches!(result, Err(AppConfigError::InvalidMaxClients(_))),
+            "zero max clients should be rejected"
+        );
     }
 
     // Zero is not a valid broadcast rate.

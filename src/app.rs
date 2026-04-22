@@ -103,6 +103,7 @@ impl App {
         let mut input_device = Input::new();
 
         let addr = config.addr;
+        let max_clients = config.max_clients;
         let bit_depth = config.bit_depth;
         let filename_pattern = config.filename_pattern;
         let test_hz = config.test_hz;
@@ -186,7 +187,7 @@ impl App {
         ));
 
         // Spin up the WebSocket server thread.
-        let server = Server::new(addr, no_browser_origin);
+        let server = Server::new(addr, no_browser_origin, max_clients);
         let server_thread = Some(server.spawn(display_rx, state.clone())?);
 
         let controller = Controller::new(state.clone());

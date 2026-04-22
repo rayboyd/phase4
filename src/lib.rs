@@ -13,7 +13,7 @@ pub mod dsp;
 pub mod managers;
 
 use clap::Parser;
-use config::{BitDepth, ADDR_PATTERN, FILENAME_PATTERN};
+use config::{BitDepth, DEFAULT_ADDR_PATTERN, DEFAULT_FILENAME_PATTERN, DEFAULT_MAX_CLIENTS};
 use std::net::SocketAddr;
 
 #[derive(Parser)]
@@ -30,8 +30,12 @@ use std::net::SocketAddr;
 )]
 pub struct Args {
     /// WebSocket server bind address.
-    #[arg(short, long, default_value = ADDR_PATTERN)]
+    #[arg(short, long, default_value = DEFAULT_ADDR_PATTERN)]
     pub addr: SocketAddr,
+
+    /// Maximum number of concurrent WebSocket clients.
+    #[arg(long, default_value_t = DEFAULT_MAX_CLIENTS)]
+    pub max_clients: usize,
 
     /// Recording bit depth.
     #[arg(short, long, default_value = "24")]
@@ -43,7 +47,7 @@ pub struct Args {
 
     /// Output filename pattern. Supports the tokens {`timestamp`}, {`sample_rate`}, and
     /// {`bit_depth`}. Treated as a filename only and written inside `recordings/`.
-    #[arg(long, default_value = FILENAME_PATTERN)]
+    #[arg(long, default_value = DEFAULT_FILENAME_PATTERN)]
     pub filename_pattern: String,
 
     /// List available audio input devices and exit.

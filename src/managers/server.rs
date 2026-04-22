@@ -31,9 +31,6 @@ const ACCEPT_TIMEOUT_MS: u64 = 500;
 /// How long a newly accepted TCP client has to complete the WebSocket handshake.
 const HANDSHAKE_TIMEOUT_MS: u64 = 1_000;
 
-/// Maximum number of concurrent WebSocket clients.
-pub const MAX_CLIENTS: usize = 8;
-
 /// How long to wait for in-flight client tasks to flush a close frame
 /// before the server thread exits.
 const CLIENT_SHUTDOWN_TIMEOUT_MS: u64 = 500;
@@ -79,14 +76,16 @@ impl Callback for OriginPolicyCallback {
 pub struct Server {
     address: SocketAddr,
     no_browser_origin: bool,
+    max_clients: usize,
 }
 
 impl Server {
     #[must_use]
-    pub fn new(address: SocketAddr, no_browser_origin: bool) -> Self {
+    pub fn new(address: SocketAddr, no_browser_origin: bool, max_clients: usize) -> Self {
         Self {
             address,
             no_browser_origin,
+            max_clients,
         }
     }
 
@@ -116,6 +115,7 @@ impl Server {
 
         let addr = self.address;
         let no_browser_origin = self.no_browser_origin;
+        let max_clients = self.max_clients;
         let handle = thread::Builder::new()
             .name("websocket-server".into())
             .spawn(move || {
@@ -130,6 +130,7 @@ impl Server {
                         watch_rx,
                         state,
                         no_browser_origin,
+                        max_clients,
                     ));
             })
             .expect("failed to spawn server thread");
@@ -143,6 +144,7 @@ impl Server {
         watch_rx: watch::Receiver<Utf8Bytes>,
         state: Arc<AppState>,
         no_browser_origin: bool,
+        max_clients: usize,
     ) {
         // from_std is infallible when called from within a Tokio runtime context,
         // which is always true here since we're inside block_on.
@@ -151,7 +153,7 @@ impl Server {
         log::info!("WebSocket server listening on ws://{addr}");
 
         let shutdown_notify = Arc::new(Notify::new());
-        let client_slots = Arc::new(Semaphore::new(MAX_CLIENTS));
+        let client_slots = Arc::new(Semaphore::new(max_clients));
         let mut join_set: JoinSet<()> = JoinSet::new();
 
         loop {
