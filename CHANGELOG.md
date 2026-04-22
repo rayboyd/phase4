@@ -12,7 +12,7 @@ Generated from [Conventional Commits](https://www.conventionalcommits.org/) with
 
 ### Build
 
-- Initial commit ([`6d3c8b4`](https://github.com/rayboyd/phase4/commit/6d3c8b4987263a686e52aa4f0fd52f9b1de3be87))
+- Add git-cliff commit exclusion list ([`5d36a08`](https://github.com/rayboyd/phase4/commit/5d36a08e1391b8160bddad419adde61aceb1df0f))
 
 ### Documentation
 
