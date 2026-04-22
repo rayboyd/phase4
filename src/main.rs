@@ -29,10 +29,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
-    let app = App::new(config)?;
-    app.run()?;
+    let mut app = App::new(config)?;
+    app.run_until_shutdown()?;
 
-    // When run() returns Ok(()) Drop() is called, this will gracefully handle
-    // shutdown, it will close any threads and write buffers to disk.
     Ok(())
 }

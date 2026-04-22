@@ -87,25 +87,25 @@ pub enum AppConfigError {
     #[error("Invalid vocoder configuration: {0}")]
     InvalidVocoderConfig(&'static str),
 
-    #[error("Invalid vocoder configuration for sample rate {sample_rate} Hz: high frequency must be below Nyquist ({nyquist_hz} Hz), got {freq_high} Hz")]
-    VocoderHighFrequencyAboveNyquist {
-        sample_rate: u32,
-        freq_high: f32,
-        nyquist_hz: f32,
-    },
-
-    #[error("Invalid vocoder configuration for sample rate {sample_rate} Hz: high frequency must be at or below 0.45 of the sample rate ({max_safe_hz} Hz), got {freq_high} Hz")]
-    VocoderHighFrequencyAboveSafetyCeiling {
-        sample_rate: u32,
-        freq_high: f32,
-        max_safe_hz: f32,
-    },
-
     #[error("Invalid broadcast rate: {0}")]
     InvalidBroadcastRate(&'static str),
 
     #[error("Invalid max clients: {0}")]
     InvalidMaxClients(&'static str),
+
+    #[error("Invalid vocoder configuration: Sample rate {sample_rate} Hz: high frequency must be below Nyquist ({nyquist_hz} Hz), got {freq_high} Hz")]
+    InvalidFreqAboveNyquist {
+        sample_rate: u32,
+        freq_high: f32,
+        nyquist_hz: f32,
+    },
+
+    #[error("Invalid vocoder configuration: Sample rate {sample_rate} Hz: high frequency must be at or below 0.45 of the sample rate ({max_safe_hz} Hz), got {freq_high} Hz")]
+    InvalidFreqAboveSafetyCeiling {
+        sample_rate: u32,
+        freq_high: f32,
+        max_safe_hz: f32,
+    },
 }
 
 #[derive(Debug)]
@@ -208,6 +208,10 @@ impl TryFrom<&Args> for AppConfig {
     }
 }
 
+fn is_strictly_positive(value: f32) -> bool {
+    value.is_finite() && value > 0.0
+}
+
 fn validate_bind_addr(addr: SocketAddr) -> Result<(), AppConfigError> {
     if addr.ip().is_loopback() {
         Ok(())
@@ -278,8 +282,30 @@ fn validate_vocoder_args(args: &Args) -> Result<(), AppConfigError> {
     Ok(())
 }
 
-fn is_strictly_positive(value: f32) -> bool {
-    value.is_finite() && value > 0.0
+pub(crate) fn validate_vocoder_sample_rate(
+    freq_high: f32,
+    sample_rate: u32,
+) -> Result<(), AppConfigError> {
+    let sample_rate_hz = sample_rate as f32;
+    let nyquist_hz = sample_rate_hz / 2.0;
+    if freq_high >= nyquist_hz {
+        return Err(AppConfigError::InvalidFreqAboveNyquist {
+            sample_rate,
+            freq_high,
+            nyquist_hz,
+        });
+    }
+
+    let max_safe_hz = sample_rate_hz * 0.45;
+    if freq_high > max_safe_hz {
+        return Err(AppConfigError::InvalidFreqAboveSafetyCeiling {
+            sample_rate,
+            freq_high,
+            max_safe_hz,
+        });
+    }
+
+    Ok(())
 }
 
 #[cfg(test)]
