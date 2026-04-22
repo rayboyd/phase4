@@ -8,8 +8,9 @@
 //!
 //! Shared runtime state is carried by [`AppState`], which holds a set of
 //! [`std::sync::atomic`] flags that the controller writes and the worker threads
-//! observe. On drop, all threads are signalled to stop and joined in order,
-//! ensuring that in-flight data is flushed before the process exits.
+//! observe. On shutdown, all threads are signalled to stop and given a bounded
+//! grace period to exit, which prevents one stalled worker from hanging the
+//! main thread indefinitely.
 
 use crate::config::{AppConfig, AppConfigError};
 use crate::controller::Controller;
@@ -21,7 +22,8 @@ use std::sync::{
     atomic::{AtomicBool, AtomicUsize, Ordering},
     Arc,
 };
-use std::thread::JoinHandle;
+use std::thread::{self, JoinHandle};
+use std::time::{Duration, Instant};
 use tokio::sync::watch;
 use tokio_tungstenite::tungstenite::Utf8Bytes;
 
@@ -30,6 +32,24 @@ const RECORD_BUFFER_MS: u32 = 5000;
 
 /// Safety buffer for the analyse ringbuf, headroom for analysis accumulation.
 const ANALYSE_BUFFER_MS: u32 = 500;
+
+/// Poll interval while waiting for a worker thread to finish.
+const SHUTDOWN_POLL_MS: u64 = 10;
+
+/// Grace period for the generator thread, which wakes on a 10 ms cadence.
+const GENERATOR_SHUTDOWN_TIMEOUT_MS: u64 = 250;
+
+/// Grace period for the analyser thread to drain and release the mapper input.
+const ANALYSER_SHUTDOWN_TIMEOUT_MS: u64 = 1_000;
+
+/// Grace period for the mapper thread to observe analyser channel closure.
+const MAPPER_SHUTDOWN_TIMEOUT_MS: u64 = 1_000;
+
+/// Grace period for the server thread to finish its bounded accept and client shutdown.
+const SERVER_SHUTDOWN_TIMEOUT_MS: u64 = 1_500;
+
+/// Grace period for the recorder to drain the record ringbuf and finalise the WAV file.
+const RECORDER_SHUTDOWN_TIMEOUT_MS: u64 = RECORD_BUFFER_MS as u64 + 2_000;
 
 /// Shared application state flags for cross-thread synchronisation.
 pub struct AppState {
@@ -59,6 +79,113 @@ impl AppState {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum JoinOutcome {
+    Joined,
+    TimedOut,
+    Panicked,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct ShutdownWorker {
+    name: &'static str,
+    success_message: &'static str,
+    timeout_ms: u64,
+}
+
+impl ShutdownWorker {
+    const GENERATOR: Self = Self {
+        name: "generator",
+        success_message: "> Generator shutdown complete",
+        timeout_ms: GENERATOR_SHUTDOWN_TIMEOUT_MS,
+    };
+
+    const ANALYSER: Self = Self {
+        name: "analyser",
+        success_message: ">> Analyser shutdown complete",
+        timeout_ms: ANALYSER_SHUTDOWN_TIMEOUT_MS,
+    };
+
+    const MAPPER: Self = Self {
+        name: "mapper",
+        success_message: ">> Mapper shutdown complete",
+        timeout_ms: MAPPER_SHUTDOWN_TIMEOUT_MS,
+    };
+
+    const SERVER: Self = Self {
+        name: "server",
+        success_message: ">> Server shutdown complete",
+        timeout_ms: SERVER_SHUTDOWN_TIMEOUT_MS,
+    };
+
+    const RECORDER: Self = Self {
+        name: "recorder",
+        success_message: ">> Recorder shutdown complete",
+        timeout_ms: RECORDER_SHUTDOWN_TIMEOUT_MS,
+    };
+
+    fn timeout(self) -> Duration {
+        Duration::from_millis(self.timeout_ms)
+    }
+}
+
+#[derive(Default)]
+struct WorkerThreads {
+    recorder: Option<JoinHandle<()>>,
+    analyser: Option<JoinHandle<()>>,
+    mapper: Option<JoinHandle<()>>,
+    server: Option<JoinHandle<()>>,
+    generator: Option<JoinHandle<()>>,
+}
+
+impl WorkerThreads {
+    fn shutdown(&mut self) {
+        Self::shutdown_worker(ShutdownWorker::GENERATOR, &mut self.generator);
+        Self::shutdown_worker(ShutdownWorker::ANALYSER, &mut self.analyser);
+        Self::shutdown_worker(ShutdownWorker::MAPPER, &mut self.mapper);
+        Self::shutdown_worker(ShutdownWorker::SERVER, &mut self.server);
+        Self::shutdown_worker(ShutdownWorker::RECORDER, &mut self.recorder);
+    }
+
+    fn shutdown_worker(worker: ShutdownWorker, handle: &mut Option<JoinHandle<()>>) {
+        let Some(handle) = handle.take() else {
+            return;
+        };
+
+        if Self::join_with_timeout(worker, handle) == JoinOutcome::Joined {
+            log::info!("{}", worker.success_message);
+        }
+    }
+
+    fn join_with_timeout(worker: ShutdownWorker, handle: JoinHandle<()>) -> JoinOutcome {
+        let deadline = Instant::now() + worker.timeout();
+
+        loop {
+            if handle.is_finished() {
+                return if let Ok(()) = handle.join() {
+                    JoinOutcome::Joined
+                } else {
+                    log::error!("Worker thread '{}' panicked during shutdown", worker.name);
+                    JoinOutcome::Panicked
+                };
+            }
+
+            let now = Instant::now();
+            if now >= deadline {
+                log::error!(
+                    "Worker thread '{}' did not stop within {} ms, detaching",
+                    worker.name,
+                    worker.timeout_ms
+                );
+                return JoinOutcome::TimedOut;
+            }
+
+            let remaining = deadline.saturating_duration_since(now);
+            thread::sleep(remaining.min(Duration::from_millis(SHUTDOWN_POLL_MS)));
+        }
+    }
+}
+
 pub struct App {
     // Kept alive until dropped. Dropping the stream stops audio capture,
     // and wraps the device in an Option so we can drop it on command.
@@ -67,23 +194,14 @@ pub struct App {
     /// Shared atomic flags for cross-thread coordination.
     state: Arc<AppState>,
 
-    /// Background thread draining the record ringbuf to disk.
-    recorder_thread: Option<JoinHandle<()>>,
-
-    /// Background thread consuming the analyse ringbuf (visual/metering).
-    analyser_thread: Option<JoinHandle<()>>,
-
-    /// Background thread mapping raw vocoder bins to display-resolution bins.
-    mapper_thread: Option<JoinHandle<()>>,
-
-    /// Background thread running the WebSocket broadcast server.
-    server_thread: Option<JoinHandle<()>>,
-
-    /// Synthetic audio generator thread, active only in calibration mode.
-    generator_thread: Option<JoinHandle<()>>,
+    /// All worker threads owned by the application runtime.
+    workers: WorkerThreads,
 
     /// Keyboard input handler, drives all runtime state transitions.
     controller: Controller,
+
+    /// Tracks whether shutdown has already started, so drop remains idempotent.
+    shutdown_started: bool,
 }
 
 impl App {
@@ -195,12 +313,15 @@ impl App {
         Ok(Self {
             input_device: Some(input_device),
             state,
-            recorder_thread,
-            analyser_thread,
-            mapper_thread,
-            server_thread,
-            generator_thread,
+            workers: WorkerThreads {
+                recorder: recorder_thread,
+                analyser: analyser_thread,
+                mapper: mapper_thread,
+                server: server_thread,
+                generator: generator_thread,
+            },
             controller,
+            shutdown_started: false,
         })
     }
 
@@ -211,6 +332,44 @@ impl App {
     /// Returns an error if the controller encounters a terminal or I/O failure.
     pub fn run(&self) -> Result<()> {
         self.controller.run()
+    }
+
+    /// Runs the controller loop and always performs shutdown afterwards.
+    ///
+    /// This keeps the main entry point linear while ensuring teardown still
+    /// happens when the controller exits with an error.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the controller loop exits with a terminal or I/O
+    /// failure. Shutdown is still attempted before the error is returned.
+    pub fn run_until_shutdown(&mut self) -> Result<()> {
+        let run_result = self.run();
+        self.shutdown();
+        run_result
+    }
+
+    /// Signals all workers to stop and waits a bounded time for each one.
+    ///
+    /// This method is idempotent. It should be called explicitly from the main
+    /// execution path, while [`Drop`] remains as a best effort fallback.
+    pub fn shutdown(&mut self) {
+        if self.shutdown_started {
+            return;
+        }
+        self.shutdown_started = true;
+
+        log::info!("Shutdown started");
+
+        self.input_device.take();
+        log::info!("> Device shutdown complete");
+
+        // Signal every worker before waiting on any of them.
+        self.state.keep_running.store(false, Ordering::Release);
+
+        self.workers.shutdown();
+
+        log::info!("Shutdown complete");
     }
 
     fn create_audio_channel(
@@ -255,45 +414,107 @@ impl App {
 }
 
 impl Drop for App {
-    // Before we signal all threads to stop looping we should drop the
-    // input stream. This means no new samples will enter the ringbufs,
-    // and the recorder can close the file without potentially missing
-    // data being pushed, or corrupting the file.
+    // Keep drop lightweight and idempotent by delegating to the explicit
+    // shutdown path. This still gives callers a best effort fallback when
+    // they do not call shutdown() themselves.
     fn drop(&mut self) {
-        log::info!("Shutdown started");
+        self.shutdown();
+    }
+}
 
-        self.input_device.take();
-        log::info!("> Device shutdown complete");
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::{
+        atomic::{AtomicBool, AtomicUsize, Ordering},
+        mpsc, Arc,
+    };
 
-        // Signal all threads to stop before joining any of them. This must
-        // happen before joining the generator thread, which loops on this flag.
-        self.state.keep_running.store(false, Ordering::Release);
+    #[test]
+    fn join_with_timeout_joins_completed_thread() {
+        let handle = thread::spawn(|| {});
 
-        if let Some(handle) = self.generator_thread.take() {
-            let _ = handle.join();
-            log::info!("> Generator shutdown complete");
-        }
+        assert_eq!(
+            WorkerThreads::join_with_timeout(ShutdownWorker::GENERATOR, handle),
+            JoinOutcome::Joined
+        );
+    }
 
-        if let Some(handle) = self.recorder_thread.take() {
-            let _ = handle.join();
-            log::info!(">> Recorder shutdown complete");
-        }
+    #[test]
+    fn join_with_timeout_reports_panic() {
+        let handle = thread::spawn(|| panic!("boom"));
 
-        if let Some(handle) = self.analyser_thread.take() {
-            let _ = handle.join();
-            log::info!(">> Analyser shutdown complete");
-        }
+        assert_eq!(
+            WorkerThreads::join_with_timeout(ShutdownWorker::ANALYSER, handle),
+            JoinOutcome::Panicked
+        );
+    }
 
-        if let Some(handle) = self.mapper_thread.take() {
-            let _ = handle.join();
-            log::info!(">> Mapper shutdown complete");
-        }
+    #[test]
+    fn join_with_timeout_times_out_without_blocking_forever() {
+        let keep_running = Arc::new(AtomicBool::new(true));
+        let thread_state = keep_running.clone();
+        let (tx, rx) = mpsc::channel();
 
-        if let Some(handle) = self.server_thread.take() {
-            let _ = handle.join();
-            log::info!(">> Server shutdown complete");
-        }
+        let handle = thread::spawn(move || {
+            while thread_state.load(Ordering::Acquire) {
+                thread::sleep(Duration::from_millis(5));
+            }
+            tx.send(()).expect("thread exit signal should be delivered");
+        });
 
-        log::info!("Shutdown complete");
+        assert_eq!(
+            WorkerThreads::join_with_timeout(
+                ShutdownWorker {
+                    name: "blocking",
+                    success_message: "",
+                    timeout_ms: 20,
+                },
+                handle,
+            ),
+            JoinOutcome::TimedOut
+        );
+
+        keep_running.store(false, Ordering::Release);
+        rx.recv_timeout(Duration::from_millis(200))
+            .expect("detached thread should still exit once signalled");
+    }
+
+    #[test]
+    fn shutdown_is_idempotent_and_drop_safe() {
+        let state = Arc::new(AppState::new());
+        let exit_count = Arc::new(AtomicUsize::new(0));
+        let thread_state = state.clone();
+        let thread_exit_count = exit_count.clone();
+
+        let generator_thread = Some(thread::spawn(move || {
+            while thread_state.keep_running.load(Ordering::Acquire) {
+                thread::sleep(Duration::from_millis(5));
+            }
+            thread_exit_count.fetch_add(1, Ordering::AcqRel);
+        }));
+
+        let mut app = App {
+            input_device: None,
+            state: state.clone(),
+            workers: WorkerThreads {
+                generator: generator_thread,
+                ..WorkerThreads::default()
+            },
+            controller: Controller::new(state.clone()),
+            shutdown_started: false,
+        };
+
+        app.shutdown();
+        app.shutdown();
+
+        assert!(app.shutdown_started);
+        assert!(!state.keep_running.load(Ordering::Acquire));
+        assert_eq!(exit_count.load(Ordering::Acquire), 1);
+        assert!(app.workers.generator.is_none());
+
+        drop(app);
+
+        assert_eq!(exit_count.load(Ordering::Acquire), 1);
     }
 }
