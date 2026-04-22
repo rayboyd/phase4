@@ -71,8 +71,9 @@ sudo apt-get install -y libasound2-dev pkg-config
 
 ## Roadmap
 
-- Improve: In `src/managers/mapper.rs`, when `DISPLAY_BINS` is greater than `VOCODER_BANDS`, I'm performing a simple "spread" (filling multiple display slots with the same raw value)
-- Improve: Overflow strategy. If the `record_tx` ring buffer is full we increment a couner, that's it. This prevents the audio thread from blocking, but it means the recording will have a "jump" in time. `RECORD_BUFFER_MS` is currently set to 5000ms (5 seconds), which is quite large. However, if users are recording to a slow external drive or a network drive, 5 seconds might not be enough to absorb disk write jitter. Monitoring `record_ring_overflow_events` is essential. I've not encountered any overflows (even in early versions), but it will happen.
+- 0.0.1
+
+_Testing_
 
 ## Licence
 
