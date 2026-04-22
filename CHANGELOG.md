@@ -10,6 +10,10 @@ Generated from [Conventional Commits](https://www.conventionalcommits.org/) with
 
 - Ignore non-press key events, e.g keyup which was causing the atomics to flip back off on Windows 11 ([`cd12277`](https://github.com/rayboyd/phase4/commit/cd12277caa8cc2b5b65f8edb267df19c7b646f31))
 
+### Build
+
+- Initial commit ([`6d3c8b4`](https://github.com/rayboyd/phase4/commit/6d3c8b4987263a686e52aa4f0fd52f9b1de3be87))
+
 ### Documentation
 
 - Update roadmap ([`29883ce`](https://github.com/rayboyd/phase4/commit/29883ce95bf4eddfdb677a858b01db3a594f948f))
