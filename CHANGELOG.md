@@ -14,6 +14,10 @@ Generated from [Conventional Commits](https://www.conventionalcommits.org/) with
 
 - Update roadmap ([`29883ce`](https://github.com/rayboyd/phase4/commit/29883ce95bf4eddfdb677a858b01db3a594f948f))
 
+### Features
+
+- Include build timestamp and target arch in version metadata ([`813986a`](https://github.com/rayboyd/phase4/commit/813986abee8439bdabedf1ec0b22b47935a1a46a))
+
 ### Testing
 
 - Add key event kind coverage ([`cc2ef8e`](https://github.com/rayboyd/phase4/commit/cc2ef8e0acc72b994704a28e7bd3bb9111afe3ff))
