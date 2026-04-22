@@ -10,6 +10,10 @@ Generated from [Conventional Commits](https://www.conventionalcommits.org/) with
 
 - Ignore non-press key events, e.g keyup which was causing the atomics to flip back off on Windows 11 ([`cd12277`](https://github.com/rayboyd/phase4/commit/cd12277caa8cc2b5b65f8edb267df19c7b646f31))
 
+### Build
+
+- Add git-cliff commit exclusion list ([`5d36a08`](https://github.com/rayboyd/phase4/commit/5d36a08e1391b8160bddad419adde61aceb1df0f))
+
 ### Documentation
 
 - Update roadmap ([`29883ce`](https://github.com/rayboyd/phase4/commit/29883ce95bf4eddfdb677a858b01db3a594f948f))

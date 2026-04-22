@@ -26,9 +26,46 @@ trim = true
 
 [git]
 conventional_commits = true
-filter_unconventional = true
+filter_unconventional = false
 split_commits = false
+# Commits listed in `.git-cliff-excluded-commits` are skipped before parsing.
+# Blank lines and `#` comments are ignored. Each entry can be a full SHA or a
+# unique prefix. Set `GIT_CLIFF_EXCLUDED_COMMITS_FILE` to override the file path.
+commit_preprocessors = [
+        { pattern = ".*", replace_command = '''
+message="$(cat)"
+repo_root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+exclude_file="${GIT_CLIFF_EXCLUDED_COMMITS_FILE:-$repo_root/.git-cliff-excluded-commits}"
+should_skip=0
+
+if [ -f "$exclude_file" ]; then
+    while IFS= read -r excluded_sha || [ -n "$excluded_sha" ]; do
+        case "$excluded_sha" in
+            ""|\#*)
+                continue
+                ;;
+        esac
+
+        case "$COMMIT_SHA" in
+            "$excluded_sha"*)
+                should_skip=1
+                break
+                ;;
+        esac
+    done < "$exclude_file"
+fi
+
+if [ "$should_skip" -eq 1 ]; then
+    printf '%s\n\nchangelog: ignore\n' "$message"
+else
+    printf '%s' "$message"
+fi
+''' },
+]
 commit_parsers = [
+        { footer = "^changelog: ?ignore$", skip = true },
+    { message = "^Merge pull request", skip = true },
+    { message = "^Merge branch", skip = true },
     { message = "^feat",     group = "Features" },
     { message = "^fix",      group = "Bug Fixes" },
     { message = "^perf",     group = "Performance" },
