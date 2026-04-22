@@ -22,6 +22,11 @@ Generated from [Conventional Commits](https://www.conventionalcommits.org/) with
 
 - Include build timestamp and target arch in version metadata ([`813986a`](https://github.com/rayboyd/phase4/commit/813986abee8439bdabedf1ec0b22b47935a1a46a))
 
+### Refactoring
+
+- Rename flag to was_broadcasting_websocket to make intent clearer ([`eed92d1`](https://github.com/rayboyd/phase4/commit/eed92d1bfd7fad7b7dc3e59a6098e7b527e15605))
+- Rename flag to is_broadcasting_websocket to make intent clearer ([`dcb549f`](https://github.com/rayboyd/phase4/commit/dcb549f949380d89b1c14720d9949b316ee5405c))
+
 ### Testing
 
 - Add key event kind coverage ([`cc2ef8e`](https://github.com/rayboyd/phase4/commit/cc2ef8e0acc72b994704a28e7bd3bb9111afe3ff))
