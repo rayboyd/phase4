@@ -57,6 +57,9 @@ jobs:
       - name: Test
         run: cargo ci-test
 
+      - name: Install audit and deny
+        run: cargo install cargo-audit cargo-deny --locked
+
       - name: Audit
         run: cargo audit
 
