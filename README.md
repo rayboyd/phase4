@@ -69,11 +69,13 @@ sudo apt-get update
 sudo apt-get install -y libasound2-dev pkg-config
 ```
 
-## Roadmap
+### Git
 
-- 0.0.1
+Install the hooks used by this project.
 
-_Testing_
+```sh
+git config core.hooksPath .githooks
+```
 
 ## Licence
 

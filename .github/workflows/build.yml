@@ -30,6 +30,14 @@ env:
 jobs:
   check:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        features:
+          - display-bins-32
+          - display-bins-64
+          - display-bins-128
+          - display-bins-256
     steps:
       - uses: actions/checkout@v6
 
@@ -43,16 +51,22 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-${{ matrix.features }}-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Format check
         run: cargo ci-fmt
 
       - name: Clippy
-        run: cargo ci-clippy
+        run: cargo clippy --no-default-features --features ${{ matrix.features }} -- -D warnings
 
       - name: Check
-        run: cargo ci-check
+        run: cargo ci-check --features ${{ matrix.features }}
 
       - name: Test
-        run: cargo ci-test
+        run: cargo ci-test --features ${{ matrix.features }}
+
+      - name: Audit
+        run: cargo audit
+
+      - name: Deny Check
+        run: cargo deny check

@@ -1,5 +1,5 @@
 [alias]
-ci-clippy = "clippy --no-default-features --features display-bins-128 -- -D warnings"
-ci-check = "check --no-default-features --features display-bins-128"
-ci-test = "test --no-default-features --features display-bins-128"
-ci-fmt = "fmt --all -- --check"
+ci-fmt    = "fmt --all -- --check"
+ci-clippy = "clippy --all-targets -- -D warnings"
+ci-check  = "check --all-targets"
+ci-test   = "test"
