@@ -49,13 +49,13 @@ jobs:
         run: cargo ci-fmt
 
       - name: Clippy
-        run: cargo ci-clippy --features display-bins-128
+        run: cargo ci-clippy
 
       - name: Check
-        run: cargo ci-check --features display-bins-128
+        run: cargo ci-check
 
       - name: Test
-        run: cargo ci-test --features display-bins-128
+        run: cargo ci-test
 
       - name: Audit
         run: cargo audit
