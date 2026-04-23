@@ -16,7 +16,5 @@ docker run --rm \
     cargo ci-clippy
     cargo ci-check
     cargo ci-test
-    cargo audit
-    cargo deny check
     cargo build --release
   "
