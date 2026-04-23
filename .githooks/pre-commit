@@ -2,9 +2,9 @@
 set -euo pipefail
 
 echo "- pre-commit: fmt"
-cargo ci-fmt
+cargo fmt --all -- --check
 
 echo "- pre-commit: clippy"
-cargo ci-clippy
+cargo clippy --all-targets -- -D warnings
 
 echo "- pre-commit passed"

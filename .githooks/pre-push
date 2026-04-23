@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-echo "- pre-push: check (cli)"
-cargo ci-check
+echo "- pre-push: check"
+cargo check --all-targets
 
 echo "- pre-push: test"
-cargo ci-test
+cargo test
 
 echo "- pre-push passed"
