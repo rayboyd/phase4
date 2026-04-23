@@ -82,7 +82,12 @@ pub struct Args {
     #[arg(long, default_value_t = 2.0)]
     pub vocoder_filter_q: f32,
 
-    /// Reject WebSocket clients that send a browser Origin header.
+    /// Reject WebSocket clients whose handshake includes an Origin header.
+    ///
+    /// Only browsers are required by the Fetch spec to send Origin, so this flag
+    /// blocks browser-originated connections while still allowing native clients
+    /// that omit the header. It is not an authentication mechanism. Proper
+    /// client authentication is planned for a later release.
     #[arg(long)]
     pub no_browser_origin: bool,
 

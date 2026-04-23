@@ -10,6 +10,11 @@
 //! Connected clients receive the current payload immediately after handshake,
 //! then subsequent updates as the mapper publishes them.  Connected clients
 //! receive an RFC 6455 close frame on graceful shutdown.
+//!
+//! When `no_browser_origin` is set, the server rejects handshakes that carry
+//! an `Origin` header. This blocks browsers (which the Fetch spec requires to
+//! send Origin) but does not block native clients that omit it. It is not an
+//! authentication mechanism.
 
 use crate::app::AppState;
 use anyhow::{Context, Result};

@@ -144,7 +144,7 @@ impl VocoderAnalyser {
     /// Recomputed from the supplied frequency range rather than stored state,
     /// keeping the runtime struct free of test-only fields.
     #[cfg(test)]
-    #[expect(dead_code, reason = "0.1.9 testing pass will add callers")]
+    #[expect(dead_code, reason = "0.0.2 testing pass will add callers")]
     pub(crate) fn centre_frequencies(freq_low: f32, freq_high: f32) -> Vec<f32> {
         let log_low = freq_low.ln();
         let log_high = freq_high.ln();
