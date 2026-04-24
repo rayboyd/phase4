@@ -41,7 +41,7 @@ impl Specs {
 /// `All` preserves the current `push_slice` fast path and is used when no
 /// channel selection is specified at startup. `Selected` carries a sorted,
 /// deduplicated list of zero-based hardware channel indices. Both variants are
-/// constructed once before stream start and moved into the closure; there are
+/// constructed once before stream start and moved into the closure. There are
 /// no allocations or atomic ref-count touches at callback time.
 pub enum ChannelMode {
     All,
@@ -189,7 +189,7 @@ impl Input {
         let stream = device.build_input_stream(
             &stream_config,
             // This callback runs on cpal's dedicated audio thread at hardware interrupt
-            // rate. It must be lock-free, allocation-free, and non-blocking; any stall
+            // rate. It must be lock-free, allocation-free, and non-blocking. Any stall
             // here will cause a buffer underrun and an audible glitch.
             move |data: &[f32], _| {
                 // Record path: lossless. One overflow event counted per callback
