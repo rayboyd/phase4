@@ -94,4 +94,14 @@ pub struct Args {
     /// Target WebSocket broadcast rate in Hz (e.g. 30 or 60). Omit for unlimited.
     #[arg(long)]
     pub broadcast_rate: Option<f32>,
+
+    /// Hardware channel indices to forward to the analyser, comma-separated (e.g. 0,1).
+    /// Omit to forward all channels.
+    #[arg(long, value_delimiter = ',')]
+    pub analyse_channels: Option<Vec<u16>>,
+
+    /// Hardware channel indices to record, comma-separated (e.g. 0,1).
+    /// Omit to record all channels.
+    #[arg(long, value_delimiter = ',')]
+    pub record_channels: Option<Vec<u16>>,
 }

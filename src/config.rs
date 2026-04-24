@@ -93,6 +93,9 @@ pub enum AppConfigError {
     #[error("Invalid max clients: {0}")]
     InvalidMaxClients(&'static str),
 
+    #[error("Channel selection must not be empty")]
+    EmptyChannelSelection,
+
     #[error("Invalid vocoder configuration: Sample rate {sample_rate} Hz: high frequency must be below Nyquist ({nyquist_hz} Hz), got {freq_high} Hz")]
     InvalidFreqAboveNyquist {
         sample_rate: u32,
@@ -139,6 +142,14 @@ pub struct AppConfig {
 
     /// Target WebSocket broadcast rate in Hz. None means no throttle.
     pub broadcast_rate: Option<f32>,
+
+    /// Sorted, deduplicated hardware channel indices for the analyser.
+    /// None means forward all channels.
+    pub analyse_channels: Option<Box<[u16]>>,
+
+    /// Sorted, deduplicated hardware channel indices for the recorder.
+    /// None means record all channels.
+    pub record_channels: Option<Box<[u16]>>,
 }
 
 impl Default for AppConfig {
@@ -154,6 +165,8 @@ impl Default for AppConfig {
             vocoder_config: VocoderConfig::default(),
             no_browser_origin: false,
             broadcast_rate: None,
+            analyse_channels: None,
+            record_channels: None,
         }
     }
 }
@@ -204,8 +217,29 @@ impl TryFrom<&Args> for AppConfig {
             },
             no_browser_origin: args.no_browser_origin,
             broadcast_rate: args.broadcast_rate,
+            analyse_channels: normalise_channel_selection(args.analyse_channels.as_deref())?,
+            record_channels: normalise_channel_selection(args.record_channels.as_deref())?,
         })
     }
+}
+
+/// Deduplicates and sorts a channel index slice, returning `None` when the
+/// input is `None` and an error when the slice is present but empty.
+fn normalise_channel_selection(
+    indices: Option<&[u16]>,
+) -> Result<Option<Box<[u16]>>, AppConfigError> {
+    let Some(raw) = indices else {
+        return Ok(None);
+    };
+
+    if raw.is_empty() {
+        return Err(AppConfigError::EmptyChannelSelection);
+    }
+
+    let mut sorted = raw.to_vec();
+    sorted.sort_unstable();
+    sorted.dedup();
+    Ok(Some(sorted.into_boxed_slice()))
 }
 
 fn is_strictly_positive(value: f32) -> bool {
@@ -329,6 +363,8 @@ mod tests {
             vocoder_filter_q: 2.0,
             no_browser_origin: false,
             broadcast_rate: None,
+            analyse_channels: None,
+            record_channels: None,
         }
     }
 
@@ -613,5 +649,57 @@ mod tests {
             matches!(result, Err(AppConfigError::InvalidBroadcastRate(_))),
             "non-finite broadcast rates should be rejected"
         );
+    }
+
+    // An empty channel list is rejected because it would produce a silent stream.
+    #[test]
+    fn try_from_rejects_empty_channel_selection() {
+        let mut args = args_with_device(Some(0));
+        args.analyse_channels = Some(vec![]);
+
+        let result = AppConfig::try_from(&args);
+
+        assert!(
+            matches!(result, Err(AppConfigError::EmptyChannelSelection)),
+            "empty analyse_channels should be rejected"
+        );
+
+        let mut args = args_with_device(Some(0));
+        args.record_channels = Some(vec![]);
+
+        let result = AppConfig::try_from(&args);
+
+        assert!(
+            matches!(result, Err(AppConfigError::EmptyChannelSelection)),
+            "empty record_channels should be rejected"
+        );
+    }
+
+    // Duplicate and unsorted indices are normalised to a sorted, deduplicated slice.
+    #[test]
+    fn try_from_normalises_channel_selection() {
+        let mut args = args_with_device(Some(0));
+        args.analyse_channels = Some(vec![3, 1, 1, 0]);
+        args.record_channels = Some(vec![2, 0, 2]);
+
+        let config = AppConfig::try_from(&args).unwrap();
+
+        assert_eq!(
+            config.analyse_channels.as_deref(),
+            Some([0u16, 1, 3].as_slice())
+        );
+        assert_eq!(
+            config.record_channels.as_deref(),
+            Some([0u16, 2].as_slice())
+        );
+    }
+
+    // Omitting channel flags results in None, preserving the all-channels fast path.
+    #[test]
+    fn try_from_defaults_channel_selection_to_none() {
+        let args = args_with_device(Some(0));
+        let config = AppConfig::try_from(&args).unwrap();
+        assert!(config.analyse_channels.is_none());
+        assert!(config.record_channels.is_none());
     }
 }
