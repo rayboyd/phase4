@@ -59,6 +59,33 @@ pub struct StreamSink<P> {
     pub mode: ChannelMode,
 }
 
+impl<P: Producer<Item = f32>> StreamSink<P> {
+    /// Pushes audio data into the sink, applying the channel selection mode.
+    ///
+    /// `hw_channels` is the total interleaved channel count from cpal. It is
+    /// only used in the `Selected` path to stride across frames.
+    ///
+    /// Returns `true` if any sample could not be written to the ring buffer. In
+    /// the `All` path this means the slice was only partially accepted. In the
+    /// `Selected` path it means at least one `try_push` failed.
+    fn push(&mut self, data: &[f32], hw_channels: usize) -> bool {
+        match &self.mode {
+            ChannelMode::All => self.tx.push_slice(data) < data.len(),
+            ChannelMode::Selected(indices) => {
+                let mut dropped = false;
+                for frame in data.chunks_exact(hw_channels) {
+                    for &idx in indices {
+                        if self.tx.try_push(frame[idx as usize]).is_err() {
+                            dropped = true;
+                        }
+                    }
+                }
+                dropped
+            }
+        }
+    }
+}
+
 #[derive(Default)]
 pub struct Input {
     active_stream: Option<cpal::Stream>,
@@ -167,45 +194,15 @@ impl Input {
             move |data: &[f32], _| {
                 // Record path: lossless. One overflow event counted per callback
                 // invocation that drops any sample, matching existing semantics.
-                match &record.mode {
-                    ChannelMode::All => {
-                        if record.tx.push_slice(data) < data.len() {
-                            state
-                                .record_ring_overflow_events
-                                .fetch_add(1, Ordering::Relaxed);
-                        }
-                    }
-                    ChannelMode::Selected(indices) => {
-                        let mut overflowed = false;
-                        for frame in data.chunks_exact(hw_channels) {
-                            for &idx in indices {
-                                if record.tx.try_push(frame[idx as usize]).is_err() {
-                                    overflowed = true;
-                                }
-                            }
-                        }
-                        if overflowed {
-                            state
-                                .record_ring_overflow_events
-                                .fetch_add(1, Ordering::Relaxed);
-                        }
-                    }
+                if record.push(data, hw_channels) {
+                    state
+                        .record_ring_overflow_events
+                        .fetch_add(1, Ordering::Relaxed);
                 }
 
                 // Analyse path is intentionally lossy. A dropped analysis frame is
                 // invisible; a dropped recording frame is not.
-                match &analyse.mode {
-                    ChannelMode::All => {
-                        let _ = analyse.tx.push_slice(data);
-                    }
-                    ChannelMode::Selected(indices) => {
-                        for frame in data.chunks_exact(hw_channels) {
-                            for &idx in indices {
-                                let _ = analyse.tx.try_push(frame[idx as usize]);
-                            }
-                        }
-                    }
-                }
+                let _ = analyse.push(data, hw_channels);
             },
             move |err| {
                 log::error!("Hardware Stream Error: {err}");
@@ -263,7 +260,19 @@ impl Input {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ringbuf::traits::Observer;
+    use ringbuf::traits::{Consumer, Observer};
+
+    fn make_ring(capacity: usize) -> (ringbuf::HeapProd<f32>, ringbuf::HeapCons<f32>) {
+        ringbuf::HeapRb::<f32>::new(capacity).split()
+    }
+
+    fn drain(mut c: ringbuf::HeapCons<f32>) -> Vec<f32> {
+        let mut out = Vec::new();
+        while let Some(s) = c.try_pop() {
+            out.push(s);
+        }
+        out
+    }
 
     fn check_samples_for_ms(sample_rate: u32, channels: u16, ms: u32, expected: usize) {
         let specs = Specs {
@@ -376,5 +385,106 @@ mod tests {
         let (p, _) = Input::create_audio_buffer_pair(specs, 10);
 
         assert_eq!(p.capacity().get(), 4_096);
+    }
+
+    fn make_sink(capacity: usize, mode: ChannelMode) -> StreamSink<ringbuf::HeapProd<f32>> {
+        let (tx, _) = make_ring(capacity);
+        StreamSink { tx, mode }
+    }
+
+    fn make_sink_with_consumer(
+        capacity: usize,
+        mode: ChannelMode,
+    ) -> (StreamSink<ringbuf::HeapProd<f32>>, ringbuf::HeapCons<f32>) {
+        let (tx, rx) = make_ring(capacity);
+        (StreamSink { tx, mode }, rx)
+    }
+
+    // All mode forwards every sample unchanged and reports no overflow.
+    #[test]
+    fn push_all_forwards_all_samples() {
+        let (mut sink, c) = make_sink_with_consumer(8, ChannelMode::All);
+        let data = [1.0_f32, 2.0, 3.0, 4.0];
+        let dropped = sink.push(&data, 2);
+        assert!(!dropped);
+        assert_eq!(drain(c), &[1.0, 2.0, 3.0, 4.0]);
+    }
+
+    // All mode returns true when the ring cannot accept the full slice.
+    #[test]
+    fn push_all_reports_overflow_when_full() {
+        let mut sink = make_sink(2, ChannelMode::All);
+        sink.push(&[1.0, 2.0], 2);
+        let dropped = sink.push(&[3.0, 4.0], 2);
+        assert!(dropped);
+    }
+
+    // Selected([0]) extracts only channel 0 from each frame of a 4-channel stream.
+    #[test]
+    fn push_selected_extracts_first_channel() {
+        // 2 frames * 4 channels: [ch0, ch1, ch2, ch3, ch0, ch1, ch2, ch3]
+        let data = [1.0_f32, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0];
+        let (mut sink, c) = make_sink_with_consumer(16, ChannelMode::Selected(Box::new([0])));
+        let dropped = sink.push(&data, 4);
+        assert!(!dropped);
+        assert_eq!(drain(c), &[1.0, 5.0]);
+    }
+
+    // Selected([1, 3]) extracts both channels in frame order.
+    #[test]
+    fn push_selected_extracts_two_channels_in_order() {
+        let data = [1.0_f32, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0];
+        let (mut sink, c) = make_sink_with_consumer(16, ChannelMode::Selected(Box::new([1, 3])));
+        let dropped = sink.push(&data, 4);
+        assert!(!dropped);
+        // frame 0: ch1=2.0, ch3=4.0 | frame 1: ch1=6.0, ch3=8.0
+        assert_eq!(drain(c), &[2.0, 4.0, 6.0, 8.0]);
+    }
+
+    // Selected on a 1-channel stream produces the same output as All.
+    #[test]
+    fn push_selected_single_channel_matches_all() {
+        let data = [0.1_f32, 0.2, 0.3];
+        let (mut sink_all, c_all) = make_sink_with_consumer(16, ChannelMode::All);
+        let (mut sink_sel, c_sel) =
+            make_sink_with_consumer(16, ChannelMode::Selected(Box::new([0])));
+        sink_all.push(&data, 1);
+        sink_sel.push(&data, 1);
+        assert_eq!(drain(c_all), drain(c_sel));
+    }
+
+    // Selected returns true when the ring fills mid-callback.
+    #[test]
+    fn push_selected_reports_overflow_when_full() {
+        // 2 frames of 2 channels, selecting both = 4 samples, ring holds 2.
+        let data = [1.0_f32, 2.0, 3.0, 4.0];
+        let mut sink = make_sink(2, ChannelMode::Selected(Box::new([0, 1])));
+        let dropped = sink.push(&data, 2);
+        assert!(dropped);
+    }
+
+    // Remainder samples (data.len() not a multiple of hw_channels) are silently ignored.
+    // This is cpal's contract: the callback always delivers complete frames.
+    #[test]
+    fn push_selected_ignores_partial_trailing_frame() {
+        // 9 samples with hw_channels=4: 2 full frames + 1 orphan sample.
+        let data = [1.0_f32, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0];
+        let (mut sink, c) = make_sink_with_consumer(16, ChannelMode::Selected(Box::new([0])));
+        sink.push(&data, 4);
+        assert_eq!(drain(c), &[1.0, 5.0]);
+    }
+
+    // Empty slice produces no pushes and no overflow for either mode.
+    #[test]
+    fn push_empty_data_produces_nothing() {
+        let (mut sink_all, c_all) = make_sink_with_consumer(8, ChannelMode::All);
+        let (mut sink_sel, c_sel) =
+            make_sink_with_consumer(8, ChannelMode::Selected(Box::new([0])));
+        let dropped_all = sink_all.push(&[], 2);
+        let dropped_sel = sink_sel.push(&[], 2);
+        assert!(!dropped_all);
+        assert!(!dropped_sel);
+        assert_eq!(drain(c_all), Vec::<f32>::new());
+        assert_eq!(drain(c_sel), Vec::<f32>::new());
     }
 }
