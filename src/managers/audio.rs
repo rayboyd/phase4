@@ -237,12 +237,11 @@ impl Input {
 
             if let Ok(config) = device.default_input_config() {
                 log::info!(
-                    "[{}] {} ({}Hz, {}ch, {})",
+                    "[{}] {} ({}Hz, {}ch)",
                     index,
                     name,
                     config.sample_rate(),
                     config.channels(),
-                    config.sample_format()
                 );
             } else {
                 log::warn!("[{index}] {name} (Configuration unavailable)");
