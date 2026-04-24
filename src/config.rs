@@ -3,7 +3,7 @@
 //! which resolves the CLI arguments and enforces that a device index is present
 //! whenever the application is not running in calibration mode.
 
-use crate::Args;
+use crate::{Args, VocoderArgs};
 use std::net::SocketAddr;
 use std::path::{Component, Path};
 use thiserror::Error;
@@ -175,18 +175,19 @@ impl TryFrom<&Args> for AppConfig {
     type Error = AppConfigError;
 
     fn try_from(args: &Args) -> Result<Self, Self::Error> {
-        let in_calibration = args.test_hz.is_some() || args.test_sweep.is_some();
+        let in_calibration =
+            args.calibration.test_hz.is_some() || args.calibration.test_sweep.is_some();
         let device_index = if in_calibration {
-            args.device
+            args.input.device
         } else {
-            Some(args.device.ok_or(AppConfigError::MissingDevice)?)
+            Some(args.input.device.ok_or(AppConfigError::MissingDevice)?)
         };
 
-        validate_bind_addr(args.addr)?;
-        validate_filename_pattern(&args.filename_pattern)?;
-        validate_vocoder_args(args)?;
+        validate_bind_addr(args.network.addr)?;
+        validate_filename_pattern(&args.recording.filename_pattern)?;
+        validate_vocoder_args(&args.vocoder)?;
 
-        if let Some(rate) = args.broadcast_rate {
+        if let Some(rate) = args.network.broadcast_rate {
             if !is_strictly_positive(rate) {
                 return Err(AppConfigError::InvalidBroadcastRate(
                     "broadcast rate must be a finite value greater than 0 Hz",
@@ -194,31 +195,35 @@ impl TryFrom<&Args> for AppConfig {
             }
         }
 
-        if args.max_clients == 0 {
+        if args.network.max_clients == 0 {
             return Err(AppConfigError::InvalidMaxClients(
                 "max clients must be greater than 0",
             ));
         }
 
         Ok(Self {
-            addr: args.addr,
-            max_clients: args.max_clients,
-            bit_depth: args.bit_depth,
+            addr: args.network.addr,
+            max_clients: args.network.max_clients,
+            bit_depth: args.recording.bit_depth,
             device_index,
-            filename_pattern: args.filename_pattern.clone(),
-            test_hz: args.test_hz,
-            test_sweep: args.test_sweep,
+            filename_pattern: args.recording.filename_pattern.clone(),
+            test_hz: args.calibration.test_hz,
+            test_sweep: args.calibration.test_sweep,
             vocoder_config: VocoderConfig {
-                attack_ms: args.vocoder_attack_ms,
-                release_ms: args.vocoder_release_ms,
-                freq_low: args.vocoder_freq_low,
-                freq_high: args.vocoder_freq_high,
-                filter_q: args.vocoder_filter_q,
+                attack_ms: args.vocoder.attack_ms,
+                release_ms: args.vocoder.release_ms,
+                freq_low: args.vocoder.freq_low,
+                freq_high: args.vocoder.freq_high,
+                filter_q: args.vocoder.filter_q,
             },
-            no_browser_origin: args.no_browser_origin,
-            broadcast_rate: args.broadcast_rate,
-            analyse_channels: normalise_channel_selection(args.analyse_channels.as_deref())?,
-            record_channels: normalise_channel_selection(args.record_channels.as_deref())?,
+            no_browser_origin: args.network.no_browser_origin,
+            broadcast_rate: args.network.broadcast_rate,
+            analyse_channels: normalise_channel_selection(
+                args.recording.analyse_channels.as_deref(),
+            )?,
+            record_channels: normalise_channel_selection(
+                args.recording.record_channels.as_deref(),
+            )?,
         })
     }
 }
@@ -276,38 +281,38 @@ fn validate_filename_pattern(pattern: &str) -> Result<(), AppConfigError> {
     }
 }
 
-fn validate_vocoder_args(args: &Args) -> Result<(), AppConfigError> {
-    if !is_strictly_positive(args.vocoder_attack_ms) {
+fn validate_vocoder_args(vocoder: &VocoderArgs) -> Result<(), AppConfigError> {
+    if !is_strictly_positive(vocoder.attack_ms) {
         return Err(AppConfigError::InvalidVocoderConfig(
             "attack time must be a finite value greater than 0 ms",
         ));
     }
 
-    if !is_strictly_positive(args.vocoder_release_ms) {
+    if !is_strictly_positive(vocoder.release_ms) {
         return Err(AppConfigError::InvalidVocoderConfig(
             "release time must be a finite value greater than 0 ms",
         ));
     }
 
-    if !is_strictly_positive(args.vocoder_freq_low) {
+    if !is_strictly_positive(vocoder.freq_low) {
         return Err(AppConfigError::InvalidVocoderConfig(
             "low frequency must be greater than 0 Hz",
         ));
     }
 
-    if !is_strictly_positive(args.vocoder_freq_high) {
+    if !is_strictly_positive(vocoder.freq_high) {
         return Err(AppConfigError::InvalidVocoderConfig(
             "high frequency must be greater than 0 Hz",
         ));
     }
 
-    if args.vocoder_freq_low >= args.vocoder_freq_high {
+    if vocoder.freq_low >= vocoder.freq_high {
         return Err(AppConfigError::InvalidVocoderConfig(
             "high frequency must be greater than low frequency",
         ));
     }
 
-    if !is_strictly_positive(args.vocoder_filter_q) {
+    if !is_strictly_positive(vocoder.filter_q) {
         return Err(AppConfigError::InvalidVocoderConfig(
             "filter Q must be greater than 0",
         ));
@@ -345,26 +350,37 @@ pub(crate) fn validate_vocoder_sample_rate(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{CalibrationArgs, InputArgs, NetworkArgs, RecordingArgs};
 
     fn args_with_device(device: Option<usize>) -> Args {
         Args {
-            addr: DEFAULT_ADDR_PATTERN.parse().unwrap(),
-            max_clients: DEFAULT_MAX_CLIENTS,
-            bit_depth: BitDepth::Int24,
-            device,
-            filename_pattern: DEFAULT_FILENAME_PATTERN.to_string(),
-            list: false,
-            test_hz: None,
-            test_sweep: None,
-            vocoder_attack_ms: 37.8,
-            vocoder_release_ms: 56.7,
-            vocoder_freq_low: 40.0,
-            vocoder_freq_high: 18_000.0,
-            vocoder_filter_q: 2.0,
-            no_browser_origin: false,
-            broadcast_rate: None,
-            analyse_channels: None,
-            record_channels: None,
+            input: InputArgs {
+                device,
+                list: false,
+            },
+            network: NetworkArgs {
+                addr: DEFAULT_ADDR_PATTERN.parse().unwrap(),
+                max_clients: DEFAULT_MAX_CLIENTS,
+                broadcast_rate: None,
+                no_browser_origin: false,
+            },
+            recording: RecordingArgs {
+                bit_depth: BitDepth::Int24,
+                filename_pattern: DEFAULT_FILENAME_PATTERN.to_string(),
+                analyse_channels: None,
+                record_channels: None,
+            },
+            vocoder: VocoderArgs {
+                attack_ms: 37.8,
+                release_ms: 56.7,
+                freq_low: 40.0,
+                freq_high: 18_000.0,
+                filter_q: 2.0,
+            },
+            calibration: CalibrationArgs {
+                test_hz: None,
+                test_sweep: None,
+            },
         }
     }
 
@@ -389,7 +405,7 @@ mod tests {
     #[test]
     fn try_from_allows_no_device_in_calibration_mode() {
         let mut args = args_with_device(None);
-        args.test_hz = Some(440.0);
+        args.calibration.test_hz = Some(440.0);
         let config = AppConfig::try_from(&args).unwrap();
         assert_eq!(config.device_index, None);
         assert_eq!(config.test_hz, Some(440.0));
@@ -433,11 +449,11 @@ mod tests {
     #[allow(clippy::float_cmp)]
     fn try_from_forwards_vocoder_args() {
         let mut args = args_with_device(Some(0));
-        args.vocoder_attack_ms = 12.0;
-        args.vocoder_release_ms = 80.0;
-        args.vocoder_freq_low = 40.0;
-        args.vocoder_freq_high = 16_000.0;
-        args.vocoder_filter_q = 4.0;
+        args.vocoder.attack_ms = 12.0;
+        args.vocoder.release_ms = 80.0;
+        args.vocoder.freq_low = 40.0;
+        args.vocoder.freq_high = 16_000.0;
+        args.vocoder.filter_q = 4.0;
 
         let config = AppConfig::try_from(&args).unwrap();
         assert_eq!(config.vocoder_config.attack_ms, 12.0);
@@ -459,7 +475,7 @@ mod tests {
     #[test]
     fn try_from_rejects_negative_vocoder_attack_ms() {
         let mut args = args_with_device(Some(0));
-        args.vocoder_attack_ms = -0.1;
+        args.vocoder.attack_ms = -0.1;
 
         let result = AppConfig::try_from(&args);
 
@@ -470,7 +486,7 @@ mod tests {
     #[test]
     fn try_from_rejects_non_finite_vocoder_release_ms() {
         let mut args = args_with_device(Some(0));
-        args.vocoder_release_ms = f32::INFINITY;
+        args.vocoder.release_ms = f32::INFINITY;
 
         let result = AppConfig::try_from(&args);
 
@@ -484,7 +500,7 @@ mod tests {
     #[test]
     fn try_from_rejects_non_positive_vocoder_low_frequency() {
         let mut args = args_with_device(Some(0));
-        args.vocoder_freq_low = 0.0;
+        args.vocoder.freq_low = 0.0;
 
         let result = AppConfig::try_from(&args);
 
@@ -498,8 +514,8 @@ mod tests {
     #[test]
     fn try_from_rejects_vocoder_high_frequency_below_low_frequency() {
         let mut args = args_with_device(Some(0));
-        args.vocoder_freq_low = 2_000.0;
-        args.vocoder_freq_high = 1_000.0;
+        args.vocoder.freq_low = 2_000.0;
+        args.vocoder.freq_high = 1_000.0;
 
         let result = AppConfig::try_from(&args);
 
@@ -513,7 +529,7 @@ mod tests {
     #[test]
     fn try_from_rejects_non_positive_vocoder_filter_q() {
         let mut args = args_with_device(Some(0));
-        args.vocoder_filter_q = 0.0;
+        args.vocoder.filter_q = 0.0;
 
         let result = AppConfig::try_from(&args);
 
@@ -527,7 +543,7 @@ mod tests {
     #[test]
     fn try_from_rejects_filename_pattern_with_path_separator() {
         let mut args = args_with_device(Some(0));
-        args.filename_pattern = "nested/rec_{timestamp}.wav".to_string();
+        args.recording.filename_pattern = "nested/rec_{timestamp}.wav".to_string();
 
         let result = AppConfig::try_from(&args);
 
@@ -541,7 +557,7 @@ mod tests {
     #[test]
     fn try_from_rejects_parent_relative_filename_pattern() {
         let mut args = args_with_device(Some(0));
-        args.filename_pattern = "../rec_{timestamp}.wav".to_string();
+        args.recording.filename_pattern = "../rec_{timestamp}.wav".to_string();
 
         let result = AppConfig::try_from(&args);
 
@@ -555,7 +571,7 @@ mod tests {
     #[test]
     fn try_from_rejects_non_loopback_bind_address() {
         let mut args = args_with_device(Some(0));
-        args.addr = "0.0.0.0:8889".parse().unwrap();
+        args.network.addr = "0.0.0.0:8889".parse().unwrap();
 
         let result = AppConfig::try_from(&args);
 
@@ -570,7 +586,7 @@ mod tests {
     #[allow(clippy::float_cmp)]
     fn try_from_forwards_broadcast_rate() {
         let mut args = args_with_device(Some(0));
-        args.broadcast_rate = Some(30.0);
+        args.network.broadcast_rate = Some(30.0);
 
         let config = AppConfig::try_from(&args).unwrap();
 
@@ -588,7 +604,7 @@ mod tests {
     #[test]
     fn try_from_forwards_max_clients() {
         let mut args = args_with_device(Some(0));
-        args.max_clients = 16;
+        args.network.max_clients = 16;
 
         let config = AppConfig::try_from(&args).unwrap();
 
@@ -599,7 +615,7 @@ mod tests {
     #[test]
     fn try_from_rejects_zero_max_clients() {
         let mut args = args_with_device(Some(0));
-        args.max_clients = 0;
+        args.network.max_clients = 0;
 
         let result = AppConfig::try_from(&args);
 
@@ -613,7 +629,7 @@ mod tests {
     #[test]
     fn try_from_rejects_zero_broadcast_rate() {
         let mut args = args_with_device(Some(0));
-        args.broadcast_rate = Some(0.0);
+        args.network.broadcast_rate = Some(0.0);
 
         let result = AppConfig::try_from(&args);
 
@@ -627,7 +643,7 @@ mod tests {
     #[test]
     fn try_from_rejects_negative_broadcast_rate() {
         let mut args = args_with_device(Some(0));
-        args.broadcast_rate = Some(-10.0);
+        args.network.broadcast_rate = Some(-10.0);
 
         let result = AppConfig::try_from(&args);
 
@@ -641,7 +657,7 @@ mod tests {
     #[test]
     fn try_from_rejects_infinite_broadcast_rate() {
         let mut args = args_with_device(Some(0));
-        args.broadcast_rate = Some(f32::INFINITY);
+        args.network.broadcast_rate = Some(f32::INFINITY);
 
         let result = AppConfig::try_from(&args);
 
@@ -655,7 +671,7 @@ mod tests {
     #[test]
     fn try_from_rejects_empty_channel_selection() {
         let mut args = args_with_device(Some(0));
-        args.analyse_channels = Some(vec![]);
+        args.recording.analyse_channels = Some(vec![]);
 
         let result = AppConfig::try_from(&args);
 
@@ -665,7 +681,7 @@ mod tests {
         );
 
         let mut args = args_with_device(Some(0));
-        args.record_channels = Some(vec![]);
+        args.recording.record_channels = Some(vec![]);
 
         let result = AppConfig::try_from(&args);
 
@@ -679,8 +695,8 @@ mod tests {
     #[test]
     fn try_from_normalises_channel_selection() {
         let mut args = args_with_device(Some(0));
-        args.analyse_channels = Some(vec![3, 1, 1, 0]);
-        args.record_channels = Some(vec![2, 0, 2]);
+        args.recording.analyse_channels = Some(vec![3, 1, 1, 0]);
+        args.recording.record_channels = Some(vec![2, 0, 2]);
 
         let config = AppConfig::try_from(&args).unwrap();
 
