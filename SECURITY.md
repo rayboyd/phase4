@@ -40,4 +40,4 @@ Each signed artefact has a corresponding `.asc` detached signature file included
 gpg --verify phase4-<version>-<target>.tar.gz.asc phase4-<version>-<target>.tar.gz
 ```
 
-A successful verification will show `Good signature from "Ray Boyd (Phase4) <hi@rayboyd.co.uk>"`.
+A successful verification will show `Good signature from "Ray Boyd (Phase4) <ray.boyd@pm.me>"`.
