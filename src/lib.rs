@@ -16,6 +16,19 @@ use clap::Parser;
 use config::{BitDepth, DEFAULT_ADDR_PATTERN, DEFAULT_FILENAME_PATTERN, DEFAULT_MAX_CLIENTS};
 use std::net::SocketAddr;
 
+/// Synthetic signal generation for device calibration.
+#[derive(clap::Args)]
+#[command(next_help_heading = "Calibration")]
+pub struct CalibrationArgs {
+    /// Run in calibration mode with a synthetic sine wave at the given frequency (e.g. 440.0).
+    #[arg(long)]
+    pub test_hz: Option<f32>,
+
+    /// Run a logarithmic sine wave sweep. The value is the LFO rate in Hz (e.g. 0.1 for 10s).
+    #[arg(long)]
+    pub test_sweep: Option<f32>,
+}
+
 /// Device selection and listing.
 #[derive(clap::Args)]
 #[command(next_help_heading = "Device")]
@@ -104,19 +117,6 @@ pub struct VocoderArgs {
     pub filter_q: f32,
 }
 
-/// Synthetic signal generation for device calibration.
-#[derive(clap::Args)]
-#[command(next_help_heading = "Calibration")]
-pub struct CalibrationArgs {
-    /// Run in calibration mode with a synthetic sine wave at the given frequency (e.g. 440.0).
-    #[arg(long)]
-    pub test_hz: Option<f32>,
-
-    /// Run a logarithmic sine wave sweep. The value is the LFO rate in Hz (e.g. 0.1 for 10s).
-    #[arg(long)]
-    pub test_sweep: Option<f32>,
-}
-
 #[derive(Parser)]
 #[command(
     author = "Ray Boyd <ray.boyd@pm.me>",
@@ -131,6 +131,9 @@ pub struct CalibrationArgs {
 )]
 pub struct Args {
     #[command(flatten)]
+    pub calibration: CalibrationArgs,
+
+    #[command(flatten)]
     pub input: InputArgs,
 
     #[command(flatten)]
@@ -141,7 +144,4 @@ pub struct Args {
 
     #[command(flatten)]
     pub vocoder: VocoderArgs,
-
-    #[command(flatten)]
-    pub calibration: CalibrationArgs,
 }
