@@ -36,6 +36,29 @@ impl Specs {
     }
 }
 
+/// Describes which channels to extract from the hardware interleaved stream.
+///
+/// `All` preserves the current `push_slice` fast path and is used when no
+/// channel selection is specified at startup. `Selected` carries a sorted,
+/// deduplicated list of zero-based hardware channel indices. Both variants are
+/// constructed once before stream start and moved into the closure; there are
+/// no allocations or atomic ref-count touches at callback time.
+pub enum ChannelMode {
+    All,
+    Selected(Box<[u16]>),
+}
+
+/// Pairs a ring buffer producer with the channel selection for that sink.
+///
+/// Constructed once before stream start and moved into the audio callback
+/// closure. `mode` determines whether all hardware channels are forwarded or
+/// only a selected subset. `tx` is the SPSC producer for the downstream
+/// consumer.
+pub struct StreamSink<P> {
+    pub tx: P,
+    pub mode: ChannelMode,
+}
+
 #[derive(Default)]
 pub struct Input {
     active_stream: Option<cpal::Stream>,
@@ -114,8 +137,8 @@ impl Input {
         &mut self,
         device: &cpal::Device,
         config: &cpal::SupportedStreamConfig,
-        mut record_tx: P,
-        mut analyse_tx: P,
+        mut record: StreamSink<P>,
+        mut analyse: StreamSink<P>,
         state: Arc<AppState>,
     ) -> Result<()>
     where
@@ -132,24 +155,57 @@ impl Input {
 
         let error_state = state.clone();
         let stream_config = config.config();
+
+        // Captured once at stream construction. Never touched again inside the callback.
+        let hw_channels = stream_config.channels as usize;
+
         let stream = device.build_input_stream(
             &stream_config,
             // This callback runs on cpal's dedicated audio thread at hardware interrupt
-            // rate. It must be lock-free, allocation-free, and non-blocking, any stall
-            // here will cause a buffer underrun and an audible glitch. So basically, don't
-            // do anything else here, this is all we need.
+            // rate. It must be lock-free, allocation-free, and non-blocking; any stall
+            // here will cause a buffer underrun and an audible glitch.
             move |data: &[f32], _| {
-                // Record path is lossless. push_slice returns the number of samples written.
-                // If it is short, the record ringbuf filled and the writer thread fell
-                // behind. Record one ring overflow event for the controller.
-                if record_tx.push_slice(data) < data.len() {
-                    state
-                        .record_ring_overflow_events
-                        .fetch_add(1, Ordering::Relaxed);
+                // Record path: lossless. One overflow event counted per callback
+                // invocation that drops any sample, matching existing semantics.
+                match &record.mode {
+                    ChannelMode::All => {
+                        if record.tx.push_slice(data) < data.len() {
+                            state
+                                .record_ring_overflow_events
+                                .fetch_add(1, Ordering::Relaxed);
+                        }
+                    }
+                    ChannelMode::Selected(indices) => {
+                        let mut overflowed = false;
+                        for frame in data.chunks_exact(hw_channels) {
+                            for &idx in indices {
+                                if record.tx.try_push(frame[idx as usize]).is_err() {
+                                    overflowed = true;
+                                }
+                            }
+                        }
+                        if overflowed {
+                            state
+                                .record_ring_overflow_events
+                                .fetch_add(1, Ordering::Relaxed);
+                        }
+                    }
                 }
-                // Analyse path is intentionally lossy. A dropped analysis frame is invisible,
-                // a dropped recording frame is not. No counter, no retry on analyse path.
-                let _ = analyse_tx.push_slice(data);
+
+                // Analyse path is intentionally lossy. A dropped analysis frame is
+                // invisible; a dropped recording frame is not.
+                match &analyse.mode {
+                    ChannelMode::All => {
+                        let _ = analyse.tx.push_slice(data);
+                    }
+                    ChannelMode::Selected(indices) => {
+                        for frame in data.chunks_exact(hw_channels) {
+                            for &idx in indices {
+                                let _ = analyse.tx.try_push(frame[idx as usize]);
+                            }
+                        }
+                    }
+                }
             },
             move |err| {
                 log::error!("Hardware Stream Error: {err}");
@@ -159,7 +215,6 @@ impl Input {
         )?;
 
         stream.play()?;
-
         self.active_stream = Some(stream);
 
         Ok(())
