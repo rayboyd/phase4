@@ -160,17 +160,17 @@ jobs:
           sha256sum phase4-* > checksums.sha256
           cat checksums.sha256
 
-      - name: GPG sign artifacts
+      - name: Sign artifacts
         env:
-          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
-          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+          MINISIGN_KEY: ${{ secrets.MINISIGN_PRIVATE_KEY }}
         run: |
-          echo "$GPG_PRIVATE_KEY" | gpg --batch --import
-          echo "pinentry-mode loopback" >> ~/.gnupg/gpg.conf
-          cd artifacts
-          for file in phase4-* checksums.sha256; do
-            echo "$GPG_PASSPHRASE" | gpg --batch --pinentry-mode loopback --passphrase-fd 0 --detach-sign --armor "$file"
+          sudo apt-get install -y -qq minisign
+          echo "$MINISIGN_KEY" > /tmp/minisign.key
+          for file in artifacts/phase4-* artifacts/checksums.sha256; do
+            minisign -S -s /tmp/minisign.key -m "$file" \
+              -t "phase4 ${{ github.ref_name }}"
           done
+          rm /tmp/minisign.key
 
       - name: Cache cargo bin
         uses: actions/cache@v5
