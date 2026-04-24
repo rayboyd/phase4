@@ -11,7 +11,13 @@ use thiserror::Error;
 pub const DEFAULT_ADDR_PATTERN: &str = "127.0.0.1:8889";
 pub const DEFAULT_FILENAME_PATTERN: &str = "rec_{timestamp}_{sample_rate}hz_{bit_depth}bit.wav";
 pub const DEFAULT_MAX_CLIENTS: usize = 8;
-pub const RECORDINGS_DIR: &str = "recordings"; // This can't be config'ed, yet.
+pub const RECORDINGS_DIR: &str = "recordings";
+
+fn default_bind_addr() -> SocketAddr {
+    DEFAULT_ADDR_PATTERN
+        .parse()
+        .expect("DEFAULT_ADDR_PATTERN is a valid socket address")
+}
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct VocoderConfig {
@@ -155,7 +161,7 @@ pub struct AppConfig {
 impl Default for AppConfig {
     fn default() -> Self {
         Self {
-            addr: SocketAddr::from(([127, 0, 0, 1], 8889)),
+            addr: default_bind_addr(),
             max_clients: DEFAULT_MAX_CLIENTS,
             bit_depth: BitDepth::Int24,
             device_index: None,
@@ -359,7 +365,7 @@ mod tests {
                 list: false,
             },
             network: NetworkArgs {
-                addr: DEFAULT_ADDR_PATTERN.parse().unwrap(),
+                addr: default_bind_addr(),
                 max_clients: DEFAULT_MAX_CLIENTS,
                 broadcast_rate: None,
                 no_browser_origin: false,
@@ -415,10 +421,7 @@ mod tests {
     #[test]
     fn default_config_matches_constants() {
         let config = AppConfig::default();
-        assert_eq!(
-            config.addr,
-            DEFAULT_ADDR_PATTERN.parse::<SocketAddr>().unwrap()
-        );
+        assert_eq!(config.addr, default_bind_addr());
         assert_eq!(config.max_clients, DEFAULT_MAX_CLIENTS);
         assert_eq!(config.filename_pattern, DEFAULT_FILENAME_PATTERN);
         assert_eq!(config.vocoder_config, VocoderConfig::default());

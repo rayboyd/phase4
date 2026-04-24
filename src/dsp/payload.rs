@@ -60,6 +60,7 @@ const _: () = assert!(
     "VOCODER_BANDS and DISPLAY_BINS must be integer multiples of one another",
 );
 
+//
 // Raw Payload (Internal)
 // Produced by the Analyser thread. Full resolution, not serialised.
 
@@ -88,6 +89,7 @@ impl RawPayload {
     }
 }
 
+//
 // Display Payload (Broadcast)
 // Produced by the Mapper thread. Reduced resolution, serialised for the WebSocket.
 

@@ -35,7 +35,7 @@ async fn connect_client(
         sleep(Duration::from_millis(10)).await;
     }
 
-    panic!("failed to connect to review server at {address}");
+    panic!("failed to connect to WebSocket server at {address}");
 }
 
 async fn connect_raw_client(address: SocketAddr) -> tokio::net::TcpStream {

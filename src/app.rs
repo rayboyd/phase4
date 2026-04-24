@@ -96,7 +96,7 @@ struct ShutdownWorker {
 impl ShutdownWorker {
     const GENERATOR: Self = Self {
         name: "generator",
-        success_message: "> Generator shutdown complete",
+        success_message: ">> Generator shutdown complete",
         timeout_ms: GENERATOR_SHUTDOWN_TIMEOUT_MS,
     };
 
