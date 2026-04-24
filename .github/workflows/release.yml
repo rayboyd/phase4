@@ -36,23 +36,13 @@ jobs:
             echo "is_prerelease=false" >> "$GITHUB_OUTPUT"
           fi
 
-  build:
+  build-linux:
     needs: validate
-    strategy:
-      matrix:
-        include:
-          - os: ubuntu-latest
-            target: linux
-            arch: x86_64
-          - os: macos-latest
-            target: macos
-            arch: aarch64
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
 
-      - name: Install system dependencies (Linux)
-        if: matrix.target == 'linux'
+      - name: Install system dependencies
         run: sudo apt-get update -qq && sudo apt-get install -y -qq libasound2-dev pkg-config
 
       - name: Cache cargo
@@ -64,8 +54,40 @@ jobs:
             target
           key: ${{ runner.os }}-cargo-release-${{ hashFiles('**/Cargo.lock') }}
 
+      - name: Build
+        run: cargo build --release --locked
+
+      - name: Package archive
+        run: |
+          ARCHIVE="phase4-${{ github.ref_name }}-linux-x86_64.tar.gz"
+          cp target/release/phase4 phase4
+          tar -czf "$ARCHIVE" phase4 LICENSE
+          rm phase4
+          echo "ARCHIVE=$ARCHIVE" >> "$GITHUB_ENV"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: binary-linux-x86_64
+          path: ${{ env.ARCHIVE }}
+
+  build-macos:
+    needs: validate
+    if: needs.validate.outputs.is_prerelease == 'false'
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Cache cargo
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-release-${{ hashFiles('**/Cargo.lock') }}
+
       - name: Import Apple certificate
-        if: matrix.target == 'macos'
         env:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
@@ -86,8 +108,7 @@ jobs:
       - name: Build
         run: cargo build --release --locked
 
-      - name: Sign and notarise (macOS)
-        if: matrix.target == 'macos'
+      - name: Sign and notarise
         env:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
@@ -105,9 +126,8 @@ jobs:
           rm phase4.zip
 
       - name: Package archive
-        shell: bash
         run: |
-          ARCHIVE="phase4-${{ github.ref_name }}-${{ matrix.target }}-${{ matrix.arch }}.tar.gz"
+          ARCHIVE="phase4-${{ github.ref_name }}-macos-aarch64.tar.gz"
           cp target/release/phase4 phase4
           tar -czf "$ARCHIVE" phase4 LICENSE
           rm phase4
@@ -116,11 +136,12 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v7
         with:
-          name: binary-${{ matrix.target }}-${{ matrix.arch }}
+          name: binary-macos-aarch64
           path: ${{ env.ARCHIVE }}
 
   release:
-    needs: [validate, build]
+    needs: [validate, build-linux, build-macos]
+    if: always() && needs.build-linux.result == 'success' && (needs.build-macos.result == 'success' || needs.build-macos.result == 'skipped')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -163,7 +184,7 @@ jobs:
       - name: Create GitHub Release
         run: |
           PRERELEASE_FLAG=""
-          if [[ "${{ needs.validate.outputs.is_prerelease }}" == "true" ]]; then
+          if [[ "${{ github.ref_name }}" == *"-rc."* ]]; then
             PRERELEASE_FLAG="--prerelease"
           fi
           gh release create "${{ github.ref_name }}" artifacts/* \
@@ -175,7 +196,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
 
       - name: Trigger phase4-web deploy
-        if: needs.validate.outputs.is_prerelease == 'false'
+        if: "!contains(github.ref_name, '-rc.')"
         run: |
           gh api repos/rayboyd/phase4-web/dispatches \
             --field event_type=binary-update
