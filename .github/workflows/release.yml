@@ -163,11 +163,13 @@ jobs:
       - name: GPG sign artifacts
         env:
           GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
         run: |
           echo "$GPG_PRIVATE_KEY" | gpg --batch --import
+          echo "pinentry-mode loopback" >> ~/.gnupg/gpg.conf
           cd artifacts
           for file in phase4-* checksums.sha256; do
-            gpg --batch --detach-sign --armor "$file"
+            echo "$GPG_PASSPHRASE" | gpg --batch --pinentry-mode loopback --passphrase-fd 0 --detach-sign --armor "$file"
           done
 
       - name: Cache cargo bin
