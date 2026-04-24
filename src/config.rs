@@ -31,8 +31,8 @@ pub struct VocoderConfig {
 impl Default for VocoderConfig {
     fn default() -> Self {
         Self {
-            attack_ms: 37.8,
-            release_ms: 56.7,
+            attack_ms: 30.0,
+            release_ms: 60.0,
             freq_low: 40.0,
             freq_high: 18_000.0,
             filter_q: 2.0,
@@ -377,8 +377,8 @@ mod tests {
                 record_channels: None,
             },
             vocoder: VocoderArgs {
-                attack_ms: 37.8,
-                release_ms: 56.7,
+                attack_ms: 30.0,
+                release_ms: 60.0,
                 freq_low: 40.0,
                 freq_high: 18_000.0,
                 filter_q: 2.0,
@@ -440,8 +440,8 @@ mod tests {
     #[allow(clippy::float_cmp)]
     fn vocoder_config_default_values() {
         let config = VocoderConfig::default();
-        assert_eq!(config.attack_ms, 37.8);
-        assert_eq!(config.release_ms, 56.7);
+        assert_eq!(config.attack_ms, 30.0);
+        assert_eq!(config.release_ms, 60.0);
         assert_eq!(config.freq_low, 40.0);
         assert_eq!(config.freq_high, 18_000.0);
         assert_eq!(config.filter_q, 2.0);

@@ -97,11 +97,11 @@ pub struct RecordingArgs {
 #[command(next_help_heading = "Vocoder")]
 pub struct VocoderArgs {
     /// Vocoder envelope attack time constant in milliseconds. Smaller is faster.
-    #[arg(long = "vocoder-attack-ms", default_value_t = 37.8)]
+    #[arg(long = "vocoder-attack-ms", default_value_t = 30.0)]
     pub attack_ms: f32,
 
     /// Vocoder envelope release time constant in milliseconds. Smaller is faster.
-    #[arg(long = "vocoder-release-ms", default_value_t = 56.7)]
+    #[arg(long = "vocoder-release-ms", default_value_t = 60.0)]
     pub release_ms: f32,
 
     /// Vocoder lowest band centre frequency in Hz.
