@@ -81,7 +81,7 @@ git config core.hooksPath .githooks
 
 **0.0.1**
 
-- Runtime channel selection for the analyser and recorder (`--audio-channels`, `--record-channels`).
+- ~~Runtime channel selection for the analyser and recorder (`--audio-channels`, `--record-channels`).~~ [#8](https://github.com/rayboyd/phase4/pull/8)
 - `--list-channels <device>` to show per-channel names alongside indices, making channel selection usable on multi-channel devices.
 
 **0.0.2**
