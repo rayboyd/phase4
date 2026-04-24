@@ -81,16 +81,13 @@ git config core.hooksPath .githooks
 
 **0.0.1**
 
-- ~~Runtime channel selection for the analyser and recorder (`--audio-channels`, `--record-channels`).~~ [#8](https://github.com/rayboyd/phase4/pull/8)
+[#8](https://github.com/rayboyd/phase4/pull/8) - ~~Runtime channel selection flags for the analyser and recorder~~
 
 **0.0.2**
 
 - Double-buffered recording to decouple ring drain latency from disk write latency, improving reliability on high channel count devices.
-- `--monitor` mode: terminal peak level display per selected channel, for device inspection without a WebSocket client.
-
-**0.0.3**
-
 - Local config file support (`~/.config/phase4/config.toml` or `.phase4.toml`) for device presets and persistent flag defaults.
+- `--monitor` mode: terminal peak level display per selected channel, for device inspection without a WebSocket client.
 
 ## Licence
 

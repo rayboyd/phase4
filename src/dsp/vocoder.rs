@@ -11,6 +11,7 @@ use crate::config::VocoderConfig;
 pub const VOCODER_BANDS: usize = 64;
 
 /// One-pole envelope follower with separate attack and release coefficients.
+#[derive(Default)]
 pub(crate) struct EnvelopeFollower {
     value: f32,
 }

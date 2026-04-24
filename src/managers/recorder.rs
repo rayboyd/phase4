@@ -157,7 +157,7 @@ impl State {
     fn open_writer(&mut self, is_recording: &AtomicBool) {
         let ts = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
+            .expect("system clock is before the UNIX epoch")
             .as_micros();
         let path = self.recording_path(ts);
 
@@ -254,7 +254,7 @@ impl State {
     }
 }
 
-/// Owns the recorder thread spawns a loop that drains audio samples to a wav file.
+/// Owns the recorder thread and spawns a loop that drains audio samples to a WAV file.
 pub struct Writer {
     filename_pattern: String,
 }

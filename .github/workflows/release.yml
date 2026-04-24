@@ -1,0 +1,204 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
+      - "v[0-9]+.[0-9]+.[0-9]+-rc.[0-9]+"
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    outputs:
+      is_prerelease: ${{ steps.check.outputs.is_prerelease }}
+    steps:
+      - name: Validate tag format
+        run: |
+          TAG="${{ github.ref_name }}"
+          if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+)?$ ]]; then
+            echo "::error::Invalid tag format: $TAG"
+            exit 1
+          fi
+
+      - name: Check pre-release
+        id: check
+        run: |
+          if [[ "${{ github.ref_name }}" == *"-rc."* ]]; then
+            echo "is_prerelease=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "is_prerelease=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  build-linux:
+    needs: validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install system dependencies
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq libasound2-dev pkg-config
+
+      - name: Cache cargo
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-release-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Build
+        run: cargo build --release --locked
+
+      - name: Package archive
+        run: |
+          ARCHIVE="phase4-${{ github.ref_name }}-linux-x86_64.tar.gz"
+          cp target/release/phase4 phase4
+          tar -czf "$ARCHIVE" phase4 LICENSE
+          rm phase4
+          echo "ARCHIVE=$ARCHIVE" >> "$GITHUB_ENV"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: binary-linux-x86_64
+          path: ${{ env.ARCHIVE }}
+
+  build-macos:
+    needs: validate
+    if: needs.validate.outputs.is_prerelease == 'false'
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Cache cargo
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-release-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Import Apple certificate
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          KEYCHAIN_PASSWORD=$(openssl rand -base64 32)
+          security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security set-keychain-settings -lut 21600 build.keychain
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          echo "$APPLE_CERTIFICATE" | base64 --decode > certificate.p12
+          security import certificate.p12 -k build.keychain -P "$APPLE_CERTIFICATE_PASSWORD" \
+            -T /usr/bin/codesign -T /usr/bin/security
+          security set-key-partition-list -S apple-tool:,apple:,codesign: \
+            -s -k "$KEYCHAIN_PASSWORD" build.keychain
+          security list-keychains -d user \
+            -s build.keychain $(security list-keychains -d user | tr -d '"')
+          rm -f certificate.p12
+
+      - name: Build
+        run: cargo build --release --locked
+
+      - name: Sign and notarise
+        env:
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        run: |
+          IDENTITY=$(security find-identity -v -p codesigning \
+            | grep "Developer ID Application" | head -1 | awk '{print $2}')
+          codesign --force --options runtime --sign "$IDENTITY" target/release/phase4
+          ditto -c -k --keepParent target/release/phase4 phase4.zip
+          xcrun notarytool submit phase4.zip \
+            --apple-id "$APPLE_ID" \
+            --password "$APPLE_APP_PASSWORD" \
+            --team-id "$APPLE_TEAM_ID" \
+            --wait
+          rm phase4.zip
+
+      - name: Package archive
+        run: |
+          ARCHIVE="phase4-${{ github.ref_name }}-macos-aarch64.tar.gz"
+          cp target/release/phase4 phase4
+          tar -czf "$ARCHIVE" phase4 LICENSE
+          rm phase4
+          echo "ARCHIVE=$ARCHIVE" >> "$GITHUB_ENV"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: binary-macos-aarch64
+          path: ${{ env.ARCHIVE }}
+
+  release:
+    needs: [validate, build-linux, build-macos]
+    if: always() && needs.build-linux.result == 'success' && (needs.build-macos.result == 'success' || needs.build-macos.result == 'skipped')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v8
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Generate checksums
+        run: |
+          cd artifacts
+          sha256sum phase4-* > checksums.sha256
+          cat checksums.sha256
+
+      - name: GPG sign artifacts
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+        run: |
+          echo "$GPG_PRIVATE_KEY" | gpg --batch --import
+          cd artifacts
+          for file in phase4-* checksums.sha256; do
+            gpg --batch --detach-sign --armor "$file"
+          done
+
+      - name: Cache cargo bin
+        uses: actions/cache@v5
+        with:
+          path: ~/.cargo/bin
+          key: ${{ runner.os }}-cargo-bin-git-cliff
+
+      - name: Generate release notes
+        run: |
+          command -v git-cliff || cargo install git-cliff --locked
+          git cliff --tag "${{ github.ref_name }}" --strip header -o RELEASE_NOTES.md
+
+      - name: Create GitHub Release
+        run: |
+          PRERELEASE_FLAG=""
+          if [[ "${{ github.ref_name }}" == *"-rc."* ]]; then
+            PRERELEASE_FLAG="--prerelease"
+          fi
+          gh release create "${{ github.ref_name }}" artifacts/* \
+            --target "${{ github.sha }}" \
+            --title "${{ github.ref_name }}" \
+            --notes-file RELEASE_NOTES.md \
+            $PRERELEASE_FLAG
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Trigger phase4-web deploy
+        if: "!contains(github.ref_name, '-rc.')"
+        run: |
+          gh api repos/rayboyd/phase4-web/dispatches \
+            --field event_type=binary-update
+        env:
+          GH_TOKEN: ${{ secrets.WEB_DEPLOY_PAT }}
