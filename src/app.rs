@@ -15,6 +15,7 @@
 use crate::config::{validate_vocoder_sample_rate, AppConfig};
 use crate::controller::Controller;
 use crate::dsp::{vocoder::VOCODER_BANDS, DisplayPayload, RawPayload};
+use crate::managers::audio::{ChannelMode, StreamSink};
 use crate::managers::{Generator, Input, Mapper, Processor, Server, Specs, Writer};
 use anyhow::Result;
 use std::sync::{
@@ -272,12 +273,18 @@ impl App {
             ));
         } else {
             // device_handle is guaranteed Some when not in calibration mode.
-            let (device, stream_config) = device_handle.expect("device present in hardware mode");
+            let (device, config) = device_handle.expect("device present in hardware mode");
             input_device.start_stream(
                 &device,
-                &stream_config,
-                record_tx,
-                analyse_tx,
+                &config,
+                StreamSink {
+                    tx: record_tx,
+                    mode: ChannelMode::All,
+                },
+                StreamSink {
+                    tx: analyse_tx,
+                    mode: ChannelMode::All,
+                },
                 state.clone(),
             )?;
         }

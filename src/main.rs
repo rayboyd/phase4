@@ -16,7 +16,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .init();
 
     let args = Args::parse();
-    if args.list {
+    if args.input.list {
         Input::list_devices()?;
         return Ok(());
     }

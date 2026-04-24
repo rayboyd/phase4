@@ -77,6 +77,22 @@ Install the hooks used by this project.
 git config core.hooksPath .githooks
 ```
 
+## Roadmap
+
+**0.0.1**
+
+- Runtime channel selection for the analyser and recorder (`--audio-channels`, `--record-channels`).
+- `--list-channels <device>` to show per-channel names alongside indices, making channel selection usable on multi-channel devices.
+
+**0.0.2**
+
+- Double-buffered recording to decouple ring drain latency from disk write latency, improving reliability on high channel count devices.
+- `--monitor` mode: terminal peak level display per selected channel, for device inspection without a WebSocket client.
+
+**0.0.3**
+
+- Local config file support (`~/.config/phase4/config.toml` or `.phase4.toml`) for device presets and persistent flag defaults.
+
 ## Licence
 
 Apache License, Version 2.0. See [LICENSE](https://github.com/rayboyd/phase4/blob/main/LICENSE).
