@@ -81,7 +81,7 @@ git config core.hooksPath .githooks
 
 **0.0.1**
 
-- ~~Runtime channel selection flags (`--audio-channels`,`--record-channels`) for the analyser and recorder~~ **Done** [#8](https://github.com/rayboyd/phase4/pull/8)
+[#8](https://github.com/rayboyd/phase4/pull/8) - ~~Runtime channel selection flags for the analyser and recorder~~
 
 **0.0.2**
 
