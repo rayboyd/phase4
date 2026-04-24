@@ -18,26 +18,16 @@ If you discover a security vulnerability, please report it responsibly.
 
 ## Verifying Signatures
 
-Release artefacts are signed with the project PGP key. The public key is available in the [`KEYS`](KEYS) file at the root of this repository.
-
-### Import the public key
-
-```sh
-gpg --import KEYS
-```
-
-Or fetch it directly from the repository:
-
-```sh
-curl -sSL https://raw.githubusercontent.com/rayboyd/phase4/main/KEYS | gpg --import
-```
+Release artefacts are signed with [minisign](https://jedisct1.github.io/minisign/). The public key is available in the [`minisign.pub`](minisign.pub) file at the root of this repository.
 
 ### Verify a release artefact
 
-Each signed artefact has a corresponding `.asc` detached signature file included in the release assets.
+Each signed artefact has a corresponding `.minisig` signature file included in the release assets.
 
 ```sh
-gpg --verify phase4-<version>-<target>.tar.gz.asc phase4-<version>-<target>.tar.gz
+minisign -V -p minisign.pub -m phase4-<version>-<target>.tar.gz
 ```
 
-A successful verification will show `Good signature from "Ray Boyd (Phase4) <ray.boyd@pm.me>"`.
+A successful verification will show `Signature and comment signature verified`.
+
+Install minisign via your package manager (`brew install minisign`, `apt install minisign`, etc.) or from the [minisign releases page](https://github.com/jedisct1/minisign/releases).
