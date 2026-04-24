@@ -12,6 +12,8 @@ All notable changes to Phase4 will be documented in this file.
 - Correct .cliffignore commit prefixes ([c883b8b](c883b8b46e91a7ef72f7b5f90a0535e9648ddf79))
 - Restore --no-default-features on CI aliases ([e99343f](e99343fe43d67879663f2a2005c9095567146704))
 - Bake display-bins-128 into CI aliases ([caf5a71](caf5a7102aef981b286522980a78053c60f7a813))
+- Remove sample format from device listing output ([e1821a1](e1821a1d3e3d4b0a7844a373981d0d1bfe8312a6))
+- Replace bare unwrap, fix typo, and correct doc comments ([4d239f8](4d239f812e741103ea78048f6d9c7d07f12a5450))
 
 ### Build
 
@@ -20,11 +22,11 @@ All notable changes to Phase4 will be documented in this file.
 ### CI/CD
 
 - Remove docker for now until pinned to 187 correctly ([11b0b79](11b0b793e309a74d5be8c66b30702bbe21a0763a))
+- Release workflow ([f4c585f](f4c585f7a807084248a6b3b447d632afc269fae8))
 
 ### Documentation
 
 - Add panic doc ([979c226](979c226d02319aca07b7de25af8b1dd4b3988c04))
-- Update roadmap ([f008d80](f008d809eaf646c0fb73f7e8d283ca265e31c1ed))
 
 ### Features
 
@@ -32,6 +34,7 @@ All notable changes to Phase4 will be documented in this file.
 - Make max client limit configurable ([f62b325](f62b32589003b9d0c9d5d1b1085ade2b2d6e33a1))
 - Add channel selection and StreamSink abstraction ([ec45a97](ec45a97aeff74215b1745a4e6a66e9ebd77a9323))
 - Add --analyse-channels and --record-channels CLI options ([b8efdb9](b8efdb964cc74e849d88f07487e1692795adf8ff))
+- Split release build jobs, gate macos on final tags only ([e8fffaa](e8fffaacb612cf4d7b670fb9444661892a3a61be))
 
 ### Refactor
 
