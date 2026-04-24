@@ -18,7 +18,7 @@ If you discover a security vulnerability, please report it responsibly.
 
 ## Verifying Signatures
 
-Release artefacts for Linux are signed with the project PGP key. The public key is available in the [`KEYS`](KEYS) file at the root of this repository.
+Release artefacts are signed with the project PGP key. The public key is available in the [`KEYS`](KEYS) file at the root of this repository.
 
 ### Import the public key
 
@@ -40,4 +40,4 @@ Each signed artefact has a corresponding `.asc` detached signature file included
 gpg --verify phase4-<version>-<target>.tar.gz.asc phase4-<version>-<target>.tar.gz
 ```
 
-A successful verification will show `Good signature from "Phase4 Release <ray.boyd@pm.me>"`.
+A successful verification will show `Good signature from "Ray Boyd (Phase4) <hi@rayboyd.co.uk>"`.
