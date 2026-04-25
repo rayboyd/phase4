@@ -182,18 +182,18 @@ jobs:
           done
           rm /tmp/minisign.key
 
-      - name: Cache cargo bin
-        uses: actions/cache@v5
+      - name: Install git-cliff
+        uses: taiki-e/install-action@v2
         with:
-          path: ~/.cargo/bin
-          key: ${{ runner.os }}-cargo-bin-git-cliff
+          tool: git-cliff@2.12.0
 
       - name: Generate release notes
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          command -v git-cliff || cargo install git-cliff --locked
-          git cliff --tag "${{ github.ref_name }}" --strip header -o RELEASE_NOTES.md
+          git cliff \
+            --offline \
+            --tag "${{ github.ref_name }}" \
+            --strip header \
+            -o RELEASE_NOTES.md
 
       - name: Create GitHub Release
         env:
@@ -210,7 +210,6 @@ jobs:
             $PRERELEASE_FLAG
 
       - name: Trigger phase4-web deploy
-        if: "!contains(github.ref_name, '-rc.')"
         run: |
           gh api repos/rayboyd/phase4-web/dispatches \
             --field event_type=binary-update
