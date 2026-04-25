@@ -29,7 +29,7 @@ _On Windows the binary will be called `phase4.exe`_
 
 ## Requirements
 
-Phase4 uses the platform's native audio driver, and requires a device whose default input configuration is `f32`. Most audio interfaces provide this natively. On Linux, install the ALSA development libraries before building.
+Phase4 uses the platform's native audio driver, and requires a device whose default input configuration is `f32`. Most audio interfaces provide this natively. On Linux, install the native audio build libraries before building.
 
 ### macOS
 
@@ -45,11 +45,11 @@ To build on Windows, you must install the Microsoft Visual C++ (MSVC) toolchain.
 
 Download the [Visual Studio Build Tools](https://visualstudio.microsoft.com/downloads/?q=build+tools). In the installer, check the box for Desktop development with C++. Ensure MSVC and Windows 10/11 SDK are selected in the installation details panel on the right.
 
-Once installation finishes, restart your PowerShell or Command Prompt to refresh your environment variables.
+Once installation finishes, restart your **PowerShell** or **Command Prompt** to refresh your environment variables.
 
 ### Linux
 
-On Ubuntu or Debian, install the native audio build dependencies. These are required for the `cpal` crate used by Phase4.
+On Ubuntu or Debian, install the native audio build dependencies.
 
 ```sh
 sudo apt-get update
@@ -65,9 +65,9 @@ sudo apt-get install -y libasound2-dev pkg-config
 
 **0.0.2**
 
-- Double-buffered recording to decouple ring drain latency from disk write latency, improving reliability on high channel count devices.
-- Local config file support (`~/.config/phase4/config.toml` or `.phase4.toml`) for device presets and persistent flag defaults.
 - `--monitor` mode: terminal peak level display per selected channel, for device inspection without a WebSocket client.
+- Local config file support (`~/.config/phase4/config.toml` or `.phase4.toml`) for device presets and persistent flag defaults.
+- Double-buffered recording to decouple ring drain latency from disk write latency, improving reliability on high channel count devices.
 
 ## Licence
 
