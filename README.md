@@ -8,6 +8,13 @@ Phase4 is a fast, lightweight audio analysis tool built for real-time audio visu
 
 It supports 64-bit 64-bit [macOS](#macos), [Windows](#windows) and [Linux](#linux).
 
+## Get Started
+
+## Tutorials
+
+- [WebSocket API](#todo)
+- [TouchDesigner](#todo)
+
 ## Compiling
 
 Install Rust with `rustup` from [rustup.rs](https://rustup.rs/). This repository pins the stable toolchain and required components in [rust-toolchain.toml](rust-toolchain.toml), once `rustup` is installed, `cargo` will use the right toolchain automatically in this directory.
@@ -16,28 +23,6 @@ Clone the repository, and build a release version of Phase4.
 
 ```sh
 cargo build --release --locked
-```
-
-## Usage
-
-Phase4 runs as an interactive terminal app. Once started, single key presses toggle features on and off. Status changes, warnings and recoverable errors are logged directly to the terminal.
-
-| Key      | Effect                     |
-| -------- | -------------------------- |
-| `A`      | Toggle audio analysis      |
-| `B`      | Toggle WebSocket broadcast |
-| `R`      | Toggle audio recording     |
-| `Ctrl+C` | Quit                       |
-
-```sh
-# List available input devices.
-phase4 --list
-
-# Start with device at index.
-phase4 -d <index>
-
-# Start with a specific WebSocket address and 16-bit recording.
-phase4 -d 0 -a 127.0.0.1:9000 -b 16
 ```
 
 _On Windows the binary will be called `phase4.exe`_
