@@ -67,7 +67,7 @@ sudo apt-get install -y libasound2-dev pkg-config
 
 **0.0.2**
 
-- Terminal displays peak levels per selected channel with `--monitor` flag. For inspection without a WebSocket client.
+- Terminal displays peak levels per selected channel with `--monitor` flag.
 - Local config file support for device presets and persistent flag defaults.
 - Analysis low CPU mode. `--low-cpu` selects 32 bands, default remains 64, possible 128 option? Explain spectral detail tradeoff vs smoothness in docs and tutorials.
 - Double-buffered recording to decouple ring drain latency from disk write latency, improving reliability on high channel count devices.

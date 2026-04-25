@@ -149,10 +149,12 @@ jobs:
     runs-on: ubuntu-latest
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Download all artifacts
         uses: actions/download-artifact@v8
@@ -185,11 +187,15 @@ jobs:
           key: ${{ runner.os }}-cargo-bin-git-cliff
 
       - name: Generate release notes
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           command -v git-cliff || cargo install git-cliff --locked
           git cliff --tag "${{ github.ref_name }}" --strip header -o RELEASE_NOTES.md
 
       - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           PRERELEASE_FLAG=""
           if [[ "${{ github.ref_name }}" == *"-rc."* ]]; then
