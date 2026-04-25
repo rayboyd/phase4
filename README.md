@@ -10,6 +10,8 @@ It supports 64-bit [macOS](#macos), [Windows](#windows) and [Linux](#linux).
 
 ## Get Started
 
+_Download notes, quickstart_
+
 ## Tutorials
 
 - [WebSocket API](docs/tutorials/websockets.md)
@@ -65,8 +67,8 @@ sudo apt-get install -y libasound2-dev pkg-config
 
 **0.0.2**
 
-- `--monitor` mode: terminal peak level display per selected channel, for device inspection without a WebSocket client.
-- Local config file support (`~/.config/phase4/config.toml` or `.phase4.toml`) for device presets and persistent flag defaults.
+- `--monitor` mode: terminal peak level display per selected channel, for inspection without a WebSocket client.
+- Local config file support for device presets and persistent flag defaults.
 - Analysis low CPU mode. `--low-cpu` selects 32 bands, default remains 64, possible 128 option? Explain spectral detail tradeoff vs smoothness in docs and tutorials.
 - Double-buffered recording to decouple ring drain latency from disk write latency, improving reliability on high channel count devices.
 
