@@ -67,7 +67,7 @@ sudo apt-get install -y libasound2-dev pkg-config
 
 - `--monitor` mode: terminal peak level display per selected channel, for device inspection without a WebSocket client.
 - Local config file support (`~/.config/phase4/config.toml` or `.phase4.toml`) for device presets and persistent flag defaults.
-- Analysis low CPU mode. `--low-cpu` selects 32 bands, default remains 64, possible 128 option? Explain spectral detail tradeoff vs smoothness in docs and tutorials..
+- Analysis low CPU mode. `--low-cpu` selects 32 bands, default remains 64, possible 128 option? Explain spectral detail tradeoff vs smoothness in docs and tutorials.
 - Double-buffered recording to decouple ring drain latency from disk write latency, improving reliability on high channel count devices.
 
 ## Licence
