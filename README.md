@@ -6,14 +6,16 @@
 
 Phase4 is a fast, lightweight audio analysis tool built for real-time audio visualization. Any WebSocket capable tooling, such as [TouchDesigner](https://derivative.ca/) or a browser using the [WebSocket API](https://developer.mozilla.org/en-US/docs/Web/API/WebSockets_API), can connect to the Phase4 server.
 
-It supports 64-bit 64-bit [macOS](#macos), [Windows](#windows) and [Linux](#linux).
+It supports 64-bit [macOS](#macos), [Windows](#windows) and [Linux](#linux).
 
 ## Get Started
 
+_Download notes, quickstart_
+
 ## Tutorials
 
-- [WebSocket API](#todo)
-- [TouchDesigner](#todo)
+- [WebSocket API](docs/tutorials/websockets.md)
+- [TouchDesigner](docs/tutorials/touchdesigner.md)
 
 ## Compiling
 
@@ -65,8 +67,8 @@ sudo apt-get install -y libasound2-dev pkg-config
 
 **0.0.2**
 
-- `--monitor` mode: terminal peak level display per selected channel, for device inspection without a WebSocket client.
-- Local config file support (`~/.config/phase4/config.toml` or `.phase4.toml`) for device presets and persistent flag defaults.
+- `--monitor` mode: terminal peak level display per selected channel, for inspection without a WebSocket client.
+- Local config file support for device presets and persistent flag defaults.
 - Analysis low CPU mode. `--low-cpu` selects 32 bands, default remains 64, possible 128 option? Explain spectral detail tradeoff vs smoothness in docs and tutorials.
 - Double-buffered recording to decouple ring drain latency from disk write latency, improving reliability on high channel count devices.
 
