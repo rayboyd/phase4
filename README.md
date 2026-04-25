@@ -4,7 +4,7 @@
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://github.com/rayboyd/phase4/blob/main/LICENSE)
 [![Security Policy](https://img.shields.io/badge/Security-Policy-green.svg)](https://github.com/rayboyd/phase4/blob/main/SECURITY.md)
 
-Phase4 is a fast, lightweight audio analyser built for real-time work. It supports 64-bit [macOS](#macos), [Windows](#windows) and [Linux](#linux).
+Phase4 is a fast, lightweight audio analysis tool built for real-time audio visualization. It supports 64-bit 64-bit [macOS](#macos), [Windows](#windows) and [Linux](#linux).
 
 ## Compiling
 
