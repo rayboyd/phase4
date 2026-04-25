@@ -147,6 +147,8 @@ jobs:
     needs: [validate, build-linux, build-macos]
     if: always() && needs.build-linux.result == 'success' && (needs.build-macos.result == 'success' || needs.build-macos.result == 'skipped')
     runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -198,8 +200,6 @@ jobs:
             --title "${{ github.ref_name }}" \
             --notes-file RELEASE_NOTES.md \
             $PRERELEASE_FLAG
-        env:
-          GH_TOKEN: ${{ github.token }}
 
       - name: Trigger phase4-web deploy
         if: "!contains(github.ref_name, '-rc.')"
