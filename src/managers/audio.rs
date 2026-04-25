@@ -4,8 +4,8 @@
 //! two SPSC ringbuf producers, one for the recorder and one for the analyser.
 //!
 //! The stream callback pushes f32 frames to both producers. If the record
-//! producer cannot accept the full slice, one record ring overflow event is counted
-//! so the controller can surface a warning to the operator.
+//! producer cannot accept the full slice, one record ring overflow event is
+//! counted so the controller can surface a warning to the console.
 //!
 //! [`Specs`] carries the hardware's native channel count and sample rate and
 //! is used throughout the pipeline for buffer sizing.
@@ -125,6 +125,44 @@ impl Input {
         ringbuf::HeapRb::<f32>::new(capacity.next_power_of_two()).split()
     }
 
+    /// Queries the system for all available audio input devices.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the host audio system cannot enumerate input devices.
+    pub fn list_devices() -> Result<()> {
+        let host = cpal::default_host();
+        let devices = host
+            .input_devices()
+            .context("Failed to query input devices")?;
+
+        let mut devices_found = false;
+        for (index, device) in devices.enumerate() {
+            devices_found = true;
+            let name = device
+                .description()
+                .map_or_else(|_| "Unknown Device".to_string(), |d| d.name().to_string());
+
+            if let Ok(config) = device.default_input_config() {
+                log::info!(
+                    "[{}] {} ({}Hz, {}ch)",
+                    index,
+                    name,
+                    config.sample_rate(),
+                    config.channels(),
+                );
+            } else {
+                log::warn!("[{index}] {name} (Configuration unavailable)");
+            }
+        }
+
+        if !devices_found {
+            log::warn!("[*] No input devices detected. Check system permissions");
+        }
+
+        Ok(())
+    }
+
     /// Retrieves a concrete handle to the device and its default info. This allows
     /// the App to size ringbufs before starting the stream callback (hotpath).
     ///
@@ -213,44 +251,6 @@ impl Input {
 
         stream.play()?;
         self.active_stream = Some(stream);
-
-        Ok(())
-    }
-
-    /// Queries the system for all available audio input devices.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the host audio system cannot enumerate input devices.
-    pub fn list_devices() -> Result<()> {
-        let host = cpal::default_host();
-        let devices = host
-            .input_devices()
-            .context("Failed to query input devices")?;
-
-        let mut devices_found = false;
-        for (index, device) in devices.enumerate() {
-            devices_found = true;
-            let name = device
-                .description()
-                .map_or_else(|_| "Unknown Device".to_string(), |d| d.name().to_string());
-
-            if let Ok(config) = device.default_input_config() {
-                log::info!(
-                    "[{}] {} ({}Hz, {}ch)",
-                    index,
-                    name,
-                    config.sample_rate(),
-                    config.channels(),
-                );
-            } else {
-                log::warn!("[{index}] {name} (Configuration unavailable)");
-            }
-        }
-
-        if !devices_found {
-            log::warn!("[*] No input devices detected. Check system permissions");
-        }
 
         Ok(())
     }
