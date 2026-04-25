@@ -4,7 +4,9 @@
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://github.com/rayboyd/phase4/blob/main/LICENSE)
 [![Security Policy](https://img.shields.io/badge/Security-Policy-green.svg)](https://github.com/rayboyd/phase4/blob/main/SECURITY.md)
 
-Phase4 is a fast, lightweight audio analysis tool built for real-time audio visualization. Any WebSocket-capable client, such as [TouchDesigner](https://derivative.ca/) or a browser using the [WebSocket API](https://developer.mozilla.org/en-US/docs/Web/API/WebSockets_API), can connect to the Phase4 server. It supports 64-bit 64-bit [macOS](#macos), [Windows](#windows) and [Linux](#linux).
+Phase4 is a fast, lightweight audio analysis tool built for real-time audio visualization. Any WebSocket capable tooling, such as [TouchDesigner](https://derivative.ca/) or a browser using the [WebSocket API](https://developer.mozilla.org/en-US/docs/Web/API/WebSockets_API), can connect to the Phase4 server.
+
+It supports 64-bit 64-bit [macOS](#macos), [Windows](#windows) and [Linux](#linux).
 
 ## Compiling
 
@@ -69,24 +71,16 @@ sudo apt-get update
 sudo apt-get install -y libasound2-dev pkg-config
 ```
 
-### Git
-
-Install the hooks used by this project.
-
-```sh
-git config core.hooksPath .githooks
-```
-
 ## Roadmap
 
 **0.0.1**
 
-[#8](https://github.com/rayboyd/phase4/pull/8) - ~~Runtime channel selection flags for the analyser and recorder~~
+- [#8](https://github.com/rayboyd/phase4/pull/8) - ~~Runtime channel selection flags for the analyser and recorder~~
+- Local config file support (`~/.config/phase4/config.toml` or `.phase4.toml`) for device presets and persistent flag defaults.
 
 **0.0.2**
 
 - Double-buffered recording to decouple ring drain latency from disk write latency, improving reliability on high channel count devices.
-- Local config file support (`~/.config/phase4/config.toml` or `.phase4.toml`) for device presets and persistent flag defaults.
 - `--monitor` mode: terminal peak level display per selected channel, for device inspection without a WebSocket client.
 
 ## Licence
