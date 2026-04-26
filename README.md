@@ -42,9 +42,46 @@ Launch Phase4 using your device index (e.g., index 0).
 > [INFO] WebSocket server listening on ws://127.0.0.1:8889
 ```
 
+_Press `A` to start analysis and `B` to start broadcasting. No harm done if you forget, but you will not get any data._
+
 ### Connect
 
 Point your WebSocket client (like TouchDesigner or a browser) to `ws://127.0.0.1:8889`.
+
+Copy this into a `.html` file to see the data in action. No dependencies required.
+
+```html
+<canvas id="viz" width="800" height="300" style="background:#111;"></canvas>
+
+<script>
+  const canvas = document.getElementById("viz");
+  const ctx = canvas.getContext("2d");
+  const ws = new WebSocket("ws://127.0.0.1:8889");
+
+  ws.onmessage = (event) => {
+    const { channels } = JSON.parse(event.data);
+    if (!channels?.length) return;
+
+    const bins = channels[0].bins;
+    const barWidth = canvas.width / bins.length;
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    bins.forEach((val, i) => {
+      // Apply a gentle perceptual scale to compensate for high-frequency bin energy drop-off.
+      const scale = 1 + i * 0.05;
+      const barHeight = val * canvas.height * scale;
+      ctx.fillStyle = `hsl(${(i / bins.length) * 360}, 80%, 60%)`;
+      ctx.fillRect(
+        i * barWidth,
+        canvas.height - barHeight,
+        barWidth - 1,
+        barHeight,
+      );
+    });
+  };
+</script>
+```
 
 #### Tutorials
 
