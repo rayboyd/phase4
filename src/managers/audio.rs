@@ -144,12 +144,22 @@ impl Input {
                 .map_or_else(|_| "Unknown Device".to_string(), |d| d.name().to_string());
 
             if let Ok(config) = device.default_input_config() {
+                let format = config.sample_format();
+                let is_f32 = format == cpal::SampleFormat::F32;
+                let status = if is_f32 {
+                    ""
+                } else {
+                    "* No hardware support (32-bit required)"
+                };
+
                 log::info!(
-                    "[{}] {} ({}Hz, {}ch)",
+                    "[{}] {} ({}Hz, {}ch, {:?}) {}",
                     index,
                     name,
                     config.sample_rate(),
                     config.channels(),
+                    format,
+                    status
                 );
             } else {
                 log::warn!("[{index}] {name} (Configuration unavailable)");

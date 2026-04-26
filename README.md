@@ -6,13 +6,25 @@
 
 Phase4 is a fast, lightweight audio analysis tool built for real-time audio visualization. Any WebSocket capable tooling, such as [TouchDesigner](https://derivative.ca/) or a browser using the [WebSocket API](https://developer.mozilla.org/en-US/docs/Web/API/WebSockets_API), can connect to the Phase4 server.
 
-It supports 64-bit [macOS](#macos), [Windows](#windows) and [Linux](#linux).
+It supports 64-bit [macOS](#macos), [Windows](#windows) and [Linux](#linux). Check the [platform requirements section](#platform-requirements) of this document if you intend to build Phase4 from source.
 
-## Get Started
+## Quickstart
 
-_Download notes, quickstart_
+**Check** - Run Phase4 to see available devices and ensure your interface is set to 32-bit Float.
 
-## Tutorials
+```sh
+./phase4 --list
+```
+
+**Serve** - Launch Phase4 using your device index (e.g., index 0).
+
+```sh
+./phase4 --device 0
+```
+
+**Connect** - Point your WebSocket client (like TouchDesigner or a browser) to `ws://127.0.0.1:8889`.
+
+### Tutorials
 
 - [WebSocket API](docs/tutorials/websockets.md)
 - [TouchDesigner](docs/tutorials/touchdesigner.md)
@@ -29,9 +41,22 @@ cargo build --release --locked
 
 _On Windows the binary will be called `phase4.exe`_
 
-## Requirements
+## Platform Requirements
 
-Phase4 uses the platform's native audio driver, and requires a device whose default input configuration is `f32`. Most audio interfaces provide this natively. On Linux, install the native audio build libraries before building.
+Phase4 uses your system’s native audio drivers. To work correctly, your audio interface or microphone must be set to **32-bit Float** input mode. Most modern interfaces support this by default.
+
+_If Phase4 doesn't detect your device, check your OS sound settings (e.g., Windows Sound Control Panel or macOS Audio MIDI Setup) to ensure the format is set to "32-bit Float"._
+
+### Linux
+
+Phase4 requires the ALSA (Advanced Linux Sound Architecture) development headers. On Ubuntu, Debian, and similar, you can install the necessary build dependencies with.
+
+```sh
+sudo apt-get update
+sudo apt-get install -y libasound2-dev pkg-config
+```
+
+_If you are on a very recent distribution (e.g., Ubuntu 24.04+) and the above fails, ensure your package manager is pointing to the updated libasound2 development headers._
 
 ### macOS
 
@@ -48,15 +73,6 @@ To build on Windows, you must install the Microsoft Visual C++ (MSVC) toolchain.
 Download the [Visual Studio Build Tools](https://visualstudio.microsoft.com/downloads/?q=build+tools). In the installer, check the box for Desktop development with C++. Ensure MSVC and Windows 10/11 SDK are selected in the installation details panel on the right.
 
 Once installation finishes, restart your PowerShell or Command Prompt to refresh your environment variables.
-
-### Linux
-
-On Ubuntu or Debian, install the native audio build dependencies.
-
-```sh
-sudo apt-get update
-sudo apt-get install -y libasound2-dev pkg-config
-```
 
 ## Roadmap
 
