@@ -4,15 +4,24 @@
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://github.com/rayboyd/phase4/blob/main/LICENSE)
 [![Security Policy](https://img.shields.io/badge/Security-Policy-green.svg)](https://github.com/rayboyd/phase4/blob/main/SECURITY.md)
 
-Phase4 is a fast, lightweight audio analysis tool built for real-time audio visualisation. Any WebSocket capable tooling, such as [TouchDesigner](https://derivative.ca/) or a browser using the [WebSocket API](https://developer.mozilla.org/en-US/docs/Web/API/WebSockets_API), can connect to the Phase4 server.
+Phase4 is a fast, lightweight audio analysis tool built for real-time audio visualisation. Any WebSocket-capable tooling, such as [TouchDesigner](https://derivative.ca/) or a browser using the [WebSocket API](https://developer.mozilla.org/en-US/docs/Web/API/WebSockets_API), can connect to the Phase4 server.
 
 Check the [platform requirements section](#platform-requirements) of this document if you intend to build Phase4 from source.
 
 Phase4 supports 64-bit [macOS](#macos), [Windows](#windows) and [Linux](#linux).
 
+## Tutorials
+
+- [WebSocket API](docs/tutorials/websockets.md)
+- [TouchDesigner](docs/tutorials/touchdesigner.md)
+
 ## Quickstart
 
-Check, serve and connect. Compile from source or grab the latest binary from the [releases page](https://github.com/rayboyd/phase4/releases/latest) to get started.
+Compile from source or grab the latest binary from the [releases page](https://github.com/rayboyd/phase4/releases/latest) to get started.
+
+1. [Check](#check) hardware compatibility.
+2. Select a device and [serve](#serve) analysis data.
+3. [Connect](#connect) a client to the server.
 
 ### Check
 
@@ -83,11 +92,6 @@ Copy this into a `.html` file to see the data in action. No dependencies require
 </script>
 ```
 
-#### Tutorials
-
-- [WebSocket API](docs/tutorials/websockets.md)
-- [TouchDesigner](docs/tutorials/touchdesigner.md)
-
 ## Compiling
 
 Install Rust with `rustup` from [rustup.rs](https://rustup.rs/). This repository pins the stable toolchain and required components in [rust-toolchain.toml](rust-toolchain.toml), once `rustup` is installed, `cargo` will use the right toolchain automatically in this directory.
@@ -108,10 +112,10 @@ Higher bin counts increase spectral detail but also CPU cost and data payload, a
 
 | Feature            | Bands | Why.                               |
 | :----------------- | :---- | :--------------------------------- |
-| `display-bins-32`  | 32    | Least spectral detail. lowest cpu. |
+| `display-bins-32`  | 32    | Least spectral detail. lowest CPU. |
 | `display-bins-64`  | 64    |                                    |
 | `display-bins-128` | 128   |                                    |
-| `display-bins-256` | 256   | Most spectral detail. highest cpu. |
+| `display-bins-256` | 256   | Most spectral detail. highest CPU. |
 
 ```sh
 # Default (64 bands)
