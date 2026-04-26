@@ -12,7 +12,7 @@ Phase4 supports 64-bit [macOS](#macos), [Windows](#windows) and [Linux](#linux).
 
 ## Quickstart
 
-Grab the latest binary from the [releases page](https://github.com/rayboyd/phase4/releases/latest) to get started on macOS or Linux, or [compile from source](docs/tutorials/compile.md) if you need a non-default bin resolution.
+Pre-built binaries for macOS and Linux are on the [releases page](https://github.com/rayboyd/phase4/releases/latest). Windows users need to [compile from source](docs/tutorials/compile.md). Compiling is also the route if you want a non-default band resolution.
 
 1. [Check](#check) hardware compatibility.
 2. Select a device and [serve](#serve) analysis data.
@@ -26,7 +26,7 @@ List available input devices to find your device index and confirm 32-bit Float 
 ./phase4 --list
 ```
 
-```sh
+```
 > [INFO] [0] Soundcard One (16000Hz, 1ch, I16) * No hardware support (32-bit required)
 > [INFO] [1] Soundcard Two (48000Hz, 2ch, F32)
 ```
@@ -41,7 +41,7 @@ Launch Phase4 using your device index (e.g., index 0).
 ./phase4 --device 0
 ```
 
-```sh
+```
 > [INFO] 'A' to analyse, 'B' to broadcast, 'R' to record, Ctrl+C to exit
 > [INFO] WebSocket server listening on ws://127.0.0.1:8889
 ```
