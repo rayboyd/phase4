@@ -6,7 +6,9 @@
 
 Phase4 is a fast, lightweight audio analysis tool built for real-time audio visualisation. Any WebSocket capable tooling, such as [TouchDesigner](https://derivative.ca/) or a browser using the [WebSocket API](https://developer.mozilla.org/en-US/docs/Web/API/WebSockets_API), can connect to the Phase4 server.
 
-Check the [platform requirements section](#platform-requirements) of this document if you intend to build Phase4 from source. Phase4 supports 64-bit [macOS](#macos), [Windows](#windows) and [Linux](#linux).
+Check the [platform requirements section](#platform-requirements) of this document if you intend to build Phase4 from source.
+
+Phase4 supports 64-bit [macOS](#macos), [Windows](#windows) and [Linux](#linux).
 
 ## Quickstart
 
@@ -14,18 +16,18 @@ Check, serve and connect. Compile from source or grab the latest binary from the
 
 ### Check
 
-Run Phase4 to see available devices and ensure your interface is set to 32-bit Float.
+List available input devices to find your device index and confirm 32-bit Float support.
 
 ```sh
 ./phase4 --list
 ```
 
-> If a device is not supported, you'll see **No hardware support (32-bit required)** in the terminal output.
-
 ```sh
-[INFO] [0] Soundcard One (16000Hz, 1ch, I16) * No hardware support (32-bit required)
-[INFO] [1] Soundcard Two (48000Hz, 2ch, F32)
+> [INFO] [0] Soundcard One (16000Hz, 1ch, I16) * No hardware support (32-bit required)
+> [INFO] [1] Soundcard Two (48000Hz, 2ch, F32)
 ```
+
+_If a device is not supported, you'll see **No hardware support (32-bit required)** in the terminal output._
 
 ### Serve
 
@@ -33,6 +35,11 @@ Launch Phase4 using your device index (e.g., index 0).
 
 ```sh
 ./phase4 --device 0
+```
+
+```sh
+> [INFO] 'A' to analyse, 'B' to broadcast, 'R' to record, Ctrl+C to exit
+> [INFO] WebSocket server listening on ws://127.0.0.1:8889
 ```
 
 ### Connect
