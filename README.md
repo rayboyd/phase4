@@ -26,9 +26,15 @@ List available input devices to find your device index and confirm 32-bit Float 
 ./phase4 --list
 ```
 
+Core Audio, the macOS audio subsystem, works internally with 32-bit Float and typically presents devices (including the built-in microphone) as F32 to applications. So running `./phase4 --list` on a MacBook will almost certainly show the built-in mic as F32-capable.
+
+The output from my _MacBook Pro M4_ is as follows.
+
 ```
-> [INFO] [0] Soundcard One (16000Hz, 1ch, I16) * No hardware support (32-bit required)
-> [INFO] [1] Soundcard Two (48000Hz, 2ch, F32)
+> [INFO] [0] Test Soundcard One (16000Hz, 1ch, I16) * No hardware support (32-bit required)
+> [INFO] [1] Duet 3 (48000Hz, 2ch, F32)
+> [INFO] [2] MacBook Pro Microphone (48000Hz, 1ch, F32)
+> [INFO] [3] Microsoft Teams Audio (48000Hz, 2ch, F32)
 ```
 
 _If a device is not supported, you'll see **No hardware support (32-bit required)** in the terminal output._
@@ -60,6 +66,7 @@ If Phase4 is broadcasting, check this [CodePen example](https://codepen.io/raybo
 - _todo_ [Node.js](docs/tutorials/nodejs.md)
 - _todo_ [Python](docs/tutorials/touchdesigner.md)
 - _todo_ [TouchDesigner](docs/tutorials/touchdesigner.md)
+- _todo_ [Virtual Soundcards with Blackhole](docs/tutorials/blackhole.md)
 
 ## Roadmap
 
@@ -70,6 +77,7 @@ If Phase4 is broadcasting, check this [CodePen example](https://codepen.io/raybo
 - Node.js tutorial.
 - Python tutorial.
 - TouchDesigner tutorial.
+- Blackhole virtual soundcard tutorial.
 
 **0.0.2**
 
