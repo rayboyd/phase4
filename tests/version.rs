@@ -27,6 +27,7 @@ fn long_version_contains_build_metadata() {
     let git_metadata = parts.next().expect("git metadata should be present");
     let build_metadata = parts.next().expect("build timestamp should be present");
     let arch_metadata = parts.next().expect("target arch should be present");
+    let bins_metadata = parts.next().expect("bin build metadata should be present");
 
     assert!(
         long.starts_with(env!("CARGO_PKG_VERSION")),
@@ -38,7 +39,7 @@ fn long_version_contains_build_metadata() {
     );
     assert!(
         parts.next().is_none(),
-        "long_version should contain exactly three metadata parts, got: {long}"
+        "long_version should contain exactly four metadata parts, got: {long}"
     );
 
     let build_timestamp = build_metadata
@@ -52,5 +53,12 @@ fn long_version_contains_build_metadata() {
         arch_metadata,
         format!("arch {}", std::env::consts::ARCH),
         "long_version should include target arch, got: {long}"
+    );
+    let bin_count = bins_metadata
+        .strip_suffix("-bin build")
+        .expect("bins metadata should end with '-bin build'");
+    assert!(
+        bin_count.parse::<u32>().is_ok(),
+        "bin count should be a positive integer, got: {long}"
     );
 }

@@ -183,7 +183,7 @@ mod tests {
 
         assert!(
             (measured_freq - f64::from(test_hz)).abs() < tolerance,
-            "expected {test_hz} Hz, measured {measured_freq:.2} Hz (tolerance {tolerance:.2} Hz)",
+            "expected {test_hz}Hz, measured {measured_freq:.2}Hz (tolerance {tolerance:.2}Hz)",
         );
     }
 
@@ -314,12 +314,12 @@ mod tests {
 
         assert!(
             min_freq >= sweep_floor - floor_tolerance,
-            "minimum measured frequency {min_freq:.1} Hz is below the 20 Hz floor",
+            "minimum measured frequency {min_freq:.1}Hz is below the 20 Hz floor",
         );
         assert!(
             max_freq <= quantised_ceiling,
-            "maximum measured frequency {max_freq:.1} Hz exceeds \
-             the quantised ceiling {quantised_ceiling:.0} Hz",
+            "maximum measured frequency {max_freq:.1}Hz exceeds \
+             the quantised ceiling {quantised_ceiling:.0}Hz",
         );
     }
 }
