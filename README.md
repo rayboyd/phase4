@@ -12,7 +12,7 @@ Phase4 supports 64-bit [macOS](#macos), [Windows](#windows) and [Linux](#linux).
 
 ## Quickstart
 
-Grab the latest stable binary from the [releases page](https://github.com/rayboyd/phase4/releases/latest) to get started on macOS or Linux. Or you can [compile](docs/tutorials/compile.md) from source.
+Grab the latest binary from the [releases page](https://github.com/rayboyd/phase4/releases/latest) to get started on macOS or Linux, or [compile from source](docs/tutorials/compile.md) if you need a non-default bin resolution.
 
 1. [Check](#check) hardware compatibility.
 2. Select a device and [serve](#serve) analysis data.
