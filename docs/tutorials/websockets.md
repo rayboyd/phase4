@@ -10,7 +10,7 @@ Phase4 streams real-time audio analysis data as a JSON broadcast. Any tool capab
 - **Protocol:** Standard WebSocket
 - **Format:** JSON (UTF-8)
 
-> If you run Phase4 with the `--no-browser-origin` flag, standard browser-based connections will be rejected.
+> Note: If you run Phase4 with the `--no-browser-origin` flag, standard browser-based connections will be rejected.
 
 ## Data Structure
 
@@ -34,7 +34,7 @@ Every message is a JSON object containing a `channels` array.
 
 ## JavaScript Example
 
-Copy this into a `.html` file to or check this [Codepen example](https://codepen.io/rayboyd/full/wBzOPPr) to see the data in action. No dependencies required.
+Copy this into a `.html` file, or check this [CodePen example](https://codepen.io/rayboyd/full/wBzOPPr) to see the data in action. No dependencies required.
 
 ```html
 <canvas id="viz" width="800" height="300" style="background:#111;"></canvas>

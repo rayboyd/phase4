@@ -10,11 +10,6 @@ Check the [platform requirements section](#platform-requirements) of this docume
 
 Phase4 supports 64-bit [macOS](#macos), [Windows](#windows) and [Linux](#linux).
 
-## Tutorials
-
-- [WebSocket API](docs/tutorials/websockets.md)
-- [TouchDesigner](docs/tutorials/touchdesigner.md)
-
 ## Quickstart
 
 Compile from source or grab the latest binary from the [releases page](https://github.com/rayboyd/phase4/releases/latest) to get started.
@@ -55,44 +50,14 @@ _Press `A` to start analysis and `B` to start broadcasting. No harm done if you 
 
 ### Connect
 
-Point your WebSocket client (like [TouchDesigner](https://derivative.ca/) or a browser) to `ws://127.0.0.1:8889` to start receiving the data.
+Phase4 streams real-time audio analysis data as a JSON broadcast. Any tool capable of opening a standard WebSocket connection (including browsers, Node.js, Python, or creative coding environments like TouchDesigner) can consume this stream. Point your WebSocket client to `ws://127.0.0.1:8889` to start receiving the data.
 
-#### JavaScript Example
+If Phase4 is broadcasting, check this [CodePen example](https://codepen.io/rayboyd/full/wBzOPPr) to see the server in action.
 
-Copy this into a `.html` file to or check this [Codepen example](https://codepen.io/rayboyd/full/wBzOPPr) to see the data in action. No dependencies required.
+## Tutorials
 
-```html
-<canvas id="viz" width="800" height="300" style="background:#111;"></canvas>
-
-<script>
-  const canvas = document.getElementById("viz");
-  const ctx = canvas.getContext("2d");
-  const ws = new WebSocket("ws://127.0.0.1:8889");
-
-  ws.onmessage = (event) => {
-    const { channels } = JSON.parse(event.data);
-    if (!channels?.length) return;
-
-    const bins = channels[0].bins;
-    const barWidth = canvas.width / bins.length;
-
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-    bins.forEach((val, i) => {
-      // Apply a gentle perceptual scale to compensate for high-frequency bin energy drop-off.
-      const scale = 1 + i * 0.05;
-      const barHeight = val * canvas.height * scale;
-      ctx.fillStyle = `hsl(${(i / bins.length) * 360}, 80%, 60%)`;
-      ctx.fillRect(
-        i * barWidth,
-        canvas.height - barHeight,
-        barWidth - 1,
-        barHeight,
-      );
-    });
-  };
-</script>
-```
+- [WebSocket API](docs/tutorials/websockets.md)
+- [TouchDesigner](docs/tutorials/touchdesigner.md)
 
 ## Compiling
 
@@ -172,7 +137,7 @@ Once installation finishes, restart your PowerShell or Command Prompt to refresh
 
 - Terminal displays peak levels per selected channel with `--monitor` flag.
 - Local config file support for device presets and persistent flag defaults.
-- Analysis low CPU mode. `--low-cpu` selects 32 bands, default remains 64, possible 128 option? Explain spectral detail tradeoff vs smoothness in docs and tutorials.
+- Analysis low CPU mode. `--low-cpu` selects 32 bands, default remains 64, possible 128 option? Explain spectral detail trade-off vs smoothness in docs and tutorials.
 - Double-buffered recording to decouple ring drain latency from disk write latency, improving reliability on high channel count devices.
 - Add a dedicated `docs/troubleshooting.md` with OS-specific content, i.e. toggling 32-bit Float in Windows/macOS sound settings.
 
