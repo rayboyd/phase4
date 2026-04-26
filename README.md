@@ -16,6 +16,13 @@ It supports 64-bit [macOS](#macos), [Windows](#windows) and [Linux](#linux). Che
 ./phase4 --list
 ```
 
+If a device is not supported, you'll see _No hardware support (32-bit required)_ in the terminal output.
+
+```sh
+[INFO] [0] Soundcard One (16000Hz, 1ch, I16) * No hardware support (32-bit required)
+[INFO] [1] Soundcard Two (48000Hz, 2ch, F32)
+```
+
 **Serve** - Launch Phase4 using your device index (e.g., index 0).
 
 ```sh
@@ -49,7 +56,7 @@ _If Phase4 doesn't detect your device, check your OS sound settings (e.g., Windo
 
 ### Linux
 
-Phase4 requires the ALSA (Advanced Linux Sound Architecture) development headers. On Ubuntu, Debian, and similar, you can install the necessary build dependencies with.
+Phase4 requires the ALSA (Advanced Linux Sound Architecture) development headers. On Ubuntu, Debian, and similar, you should install the necessary build dependencies.
 
 ```sh
 sudo apt-get update
