@@ -55,9 +55,11 @@ _Press `A` to start analysis and `B` to start broadcasting. No harm done if you 
 
 ### Connect
 
-Point your WebSocket client (like TouchDesigner or a browser) to `ws://127.0.0.1:8889`.
+Point your WebSocket client (like [TouchDesigner](https://derivative.ca/) or a browser) to `ws://127.0.0.1:8889` to start receiving the data.
 
-Copy this into a `.html` file to see the data in action. No dependencies required.
+#### JavaScript Example
+
+Copy this into a `.html` file to or check this [Codepen example](https://codepen.io/rayboyd/full/wBzOPPr) to see the data in action. No dependencies required.
 
 ```html
 <canvas id="viz" width="800" height="300" style="background:#111;"></canvas>
@@ -163,7 +165,8 @@ Once installation finishes, restart your PowerShell or Command Prompt to refresh
 **0.0.1**
 
 - [#8](https://github.com/rayboyd/phase4/pull/8) - ~~Runtime channel selection flags for the analyser and recorder~~
-- Documentation required for launch. Quickstart, WebSocket API, TouchDesigner.
+- Documentation required for launch. Quickstart, WebSocket API, Readme.
+- Completed tutorials for launch. WebSocket API, TouchDesigner.
 
 **0.0.2**
 
