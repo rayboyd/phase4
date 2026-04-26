@@ -180,7 +180,7 @@ impl Server {
                         continue;
                     };
 
-                    log::info!("WebSocket client connected from {client_addr}");
+                    log::debug!("WebSocket client connected from {client_addr}");
                     join_set.spawn(Self::handle_client(
                         stream,
                         client_addr,
@@ -239,7 +239,7 @@ impl Server {
         // the next mapper publish before rendering.
         let initial_json: Utf8Bytes = watch_rx.borrow_and_update().clone();
         if ws_stream.send(Message::Text(initial_json)).await.is_err() {
-            log::info!("WebSocket client disconnected: {addr}");
+            log::debug!("WebSocket client disconnected: {addr}");
             return;
         }
 
@@ -260,7 +260,7 @@ impl Server {
             let msg = Message::Text(json);
 
             if ws_stream.send(msg).await.is_err() {
-                log::info!("WebSocket client disconnected: {addr}");
+                log::debug!("WebSocket client disconnected: {addr}");
                 return;
             }
         }

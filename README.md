@@ -47,7 +47,7 @@ To build on Windows, you must install the Microsoft Visual C++ (MSVC) toolchain.
 
 Download the [Visual Studio Build Tools](https://visualstudio.microsoft.com/downloads/?q=build+tools). In the installer, check the box for Desktop development with C++. Ensure MSVC and Windows 10/11 SDK are selected in the installation details panel on the right.
 
-Once installation finishes, restart your **PowerShell** or **Command Prompt** to refresh your environment variables.
+Once installation finishes, restart your PowerShell or Command Prompt to refresh your environment variables.
 
 ### Linux
 
