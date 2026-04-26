@@ -6,9 +6,11 @@
 
 Phase4 is a fast, lightweight audio analysis tool built for real-time audio visualisation. Any WebSocket capable tooling, such as [TouchDesigner](https://derivative.ca/) or a browser using the [WebSocket API](https://developer.mozilla.org/en-US/docs/Web/API/WebSockets_API), can connect to the Phase4 server.
 
-It supports 64-bit [macOS](#macos), [Windows](#windows) and [Linux](#linux). Check the [platform requirements section](#platform-requirements) of this document if you intend to build Phase4 from source.
+Check the [platform requirements section](#platform-requirements) of this document if you intend to build Phase4 from source. Phase4 supports 64-bit [macOS](#macos), [Windows](#windows) and [Linux](#linux).
 
 ## Quickstart
+
+Check, serve and connect. Compile from source or grab the latest binary from the [releases page](https://github.com/rayboyd/phase4/releases/latest) to get started.
 
 ### Check
 
@@ -37,10 +39,6 @@ Launch Phase4 using your device index (e.g., index 0).
 
 Point your WebSocket client (like TouchDesigner or a browser) to `ws://127.0.0.1:8889`.
 
-### Build
-
-Check the [WebSocket](docs/tutorials/websockets.md) guide to quickly get up and running. Or explore the various [examples](docs/examples).
-
 #### Tutorials
 
 - [WebSocket API](docs/tutorials/websockets.md)
@@ -60,7 +58,9 @@ cargo build --release --locked
 
 ### Feature flags
 
-The analyser FFT output resolution is set at compile time via a feature flag.
+The analyser FFT output resolution is set at compile time via a feature flag. For most use cases, `display-bins-64` (the default) is the right choice.
+
+Higher bin counts increase spectral detail but also CPU cost and data payload, and the visual difference is often imperceptible. Tuning `--vocoder-attack-ms` and `--vocoder-release-ms` to control envelope responsiveness is usually more effective at shaping the output than increasing bin count. For example, a slow release combined with 32 bins produces a tailed, ambient wash in the data that can be exactly what generative visuals need.
 
 | Feature            | Bands | Why.                               |
 | :----------------- | :---- | :--------------------------------- |
@@ -68,8 +68,6 @@ The analyser FFT output resolution is set at compile time via a feature flag.
 | `display-bins-64`  | 64    |                                    |
 | `display-bins-128` | 128   |                                    |
 | `display-bins-256` | 256   | Most spectral detail. highest cpu. |
-
-> For most use cases, `display-bins-64` (the default) is the right choice. Higher bin counts increase spectral detail but also CPU cost, and the visual difference is often imperceptible. Start at 64 and only go higher if you have a specific reason to.
 
 ```sh
 # Default (64 bands)
@@ -83,7 +81,7 @@ cargo build --release --locked --no-default-features --features display-bins-128
 
 Phase4 uses your system’s native audio drivers. To work correctly, your audio interface or microphone must be set to **32-bit Float** input mode. Most modern interfaces support this by default.
 
-> If Phase4 doesn't detect your device, check your OS sound settings (e.g., Windows Sound Control Panel or macOS Audio MIDI Setup) to ensure the format is set to "32-bit Float".
+If Phase4 doesn't detect your device, check your OS sound settings (e.g., Windows Sound Control Panel or macOS Audio MIDI Setup) to ensure the format is set to "32-bit Float".
 
 ### Linux
 
@@ -94,7 +92,7 @@ sudo apt-get update
 sudo apt-get install -y libasound2-dev pkg-config
 ```
 
-> If you are on a very recent distribution (e.g., Ubuntu 24.04+) and the above fails, ensure your package manager is pointing to the updated libasound2 development headers.
+If you are on a very recent distribution (e.g., Ubuntu 24.04+) and the above fails, ensure your package manager is pointing to the updated libasound2 development headers.
 
 ### macOS
 
