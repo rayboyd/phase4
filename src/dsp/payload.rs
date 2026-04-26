@@ -1,7 +1,7 @@
 //! Two payload types flow through the DSP pipeline:
 //!
 //! 1. **Raw**: [`RawChannelLevel`] / [`RawPayload`] carry the full-resolution
-//!    vocoder envelope levels (64 bands). These are
+//!    vocoder envelope levels ([`VOCODER_BANDS`] bands). These are
 //!    internal-only and never serialised.
 //!
 //! 2. **Display**: [`DisplayChannelLevel`] / [`DisplayPayload`] carry a

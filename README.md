@@ -48,6 +48,25 @@ cargo build --release --locked
 
 _On Windows the binary will be called `phase4.exe`_
 
+### Feature flags
+
+The analyser FFT output resolution is set at compile time via a feature flag.
+
+| Feature            | Bands | Use case                       |
+| :----------------- | :---- | :----------------------------- |
+| `display-bins-32`  | 32    | Low CPU, high channel counts   |
+| `display-bins-64`  | 64    | Default, standard analysis     |
+| `display-bins-128` | 128   | High-detail visualisation      |
+| `display-bins-256` | 256   | Professional spectral analysis |
+
+```sh
+# Default (64 bands)
+cargo build --release --locked
+
+# High resolution (128 bands)
+cargo build --release --locked --no-default-features --features display-bins-128
+```
+
 ## Platform Requirements
 
 Phase4 uses your system’s native audio drivers. To work correctly, your audio interface or microphone must be set to **32-bit Float** input mode. Most modern interfaces support this by default.
@@ -94,6 +113,7 @@ Once installation finishes, restart your PowerShell or Command Prompt to refresh
 - Local config file support for device presets and persistent flag defaults.
 - Analysis low CPU mode. `--low-cpu` selects 32 bands, default remains 64, possible 128 option? Explain spectral detail tradeoff vs smoothness in docs and tutorials.
 - Double-buffered recording to decouple ring drain latency from disk write latency, improving reliability on high channel count devices.
+- Add a dedicated `docs/troubleshooting.md` with OS-specific content, i.e. toggling 32-bit Float in Windows/macOS sound settings.
 
 ## Licence
 
