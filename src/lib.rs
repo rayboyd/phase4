@@ -129,7 +129,8 @@ pub struct VocoderArgs {
         env!("BUILD_DISPLAY_BINS"),
         "-bin build)"
     ),
-    about = "A real-time audio capture and analysis tool."
+    about = "Phase4 is a fast, lightweight audio analysis tool built for \
+            real-time audio visualization."
 )]
 pub struct Args {
     #[command(flatten)]
