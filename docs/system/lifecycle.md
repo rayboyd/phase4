@@ -7,14 +7,14 @@
 	"theme": "base",
 	"themeVariables": {
 		"background": "#ffffff",
-		"fontFamily": "IBM Plex Sans, Segoe UI, sans-serif",
-		"fontSize": "15px",
-		"lineColor": "#0f4c81",
-		"primaryBorderColor": "#0f4c81",
-		"primaryColor": "#f3efe6",
-		"primaryTextColor": "#1f2937",
-		"secondaryColor": "#e8f3ff",
-		"tertiaryColor": "#fff7e8"
+		"fontFamily": "monospace",
+		"fontSize": "16px",
+		"lineColor": "#000",
+		"primaryBorderColor": "#000",
+		"primaryColor": "#fff",
+		"primaryTextColor": "#000",
+		"secondaryColor": "#aaa",
+		"tertiaryColor": "#ccc"
 	},
 	"flowchart": {
 		"curve": "basis",
@@ -42,18 +42,6 @@ flowchart TD
 		P --> Q[Spawn WebSocket server thread]
 		Q --> R[Run controller loop until shutdown]
 		R --> S[Shutdown: drop input, signal keep_running=false, join workers with timeouts]
-
-		classDef control fill:#f5f3ff,stroke:#5b3ea8,stroke-width:1.5px,color:#1f2937;
-		classDef decision fill:#eef2ff,stroke:#3b5bdb,stroke-width:1.5px,color:#1f2937;
-		classDef worker fill:#fff7e8,stroke:#b7791f,stroke-width:1.5px,color:#1f2937;
-		classDef source fill:#e8f3ff,stroke:#0f4c81,stroke-width:1.5px,color:#0f172a;
-		classDef storage fill:#eafaf0,stroke:#2f855a,stroke-width:1.5px,color:#1f2937;
-
-		class A,B,E,J,R,S control;
-		class C,F,K decision;
-		class L,M,N,O,P,Q worker;
-		class H,G source;
-		class I storage;
 ```
 
 ## Runtime Data Flow
@@ -63,14 +51,14 @@ flowchart TD
 	"theme": "base",
 	"themeVariables": {
 		"background": "#ffffff",
-		"fontFamily": "IBM Plex Sans, Segoe UI, sans-serif",
-		"fontSize": "15px",
-		"lineColor": "#0f4c81",
-		"primaryBorderColor": "#0f4c81",
-		"primaryColor": "#f3efe6",
-		"primaryTextColor": "#1f2937",
-		"secondaryColor": "#e8f3ff",
-		"tertiaryColor": "#fff7e8"
+		"fontFamily": "monospace",
+		"fontSize": "16px",
+		"lineColor": "#000",
+		"primaryBorderColor": "#000",
+		"primaryColor": "#fff",
+		"primaryTextColor": "#000",
+		"secondaryColor": "#aaa",
+		"tertiaryColor": "#ccc"
 	},
 	"flowchart": {
 		"curve": "basis",
@@ -103,16 +91,6 @@ flowchart LR
 		J -->|toggle atomics| F
 		J -->|toggle atomics| H
 
-		classDef source fill:#e8f3ff,stroke:#0f4c81,stroke-width:1.5px,color:#0f172a;
-		classDef worker fill:#fff7e8,stroke:#b7791f,stroke-width:1.5px,color:#1f2937;
-		classDef storage fill:#eafaf0,stroke:#2f855a,stroke-width:1.5px,color:#1f2937;
-		classDef control fill:#f5f3ff,stroke:#5b3ea8,stroke-width:1.5px,color:#1f2937;
-		classDef external fill:#f9fafb,stroke:#4b5563,stroke-width:1.5px,color:#111827;
-
-		class C1,C2,F,H worker;
-		class B1,B2,E,G storage;
-		class J control;
-		class D1,I external;
 ```
 
 ## Controller State Lifecycle
@@ -122,14 +100,14 @@ flowchart LR
 	"theme": "base",
 	"themeVariables": {
 		"background": "#ffffff",
-		"fontFamily": "IBM Plex Sans, Segoe UI, sans-serif",
-		"fontSize": "15px",
-		"lineColor": "#0f4c81",
-		"primaryBorderColor": "#0f4c81",
-		"primaryColor": "#f3efe6",
-		"primaryTextColor": "#1f2937",
-		"secondaryColor": "#e8f3ff",
-		"tertiaryColor": "#fff7e8"
+		"fontFamily": "monospace",
+		"fontSize": "16px",
+		"lineColor": "#000",
+		"primaryBorderColor": "#000",
+		"primaryColor": "#fff",
+		"primaryTextColor": "#000",
+		"secondaryColor": "#aaa",
+		"tertiaryColor": "#ccc"
 	}
 }}%%
 stateDiagram-v2
@@ -150,27 +128,6 @@ stateDiagram-v2
 ## Shutdown Ordering and Timeouts
 
 ```mermaid
-%%{init: {
-	"theme": "base",
-	"themeVariables": {
-		"actorBkg": "#e8f3ff",
-		"actorBorder": "#0f4c81",
-		"actorTextColor": "#0f172a",
-		"background": "#ffffff",
-		"fontFamily": "IBM Plex Sans, Segoe UI, sans-serif",
-		"fontSize": "15px",
-		"lineColor": "#0f4c81",
-		"noteBkgColor": "#fff7e8",
-		"noteBorderColor": "#b7791f",
-		"primaryTextColor": "#1f2937",
-		"signalColor": "#0f4c81",
-		"signalTextColor": "#1f2937",
-		"tertiaryColor": "#f9fafb"
-	},
-	"sequence": {
-		"useMaxWidth": true
-	}
-}}%%
 sequenceDiagram
 		participant Main as App.shutdown
 		participant In as Input stream/device
