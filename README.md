@@ -16,7 +16,7 @@ It supports 64-bit [macOS](#macos), [Windows](#windows) and [Linux](#linux). Che
 ./phase4 --list
 ```
 
-If a device is not supported, you'll see _No hardware support (32-bit required)_ in the terminal output.
+> **Note** If a device is not supported, you'll see **No hardware support (32-bit required)** in the terminal output.
 
 ```sh
 [INFO] [0] Soundcard One (16000Hz, 1ch, I16) * No hardware support (32-bit required)
@@ -46,18 +46,20 @@ Clone the repository, and build a release version of Phase4.
 cargo build --release --locked
 ```
 
-_On Windows the binary will be called `phase4.exe`_
+> **Note** On Windows the binary will be called `phase4.exe`
 
 ### Feature flags
 
 The analyser FFT output resolution is set at compile time via a feature flag.
 
-| Feature            | Bands | Use case                       |
-| :----------------- | :---- | :----------------------------- |
-| `display-bins-32`  | 32    | Low CPU, high channel counts   |
-| `display-bins-64`  | 64    | Default, standard analysis     |
-| `display-bins-128` | 128   | High-detail visualisation      |
-| `display-bins-256` | 256   | Professional spectral analysis |
+| Feature            | Bands | Why.                               |
+| :----------------- | :---- | :--------------------------------- |
+| `display-bins-32`  | 32    | Least spectral detail. lowest cpu. |
+| `display-bins-64`  | 64    |                                    |
+| `display-bins-128` | 128   |                                    |
+| `display-bins-256` | 256   | Most spectral detail. highest cpu. |
+
+> **Note** For most use cases, `display-bins-64` (the default) is the right choice. Higher bin counts increase spectral detail but also CPU cost, and the visual difference is often imperceptible. Start at 64 and only go higher if you have a specific reason to.
 
 ```sh
 # Default (64 bands)
@@ -71,7 +73,7 @@ cargo build --release --locked --no-default-features --features display-bins-128
 
 Phase4 uses your system’s native audio drivers. To work correctly, your audio interface or microphone must be set to **32-bit Float** input mode. Most modern interfaces support this by default.
 
-_If Phase4 doesn't detect your device, check your OS sound settings (e.g., Windows Sound Control Panel or macOS Audio MIDI Setup) to ensure the format is set to "32-bit Float"._
+> **Note** If Phase4 doesn't detect your device, check your OS sound settings (e.g., Windows Sound Control Panel or macOS Audio MIDI Setup) to ensure the format is set to "32-bit Float".
 
 ### Linux
 
@@ -82,7 +84,7 @@ sudo apt-get update
 sudo apt-get install -y libasound2-dev pkg-config
 ```
 
-_If you are on a very recent distribution (e.g., Ubuntu 24.04+) and the above fails, ensure your package manager is pointing to the updated libasound2 development headers._
+> **Note** If you are on a very recent distribution (e.g., Ubuntu 24.04+) and the above fails, ensure your package manager is pointing to the updated libasound2 development headers.
 
 ### macOS
 
