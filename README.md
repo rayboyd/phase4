@@ -28,7 +28,7 @@ List available input devices to find your device index and confirm 32-bit Float 
 
 Core Audio, the macOS audio subsystem, works internally with 32-bit Float and typically presents devices (including the built-in microphone) as F32 to applications. So running `./phase4 --list` on a MacBook will almost certainly show the built-in mic as F32-capable.
 
-The output from my _MacBook Pro M4_ is as follows.
+The output from my **MacBook Pro M4** is as follows.
 
 ```
 > [INFO] [0] Test Soundcard One (16000Hz, 1ch, I16) * No hardware support (32-bit required)
@@ -47,12 +47,12 @@ Launch Phase4 using your device index (e.g., index 0).
 ./phase4 --device 0
 ```
 
+Press `A` to start analysis and `B` to start broadcasting. No harm done if you forget, but you will not get any data.
+
 ```
 > [INFO] 'A' to analyse, 'B' to broadcast, 'R' to record, Ctrl+C to exit
 > [INFO] WebSocket server listening on ws://127.0.0.1:8889
 ```
-
-_Press `A` to start analysis and `B` to start broadcasting. No harm done if you forget, but you will not get any data._
 
 ### Connect
 
