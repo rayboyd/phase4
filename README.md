@@ -10,28 +10,38 @@ It supports 64-bit [macOS](#macos), [Windows](#windows) and [Linux](#linux). Che
 
 ## Quickstart
 
-**Check** - Run Phase4 to see available devices and ensure your interface is set to 32-bit Float.
+### Check
+
+Run Phase4 to see available devices and ensure your interface is set to 32-bit Float.
 
 ```sh
 ./phase4 --list
 ```
 
-> **Note** If a device is not supported, you'll see **No hardware support (32-bit required)** in the terminal output.
+> If a device is not supported, you'll see **No hardware support (32-bit required)** in the terminal output.
 
 ```sh
 [INFO] [0] Soundcard One (16000Hz, 1ch, I16) * No hardware support (32-bit required)
 [INFO] [1] Soundcard Two (48000Hz, 2ch, F32)
 ```
 
-**Serve** - Launch Phase4 using your device index (e.g., index 0).
+### Serve
+
+Launch Phase4 using your device index (e.g., index 0).
 
 ```sh
 ./phase4 --device 0
 ```
 
-**Connect** - Point your WebSocket client (like TouchDesigner or a browser) to `ws://127.0.0.1:8889`.
+### Connect
 
-### Tutorials
+Point your WebSocket client (like TouchDesigner or a browser) to `ws://127.0.0.1:8889`.
+
+### Build
+
+Check the [WebSocket](docs/tutorials/websockets.md) guide to quickly get up and running. Or explore the various [examples](docs/examples).
+
+#### Tutorials
 
 - [WebSocket API](docs/tutorials/websockets.md)
 - [TouchDesigner](docs/tutorials/touchdesigner.md)
@@ -46,7 +56,7 @@ Clone the repository, and build a release version of Phase4.
 cargo build --release --locked
 ```
 
-> **Note** On Windows the binary will be called `phase4.exe`
+> On Windows the binary will be called `phase4.exe`
 
 ### Feature flags
 
@@ -59,7 +69,7 @@ The analyser FFT output resolution is set at compile time via a feature flag.
 | `display-bins-128` | 128   |                                    |
 | `display-bins-256` | 256   | Most spectral detail. highest cpu. |
 
-> **Note** For most use cases, `display-bins-64` (the default) is the right choice. Higher bin counts increase spectral detail but also CPU cost, and the visual difference is often imperceptible. Start at 64 and only go higher if you have a specific reason to.
+> For most use cases, `display-bins-64` (the default) is the right choice. Higher bin counts increase spectral detail but also CPU cost, and the visual difference is often imperceptible. Start at 64 and only go higher if you have a specific reason to.
 
 ```sh
 # Default (64 bands)
@@ -73,7 +83,7 @@ cargo build --release --locked --no-default-features --features display-bins-128
 
 Phase4 uses your system’s native audio drivers. To work correctly, your audio interface or microphone must be set to **32-bit Float** input mode. Most modern interfaces support this by default.
 
-> **Note** If Phase4 doesn't detect your device, check your OS sound settings (e.g., Windows Sound Control Panel or macOS Audio MIDI Setup) to ensure the format is set to "32-bit Float".
+> If Phase4 doesn't detect your device, check your OS sound settings (e.g., Windows Sound Control Panel or macOS Audio MIDI Setup) to ensure the format is set to "32-bit Float".
 
 ### Linux
 
@@ -84,7 +94,7 @@ sudo apt-get update
 sudo apt-get install -y libasound2-dev pkg-config
 ```
 
-> **Note** If you are on a very recent distribution (e.g., Ubuntu 24.04+) and the above fails, ensure your package manager is pointing to the updated libasound2 development headers.
+> If you are on a very recent distribution (e.g., Ubuntu 24.04+) and the above fails, ensure your package manager is pointing to the updated libasound2 development headers.
 
 ### macOS
 
