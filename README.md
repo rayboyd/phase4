@@ -4,7 +4,7 @@
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://github.com/rayboyd/phase4/blob/main/LICENSE)
 [![Security Policy](https://img.shields.io/badge/Security-Policy-green.svg)](https://github.com/rayboyd/phase4/blob/main/SECURITY.md)
 
-Phase4 is a fast, lightweight audio analysis tool built for real-time audio visualization. Any WebSocket capable tooling, such as [TouchDesigner](https://derivative.ca/) or a browser using the [WebSocket API](https://developer.mozilla.org/en-US/docs/Web/API/WebSockets_API), can connect to the Phase4 server.
+Phase4 is a fast, lightweight audio analysis tool built for real-time audio visualisation. Any WebSocket capable tooling, such as [TouchDesigner](https://derivative.ca/) or a browser using the [WebSocket API](https://developer.mozilla.org/en-US/docs/Web/API/WebSockets_API), can connect to the Phase4 server.
 
 It supports 64-bit [macOS](#macos), [Windows](#windows) and [Linux](#linux). Check the [platform requirements section](#platform-requirements) of this document if you intend to build Phase4 from source.
 

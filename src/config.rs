@@ -103,8 +103,8 @@ pub enum AppConfigError {
     EmptyChannelSelection,
 
     #[error(
-        "Invalid vocoder configuration: Sample rate {sample_rate} Hz:\
-        high frequency must be below Nyquist ({nyquist_hz} Hz), got {freq_high} Hz"
+        "Invalid vocoder configuration: Sample rate {sample_rate}Hz: \
+        high frequency must be below Nyquist ({nyquist_hz}Hz), got {freq_high}Hz"
     )]
     InvalidFreqAboveNyquist {
         sample_rate: u32,
@@ -113,9 +113,8 @@ pub enum AppConfigError {
     },
 
     #[error(
-        "Invalid vocoder configuration: Sample rate {sample_rate} Hz:\
-        high frequency must be at or below 0.45 of the sample rate ({max_safe_hz} Hz),\
-        got {freq_high} Hz"
+        "Invalid vocoder configuration: Sample rate {sample_rate}Hz: high frequency \
+        must be at or below 0.45 of the sample rate ({max_safe_hz}Hz), got {freq_high}Hz"
     )]
     InvalidFreqAboveSafetyCeiling {
         sample_rate: u32,
