@@ -92,13 +92,13 @@ cargo build --release --locked
 cargo build --release --locked --no-default-features --features display-bins-128
 ```
 
-## Platform Requirements
+### Platform Requirements
 
 Phase4 uses your system’s native audio drivers. To work correctly, your audio interface or microphone must be set to **32-bit Float** input mode. Most modern interfaces support this by default.
 
 If Phase4 doesn't detect your device, check your OS sound settings (e.g., Windows Sound Control Panel or macOS Audio MIDI Setup) to ensure the format is set to "32-bit Float".
 
-### Linux
+#### Linux
 
 Phase4 requires the ALSA (Advanced Linux Sound Architecture) development headers. On Ubuntu, Debian, and similar, you should install the necessary build dependencies.
 
@@ -109,7 +109,7 @@ sudo apt-get install -y libasound2-dev pkg-config
 
 If you are on a very recent distribution (e.g., Ubuntu 24.04+) and the above fails, ensure your package manager is pointing to the updated libasound2 development headers.
 
-### macOS
+#### macOS
 
 On macOS you may need to install the Xcode Command Line Tools. You don't need the full Xcode app from the App Store. A popup will appear asking if you want to install the tools. Click Install.
 
@@ -117,7 +117,7 @@ On macOS you may need to install the Xcode Command Line Tools. You don't need th
 xcode-select --install
 ```
 
-### Windows
+#### Windows
 
 To build on Windows, you must install the Microsoft Visual C++ (MSVC) toolchain.
 
