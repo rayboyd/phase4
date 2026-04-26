@@ -30,9 +30,12 @@ fn main() {
         .unwrap_or_else(|_| "unknown".into());
     let target_arch = env::var("CARGO_CFG_TARGET_ARCH").unwrap_or_else(|_| "unknown".into());
 
+    let display_bins = resolve_display_bins();
+
     println!(
         "cargo::rustc-env=BUILD_GIT_HASH={hash}{dirty}, built {build_timestamp}, arch {target_arch}"
     );
+    println!("cargo::rustc-env=BUILD_DISPLAY_BINS={display_bins}");
 }
 
 fn emit_rerun_instructions() {
@@ -78,4 +81,20 @@ fn git_stdout<const N: usize>(args: [&str; N]) -> Option<String> {
         .filter(|output| output.status.success())
         .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_string())
         .filter(|value| !value.is_empty())
+}
+
+/// Resolves the active `display-bins-*` Cargo feature to a plain bin count
+/// string. Cargo sets `CARGO_FEATURE_<FEATURE>` for every enabled feature,
+/// with hyphens normalised to underscores and names uppercased. Falls back to
+/// `"64"` when no feature env var is set, which matches the default feature.
+fn resolve_display_bins() -> &'static str {
+    if env::var("CARGO_FEATURE_DISPLAY_BINS_32").is_ok() {
+        "32"
+    } else if env::var("CARGO_FEATURE_DISPLAY_BINS_128").is_ok() {
+        "128"
+    } else if env::var("CARGO_FEATURE_DISPLAY_BINS_256").is_ok() {
+        "256"
+    } else {
+        "64"
+    }
 }

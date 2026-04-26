@@ -125,7 +125,9 @@ pub struct VocoderArgs {
         env!("CARGO_PKG_VERSION"),
         " (",
         env!("BUILD_GIT_HASH"),
-        ")"
+        ", ",
+        env!("BUILD_DISPLAY_BINS"),
+        "-bin build)"
     ),
     about = "A real-time audio capture and analysis tool."
 )]
