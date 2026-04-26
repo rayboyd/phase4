@@ -57,15 +57,19 @@ If Phase4 is broadcasting, check this [CodePen example](https://codepen.io/raybo
 ## Tutorials
 
 - [WebSocket API](docs/tutorials/websockets.md)
-- [TouchDesigner](docs/tutorials/touchdesigner.md)
+- _todo_ [Node.js](docs/tutorials/nodejs.md)
+- _todo_ [Python](docs/tutorials/touchdesigner.md)
+- _todo_ [TouchDesigner](docs/tutorials/touchdesigner.md)
 
 ## Roadmap
 
 **0.0.1**
 
 - [#8](https://github.com/rayboyd/phase4/pull/8) - ~~Runtime channel selection flags for the analyser and recorder~~
-- Documentation required for launch. Quickstart, WebSocket API, Readme.
-- Completed tutorials for launch. WebSocket API, TouchDesigner.
+- [#13](https://github.com/rayboyd/phase4/pull/13) - ~~Documentation required for launch. Quickstart, WebSocket API, Readme.~~
+- Node.js tutorial.
+- Python tutorial.
+- TouchDesigner tutorial.
 
 **0.0.2**
 
