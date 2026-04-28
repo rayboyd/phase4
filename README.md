@@ -74,10 +74,8 @@ If Phase4 is broadcasting, check this [CodePen example](https://codepen.io/raybo
 
 - [#8](https://github.com/rayboyd/phase4/pull/8) - ~~Runtime channel selection flags for the analyser and recorder~~
 - [#13](https://github.com/rayboyd/phase4/pull/13) - ~~Documentation required for launch. Quickstart, WebSocket API, Readme.~~
-- Node.js tutorial.
-- Python tutorial.
-- TouchDesigner tutorial.
 - Blackhole virtual soundcard tutorial.
+- TouchDesigner tutorial.
 
 **0.0.2**
 
