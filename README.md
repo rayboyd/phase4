@@ -63,10 +63,8 @@ If Phase4 is broadcasting, check this [CodePen example](https://codepen.io/raybo
 ## Tutorials
 
 - [WebSocket API](docs/tutorials/websockets.md)
-- _todo_ [Node.js](docs/tutorials/nodejs.md)
-- _todo_ [Python](docs/tutorials/touchdesigner.md)
-- _todo_ [TouchDesigner](docs/tutorials/touchdesigner.md)
 - _todo_ [Virtual Soundcards with Blackhole](docs/tutorials/blackhole.md)
+- _todo_ [TouchDesigner](docs/tutorials/touchdesigner.md)
 
 ## Roadmap
 
