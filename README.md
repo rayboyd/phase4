@@ -64,7 +64,6 @@ If Phase4 is broadcasting, check this [CodePen example](https://codepen.io/raybo
 
 - [WebSocket API](docs/tutorials/websockets.md)
 - _todo_ [Virtual Soundcards with Blackhole](docs/tutorials/blackhole.md)
-- _todo_ [TouchDesigner](docs/tutorials/touchdesigner.md)
 
 ## Roadmap
 
@@ -73,7 +72,6 @@ If Phase4 is broadcasting, check this [CodePen example](https://codepen.io/raybo
 - [#8](https://github.com/rayboyd/phase4/pull/8) - ~~Runtime channel selection flags for the analyser and recorder~~
 - [#13](https://github.com/rayboyd/phase4/pull/13) - ~~Documentation required for launch. Quickstart, WebSocket API, Readme.~~
 - Blackhole virtual soundcard tutorial.
-- TouchDesigner tutorial.
 
 **0.0.2**
 
