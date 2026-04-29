@@ -96,31 +96,31 @@ struct ShutdownWorker {
 impl ShutdownWorker {
     const GENERATOR: Self = Self {
         name: "generator",
-        success_message: ">> Generator shutdown complete",
+        success_message: "- Generator shutdown complete",
         timeout_ms: GENERATOR_SHUTDOWN_TIMEOUT_MS,
     };
 
     const ANALYSER: Self = Self {
         name: "analyser",
-        success_message: ">> Analyser shutdown complete",
+        success_message: "- Analyser shutdown complete",
         timeout_ms: ANALYSER_SHUTDOWN_TIMEOUT_MS,
     };
 
     const MAPPER: Self = Self {
         name: "mapper",
-        success_message: ">> Mapper shutdown complete",
+        success_message: "- Mapper shutdown complete",
         timeout_ms: MAPPER_SHUTDOWN_TIMEOUT_MS,
     };
 
     const SERVER: Self = Self {
         name: "server",
-        success_message: ">> Server shutdown complete",
+        success_message: "- Server shutdown complete",
         timeout_ms: SERVER_SHUTDOWN_TIMEOUT_MS,
     };
 
     const RECORDER: Self = Self {
         name: "recorder",
-        success_message: ">> Recorder shutdown complete",
+        success_message: "- Recorder shutdown complete",
         timeout_ms: RECORDER_SHUTDOWN_TIMEOUT_MS,
     };
 
@@ -218,24 +218,19 @@ impl App {
     /// guarded by `AppConfig::TryFrom`, so it should never occur in practice.
     pub fn new(config: AppConfig) -> Result<Self> {
         let state = Arc::new(AppState::new());
+        let stream_state = Arc::clone(&state);
+        let recorder_state = Arc::clone(&state);
+        let analyser_state = Arc::clone(&state);
+        let mapper_state = Arc::clone(&state);
+        let server_state = Arc::clone(&state);
+        let generator_state = Arc::clone(&state);
+        let controller_state = Arc::clone(&state);
+
         let mut input_device = Input::new();
+        let calibration_mode = config.test_hz.is_some() || config.test_sweep.is_some();
 
-        let addr = config.addr;
-        let max_clients = config.max_clients;
-        let bit_depth = config.bit_depth;
-        let filename_pattern = config.filename_pattern;
-        let test_hz = config.test_hz;
-        let test_sweep = config.test_sweep;
-        let device_index = config.device_index;
-        let vocoder_config = config.vocoder_config;
-        let no_browser_origin = config.no_browser_origin;
-        let broadcast_rate = config.broadcast_rate;
-
-        let calibration_mode = test_hz.is_some() || test_sweep.is_some();
-
-        // In calibration mode no hardware is needed. Use standard CD-quality defaults.
-        // Otherwise query the device for its native sample rate and channel count.
-        let (specs, device_handle) = if calibration_mode {
+        // Hardware & Device Resolution.
+        let (hw_specs, device_handle) = if calibration_mode {
             (
                 Specs {
                     sample_rate: 44100,
@@ -244,73 +239,82 @@ impl App {
                 None,
             )
         } else {
-            // device_index is guaranteed Some when not in calibration mode by AppConfig::TryFrom.
-            let idx = device_index.expect("device_index required in hardware mode");
+            let idx = config
+                .device_index
+                .expect("device_index required in hardware mode");
             let (d, c, s) = input_device.get_device(idx)?;
             (s, Some((d, c)))
         };
-        validate_vocoder_sample_rate(vocoder_config.freq_high, specs.sample_rate)?;
+        validate_vocoder_sample_rate(config.vocoder_config.freq_high, hw_specs.sample_rate)?;
 
-        let (record_tx, record_rx) = Input::create_audio_buffer_pair(specs, RECORD_BUFFER_MS);
-        let (analyse_tx, analyse_rx) = Input::create_audio_buffer_pair(specs, ANALYSE_BUFFER_MS);
-        let channels = specs.channels as usize;
-        let (raw_tx, raw_rx) = watch::channel(RawPayload::new(channels, VOCODER_BANDS));
-        let initial_display = serde_json::to_string(&DisplayPayload::new(channels))
+        // Specs & Channel Modes.
+        let mut recorder_specs = hw_specs;
+        let mut analyser_specs = hw_specs;
+
+        let record_mode = ChannelMode::resolve(config.record_channels, &mut recorder_specs);
+        let analyse_mode = ChannelMode::resolve(config.analyse_channels, &mut analyser_specs);
+
+        // Allocate Inter-thread Channels (Ringbufs & Watch).
+        let (record_tx, record_rx) =
+            Input::create_audio_buffer_pair(recorder_specs, RECORD_BUFFER_MS);
+        let (analyse_tx, analyse_rx) =
+            Input::create_audio_buffer_pair(analyser_specs, ANALYSE_BUFFER_MS);
+
+        let display_channels = analyser_specs.channels as usize;
+        let (raw_tx, raw_rx) = watch::channel(RawPayload::new(display_channels, VOCODER_BANDS));
+
+        let initial_display = serde_json::to_string(&DisplayPayload::new(display_channels))
             .expect("failed to serialise initial display payload");
         let (display_tx, display_rx) = watch::channel(Utf8Bytes::from(initial_display));
 
+        // Spawn Producers. Hardware or a Generator is spawned.
         let mut generator_thread = None;
-
         if calibration_mode {
             generator_thread = Some(Generator::spawn(
-                test_hz,
-                test_sweep,
-                specs.sample_rate,
-                specs.channels,
+                config.test_hz,
+                config.test_sweep,
+                hw_specs.sample_rate,
+                hw_specs.channels,
                 record_tx,
                 analyse_tx,
-                state.clone(),
+                generator_state,
             ));
         } else {
-            // device_handle is guaranteed Some when not in calibration mode.
-            let (device, config) = device_handle.expect("device present in hardware mode");
+            let (device, stream_config) = device_handle.expect("device present in hardware mode");
             input_device.start_stream(
                 &device,
-                &config,
+                &stream_config,
                 StreamSink {
                     tx: record_tx,
-                    mode: ChannelMode::All,
+                    mode: record_mode,
                 },
                 StreamSink {
                     tx: analyse_tx,
-                    mode: ChannelMode::All,
+                    mode: analyse_mode,
                 },
-                state.clone(),
+                stream_state,
             )?;
         }
 
-        // Spin up the recorder thread to drain the record ringbuf to disk.
-        let recorder = Writer::new(filename_pattern);
-        let recorder_thread = Some(recorder.spawn(record_rx, bit_depth, specs, state.clone()));
+        // Spawn Worker Threads.
+        let recorder = Writer::new(config.filename_pattern);
+        let recorder_thread =
+            Some(recorder.spawn(record_rx, config.bit_depth, recorder_specs, recorder_state));
 
-        // Spin up the analyser thread to drain the analyse ringbuf and publish DSP results.
-        let analyser = Processor::new(vocoder_config);
-        let analyser_thread = Some(analyser.spawn(analyse_rx, raw_tx, specs, state.clone()));
+        let analyser = Processor::new(config.vocoder_config);
+        let analyser_thread =
+            Some(analyser.spawn(analyse_rx, raw_tx, analyser_specs, analyser_state));
 
-        // Spin up the mapper thread to map raw vocoder bins to display resolution.
         let mapper_thread = Some(Mapper::spawn(
             raw_rx,
             display_tx,
-            channels,
-            state.clone(),
-            broadcast_rate,
+            display_channels,
+            mapper_state,
+            config.broadcast_rate,
         ));
 
-        // Spin up the WebSocket server thread.
-        let server = Server::new(addr, no_browser_origin, max_clients);
-        let server_thread = Some(server.spawn(display_rx, state.clone())?);
-
-        let controller = Controller::new(state.clone());
+        let server = Server::new(config.addr, config.no_browser_origin, config.max_clients);
+        let server_thread = Some(server.spawn(display_rx, server_state)?);
 
         Ok(Self {
             input_device: Some(input_device),
@@ -322,7 +326,7 @@ impl App {
                 server: server_thread,
                 generator: generator_thread,
             },
-            controller,
+            controller: Controller::new(controller_state),
             shutdown_started: false,
         })
     }
@@ -364,7 +368,7 @@ impl App {
         log::info!("Shutdown started");
 
         self.input_device.take();
-        log::info!("> Device shutdown complete");
+        log::info!("- Device shutdown complete");
 
         // Signal every worker before waiting on any of them.
         self.state.keep_running.store(false, Ordering::Release);

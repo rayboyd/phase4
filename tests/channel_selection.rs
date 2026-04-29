@@ -9,61 +9,62 @@ use std::sync::Arc;
 use tokio::sync::watch;
 
 #[tokio::test]
+#[allow(clippy::float_cmp)]
 async fn selecting_single_channel_updates_analyser_payload() {
-    // A 4-channel hardware device.
     let hw_specs = Specs {
         sample_rate: 48000,
         channels: 4,
     };
 
-    // Only want to analyse Channel 2 (the 3rd channel).
-    let mode = ChannelMode::Selected(Box::new([2]));
+    // Create the specs for the analyser (1 channel).
+    let mut analyse_specs = hw_specs;
+    analyse_specs.channels = 1;
 
-    let (analyse_tx, analyse_rx) = Input::create_audio_buffer_pair(hw_specs, 100);
+    let (analyse_tx, analyse_rx) = Input::create_audio_buffer_pair(analyse_specs, 100);
+
+    // Wire the sink as `All` instead of `Selected([2])` to simulates the missing wiring bug in App::new.
     let mut sink = StreamSink {
         tx: analyse_tx,
-        mode,
+        mode: ChannelMode::All,
     };
 
-    let (raw_tx, mut raw_rx) = watch::channel(RawPayload::new(hw_specs.channels as usize, 64));
+    let (raw_tx, mut raw_rx) = watch::channel(RawPayload::new(analyse_specs.channels as usize, 64));
     let state = Arc::new(AppState::new());
     state
         .is_analysing
         .store(true, std::sync::atomic::Ordering::Release);
+    state
+        .is_broadcasting_websocket
+        .store(true, std::sync::atomic::Ordering::Release);
 
-    // Spawn the analyser.
+    // Spawn the analyser with the specs.
     let processor = Processor::new(VocoderConfig::default());
-    let handle = processor.spawn(analyse_rx, raw_tx, hw_specs, state.clone());
+    let handle = processor.spawn(analyse_rx, raw_tx, analyse_specs, state.clone());
 
-    // Push exactly ONE frame of 4-channel data: [ch0, ch1, ch2, ch3] make Channel 2 distinct (0.99)
+    // Push 4-channel interleaved data. We want Channel 2 (0.99).
     let fake_hardware_data = [0.1, 0.2, 0.99, 0.4];
-
-    // Using StreamSink's internal push logic that the CPAL callback uses.
-    // Temporarily made `push` pub in StreamSink for this test.
     sink.push(&fake_hardware_data, hw_specs.channels as usize);
 
-    // Wait for the analyser to process.
-    let _ = tokio::time::timeout(std::time::Duration::from_millis(200), raw_rx.changed()).await;
+    let _ = tokio::time::timeout(std::time::Duration::from_millis(200), raw_rx.changed())
+        .await
+        .expect("Test timed out waiting for the analyser to publish a frame!");
+
     let payload = raw_rx.borrow().clone();
 
-    // WILL FAIL
-    // If we only selected 1 channel, the resulting JSON payload should only have 1 channel.
+    // Did the Analyser correctly create a 1-channel payload?
     assert_eq!(
         payload.channels.len(),
         1,
-        "Payload should only contain the 1 selected channel, but it has {}",
-        payload.channels.len()
+        "Payload should only contain the 1 selected channel"
     );
 
-    // WILL FAIL
-    // That 1 channel should contain the peak from Channel 2.
-    assert!(
-        (payload.channels[0].peak - 0.99).abs() < f32::EPSILON,
-        "Expected 0.99, got {}",
-        payload.channels[0].peak
+    // The Analyser popped the first float from the ring buffer (0.1) and assumed
+    // it was the start of the 1-channel stream. It completely missed the 0.99?
+    assert_eq!(
+        payload.channels[0].peak, 0.99,
+        "If this fails with 'left: 0.1', the data is scrambled"
     );
 
-    // Cleanup
     state
         .keep_running
         .store(false, std::sync::atomic::Ordering::Release);

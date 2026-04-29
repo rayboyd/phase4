@@ -48,6 +48,18 @@ pub enum ChannelMode {
     Selected(Box<[u16]>),
 }
 
+impl ChannelMode {
+    /// Helper to update the effective specs and resolve the `ChannelMode`.
+    pub fn resolve(selection: Option<Box<[u16]>>, specs: &mut Specs) -> Self {
+        if let Some(indices) = selection {
+            specs.channels = indices.len() as u16;
+            Self::Selected(indices)
+        } else {
+            Self::All
+        }
+    }
+}
+
 /// Pairs a ring buffer producer with the channel selection for that sink.
 ///
 /// Constructed once before stream start and moved into the audio callback

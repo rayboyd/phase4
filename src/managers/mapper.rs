@@ -71,7 +71,7 @@ impl Mapper {
         while state.keep_running.load(Ordering::Acquire) {
             // Block efficiently until the Analyser publishes a new frame.
             if raw_rx.changed().await.is_err() {
-                log::info!("Analyser channel closed, mapper exiting");
+                log::info!("- Analyser channel closed, mapper exiting");
                 break;
             }
 
