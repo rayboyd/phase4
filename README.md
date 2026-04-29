@@ -60,18 +60,7 @@ Phase4 streams real-time audio analysis data as a JSON broadcast. Any tool capab
 
 If Phase4 is broadcasting, check this [CodePen example](https://codepen.io/rayboyd/full/wBzOPPr) to see the server in action.
 
-## Tutorials
-
-- [WebSocket API](docs/tutorials/websockets.md)
-- _todo_ [Virtual Soundcards with Blackhole](docs/tutorials/blackhole.md)
-
 ## Roadmap
-
-**0.0.1**
-
-- [#8](https://github.com/rayboyd/phase4/pull/8) - ~~Runtime channel selection flags for the analyser and recorder~~
-- [#13](https://github.com/rayboyd/phase4/pull/13) - ~~Documentation required for launch. Quickstart, WebSocket API, Readme.~~
-- Blackhole virtual soundcard tutorial.
 
 **0.0.2**
 
@@ -79,7 +68,6 @@ If Phase4 is broadcasting, check this [CodePen example](https://codepen.io/raybo
 - Local config file support for device presets and persistent flag defaults.
 - Analysis low CPU mode. `--low-cpu` selects 32 bands, default remains 64, possible 128 option? Explain spectral detail trade-off vs smoothness in docs and tutorials.
 - Double-buffered recording to decouple ring drain latency from disk write latency, improving reliability on high channel count devices.
-- Add a dedicated `docs/troubleshooting.md` with OS-specific content, i.e. toggling 32-bit Float in Windows/macOS sound settings.
 
 ## Licence
 

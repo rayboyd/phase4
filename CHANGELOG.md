@@ -2,6 +2,20 @@
 
 All notable changes to Phase4 will be documented in this file.
 
+## 0.0.1
+
+[60d58cc](https://github.com/rayboyd/phase4/compare/60d58cc830bb339e78d3d10df628b2d51ca78edd...20ddbfaa9faf6ca90ebd603fcd0ad00c30e1f5a5)
+
+### Bug Fixes
+
+- Update to use correct link for platform requirements and platforms ([56ca1d2](https://github.com/rayboyd/phase4/commit/56ca1d23de51f9ce9e7765faf1e0f5e193006016))
+- Correct channel selection wiring and data alignment ([1b386e7](https://github.com/rayboyd/phase4/commit/1b386e7969ba42b026c06a99b1ddef7dc8cc972e))
+
+### Testing
+
+- Test channel selection e2e, issues with config not being passed in and data being scrambled ([1e6ba85](https://github.com/rayboyd/phase4/commit/1e6ba85bff9bdc576c05f83781525215325d3d0d))
+- Expand coverage for initialisation and shutdown edge cases ([20ddbfa](https://github.com/rayboyd/phase4/commit/20ddbfaa9faf6ca90ebd603fcd0ad00c30e1f5a5))
+
 ## 0.0.0
 
 ### Bug Fixes
