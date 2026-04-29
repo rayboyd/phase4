@@ -14,6 +14,30 @@ use phase4::app::App;
 use phase4::config::AppConfig;
 use std::net::SocketAddr;
 
+#[test]
+fn app_new_returns_error_on_port_collision() {
+    // Bind to a random free port to simulate another application using it.
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let occupied_addr = listener.local_addr().unwrap();
+
+    // Attempt to construct the App using the occupied port.
+    let config = AppConfig {
+        test_hz: Some(440.0),
+        addr: occupied_addr,
+        ..AppConfig::default()
+    };
+
+    let result = App::new(config);
+
+    // Verify it returns an error cleanly.
+    assert!(
+        result.is_err(),
+        "App::new() should return an error if the WebSocket port is already in use"
+    );
+
+    // The listener is dropped here, freeing the port
+}
+
 // App::new() should succeed in calibration mode. No audio hardware required.
 #[test]
 fn app_new_succeeds_in_calibration_mode() {

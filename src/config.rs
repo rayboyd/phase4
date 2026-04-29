@@ -727,4 +727,35 @@ mod tests {
         assert!(config.analyse_channels.is_none());
         assert!(config.record_channels.is_none());
     }
+
+    // 48 kHz sample rate means Nyquist is 24 kHz
+    #[test]
+    fn validate_vocoder_sample_rate_rejects_freq_above_nyquist() {
+        let result = validate_vocoder_sample_rate(25_000.0, 48_000);
+        assert!(
+            matches!(result, Err(AppConfigError::InvalidFreqAboveNyquist { .. })),
+            "frequencies above Nyquist should be rejected"
+        );
+    }
+
+    // 48 kHz sample rate means the 45 percent safety ceiling is 21.6 kHz
+    // 22 kHz is below Nyquist (24 kHz) but above the safety ceiling
+    #[test]
+    fn validate_vocoder_sample_rate_rejects_freq_above_safety_ceiling() {
+        let result = validate_vocoder_sample_rate(22_000.0, 48_000);
+        assert!(
+            matches!(
+                result,
+                Err(AppConfigError::InvalidFreqAboveSafetyCeiling { .. })
+            ),
+            "frequencies above the 45 percent safety ceiling should be rejected"
+        );
+    }
+
+    // 18 kHz is well below the 21.6 kHz safety ceiling for 48 kHz
+    #[test]
+    fn validate_vocoder_sample_rate_accepts_valid_frequencies() {
+        let result = validate_vocoder_sample_rate(18_000.0, 48_000);
+        assert!(result.is_ok(), "valid frequencies should be accepted");
+    }
 }

@@ -166,4 +166,21 @@ mod tests {
 
         assert!(!state.is_broadcasting_websocket.load(Ordering::Acquire));
     }
+
+    #[test]
+    fn press_ctrl_c_signals_shutdown() {
+        let (controller, state) = controller_with_state();
+
+        // Sanity check that it starts as true.
+        assert!(state.keep_running.load(Ordering::Acquire));
+
+        controller.handle_key_event(KeyEvent::new_with_kind(
+            KeyCode::Char('c'),
+            KeyModifiers::CONTROL,
+            KeyEventKind::Press,
+        ));
+
+        // The keep_running flag should now be false.
+        assert!(!state.keep_running.load(Ordering::Acquire));
+    }
 }
