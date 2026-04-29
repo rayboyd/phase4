@@ -68,7 +68,7 @@ impl<P: Producer<Item = f32>> StreamSink<P> {
     /// Returns `true` if any sample could not be written to the ring buffer. In
     /// the `All` path this means the slice was only partially accepted. In the
     /// `Selected` path it means at least one `try_push` failed.
-    fn push(&mut self, data: &[f32], hw_channels: usize) -> bool {
+    pub fn push(&mut self, data: &[f32], hw_channels: usize) -> bool {
         match &self.mode {
             ChannelMode::All => self.tx.push_slice(data) < data.len(),
             ChannelMode::Selected(indices) => {
