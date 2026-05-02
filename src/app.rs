@@ -17,7 +17,7 @@ use crate::controller::Controller;
 use crate::dsp::{vocoder::VOCODER_BANDS, DisplayPayload, RawPayload};
 use crate::managers::audio::{ChannelMode, StreamSink};
 use crate::managers::{Generator, Input, Mapper, Processor, Server, Specs, Writer};
-use crate::worker::{WorkerThreads, RECORD_BUFFER_MS};
+use crate::worker::WorkerThreads;
 use anyhow::Result;
 use std::sync::{
     atomic::{AtomicBool, AtomicUsize, Ordering},
@@ -25,6 +25,9 @@ use std::sync::{
 };
 use tokio::sync::watch;
 use tokio_tungstenite::tungstenite::Utf8Bytes;
+
+/// Safety buffer for the record ringbuf, absorbs disk write jitter.
+pub(crate) const RECORD_BUFFER_MS: u32 = 5000;
 
 /// Safety buffer for the analyse ringbuf, headroom for analysis accumulation.
 const ANALYSE_BUFFER_MS: u32 = 500;
@@ -190,13 +193,13 @@ impl App {
         Ok(Self {
             input_device: Some(input_device),
             state,
-            workers: WorkerThreads {
-                recorder: recorder_thread,
-                analyser: analyser_thread,
-                mapper: mapper_thread,
-                server: server_thread,
-                generator: generator_thread,
-            },
+            workers: WorkerThreads::new(
+                generator_thread,
+                analyser_thread,
+                mapper_thread,
+                server_thread,
+                recorder_thread,
+            ),
             controller: Controller::new(controller_state),
             shutdown_started: false,
         })
@@ -243,7 +246,6 @@ impl App {
 
         // Signal every worker before waiting on any of them.
         self.state.keep_running.store(false, Ordering::Release);
-
         self.workers.shutdown();
 
         log::info!("Shutdown complete");
@@ -286,10 +288,7 @@ mod tests {
         let mut app = App {
             input_device: None,
             state: state.clone(),
-            workers: WorkerThreads {
-                generator: generator_thread,
-                ..WorkerThreads::default()
-            },
+            workers: WorkerThreads::new(generator_thread, None, None, None, None),
             controller: Controller::new(state.clone()),
             shutdown_started: false,
         };
@@ -300,7 +299,7 @@ mod tests {
         assert!(app.shutdown_started);
         assert!(!state.keep_running.load(Ordering::Acquire));
         assert_eq!(exit_count.load(Ordering::Acquire), 1);
-        assert!(app.workers.generator.is_none());
+        assert!(app.workers.0.iter().all(Option::is_none));
 
         drop(app);
 

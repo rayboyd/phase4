@@ -1,8 +1,6 @@
+use crate::app::RECORD_BUFFER_MS;
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
-
-/// Safety buffer for the record ringbuf, absorbs disk write jitter.
-pub(crate) const RECORD_BUFFER_MS: u32 = 5000;
 
 /// Poll interval while waiting for a worker thread to finish.
 const SHUTDOWN_POLL_MS: u64 = 10;
@@ -29,65 +27,85 @@ enum JoinOutcome {
     Panicked,
 }
 
+/// Identifies a named worker thread and carries its shutdown timeout.
 #[derive(Debug, Clone, Copy)]
-struct ShutdownWorker {
-    name: &'static str,
-    success_message: &'static str,
-    timeout_ms: u64,
+enum ShutdownWorker {
+    Generator = 0,
+    Analyser = 1,
+    Mapper = 2,
+    Server = 3,
+    Recorder = 4,
 }
 
 impl ShutdownWorker {
-    const GENERATOR: Self = Self {
-        name: "generator",
-        success_message: "- Generator shutdown complete",
-        timeout_ms: GENERATOR_SHUTDOWN_TIMEOUT_MS,
-    };
+    const COUNT: usize = 5;
+    const ALL: [Self; Self::COUNT] = [
+        Self::Generator,
+        Self::Analyser,
+        Self::Mapper,
+        Self::Server,
+        Self::Recorder,
+    ];
 
-    const ANALYSER: Self = Self {
-        name: "analyser",
-        success_message: "- Analyser shutdown complete",
-        timeout_ms: ANALYSER_SHUTDOWN_TIMEOUT_MS,
-    };
+    fn name(self) -> &'static str {
+        match self {
+            Self::Generator => "generator",
+            Self::Analyser => "analyser",
+            Self::Mapper => "mapper",
+            Self::Server => "server",
+            Self::Recorder => "recorder",
+        }
+    }
 
-    const MAPPER: Self = Self {
-        name: "mapper",
-        success_message: "- Mapper shutdown complete",
-        timeout_ms: MAPPER_SHUTDOWN_TIMEOUT_MS,
-    };
+    fn success_message(self) -> &'static str {
+        match self {
+            Self::Generator => "- Generator shutdown complete",
+            Self::Analyser => "- Analyser shutdown complete",
+            Self::Mapper => "- Mapper shutdown complete",
+            Self::Server => "- Server shutdown complete",
+            Self::Recorder => "- Recorder shutdown complete",
+        }
+    }
 
-    const SERVER: Self = Self {
-        name: "server",
-        success_message: "- Server shutdown complete",
-        timeout_ms: SERVER_SHUTDOWN_TIMEOUT_MS,
-    };
-
-    const RECORDER: Self = Self {
-        name: "recorder",
-        success_message: "- Recorder shutdown complete",
-        timeout_ms: RECORDER_SHUTDOWN_TIMEOUT_MS,
-    };
+    fn timeout_ms(self) -> u64 {
+        match self {
+            Self::Generator => GENERATOR_SHUTDOWN_TIMEOUT_MS,
+            Self::Analyser => ANALYSER_SHUTDOWN_TIMEOUT_MS,
+            Self::Mapper => MAPPER_SHUTDOWN_TIMEOUT_MS,
+            Self::Server => SERVER_SHUTDOWN_TIMEOUT_MS,
+            Self::Recorder => RECORDER_SHUTDOWN_TIMEOUT_MS,
+        }
+    }
 
     fn timeout(self) -> Duration {
-        Duration::from_millis(self.timeout_ms)
+        Duration::from_millis(self.timeout_ms())
     }
 }
 
 #[derive(Default)]
-pub(crate) struct WorkerThreads {
-    pub(crate) recorder: Option<JoinHandle<()>>,
-    pub(crate) analyser: Option<JoinHandle<()>>,
-    pub(crate) mapper: Option<JoinHandle<()>>,
-    pub(crate) server: Option<JoinHandle<()>>,
-    pub(crate) generator: Option<JoinHandle<()>>,
-}
+pub(crate) struct WorkerThreads(pub(crate) [Option<JoinHandle<()>>; ShutdownWorker::COUNT]);
 
 impl WorkerThreads {
+    pub(crate) fn new(
+        generator: Option<JoinHandle<()>>,
+        analyser: Option<JoinHandle<()>>,
+        mapper: Option<JoinHandle<()>>,
+        server: Option<JoinHandle<()>>,
+        recorder: Option<JoinHandle<()>>,
+    ) -> Self {
+        let mut handles = [None, None, None, None, None];
+        handles[ShutdownWorker::Generator as usize] = generator;
+        handles[ShutdownWorker::Analyser as usize] = analyser;
+        handles[ShutdownWorker::Mapper as usize] = mapper;
+        handles[ShutdownWorker::Server as usize] = server;
+        handles[ShutdownWorker::Recorder as usize] = recorder;
+        Self(handles)
+    }
+
     pub(crate) fn shutdown(&mut self) {
-        Self::shutdown_worker(ShutdownWorker::GENERATOR, &mut self.generator);
-        Self::shutdown_worker(ShutdownWorker::ANALYSER, &mut self.analyser);
-        Self::shutdown_worker(ShutdownWorker::MAPPER, &mut self.mapper);
-        Self::shutdown_worker(ShutdownWorker::SERVER, &mut self.server);
-        Self::shutdown_worker(ShutdownWorker::RECORDER, &mut self.recorder);
+        for worker in ShutdownWorker::ALL {
+            Self::shutdown_worker(worker, &mut self.0[worker as usize]);
+        }
     }
 
     fn shutdown_worker(worker: ShutdownWorker, handle: &mut Option<JoinHandle<()>>) {
@@ -96,7 +114,7 @@ impl WorkerThreads {
         };
 
         if Self::join_with_timeout(worker, handle) == JoinOutcome::Joined {
-            log::info!("{}", worker.success_message);
+            log::info!("{}", worker.success_message());
         }
     }
 
@@ -108,7 +126,7 @@ impl WorkerThreads {
                 return if let Ok(()) = handle.join() {
                     JoinOutcome::Joined
                 } else {
-                    log::error!("Worker thread '{}' panicked during shutdown", worker.name);
+                    log::error!("Worker thread '{}' panicked during shutdown", worker.name());
                     JoinOutcome::Panicked
                 };
             }
@@ -117,8 +135,8 @@ impl WorkerThreads {
             if now >= deadline {
                 log::error!(
                     "Worker thread '{}' did not stop within {} ms, detaching",
-                    worker.name,
-                    worker.timeout_ms
+                    worker.name(),
+                    worker.timeout_ms()
                 );
                 return JoinOutcome::TimedOut;
             }
@@ -142,7 +160,7 @@ mod tests {
         let handle = thread::spawn(|| {});
 
         assert_eq!(
-            WorkerThreads::join_with_timeout(ShutdownWorker::GENERATOR, handle),
+            WorkerThreads::join_with_timeout(ShutdownWorker::Generator, handle),
             JoinOutcome::Joined
         );
     }
@@ -152,7 +170,7 @@ mod tests {
         let handle = thread::spawn(|| panic!("boom"));
 
         assert_eq!(
-            WorkerThreads::join_with_timeout(ShutdownWorker::ANALYSER, handle),
+            WorkerThreads::join_with_timeout(ShutdownWorker::Analyser, handle),
             JoinOutcome::Panicked
         );
     }
@@ -171,14 +189,7 @@ mod tests {
         });
 
         assert_eq!(
-            WorkerThreads::join_with_timeout(
-                ShutdownWorker {
-                    name: "blocking",
-                    success_message: "",
-                    timeout_ms: 20,
-                },
-                handle,
-            ),
+            WorkerThreads::join_with_timeout(ShutdownWorker::Generator, handle),
             JoinOutcome::TimedOut
         );
 
