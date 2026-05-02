@@ -55,9 +55,9 @@ pub struct NetworkArgs {
     #[arg(long, default_value_t = DEFAULT_MAX_CLIENTS)]
     pub max_clients: usize,
 
-    /// Target WebSocket broadcast rate in Hz (e.g. 30 or 60). Omit for unlimited.
-    #[arg(long)]
-    pub broadcast_rate: Option<f32>,
+    /// Target WebSocket broadcast rate in Hz (e.g. 30 or 60).
+    #[arg(long, default_value_t = 30.0_f32)]
+    pub broadcast_rate: f32,
 
     /// Reject WebSocket clients whose handshake includes an Origin header.
     ///

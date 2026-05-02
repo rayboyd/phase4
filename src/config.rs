@@ -177,7 +177,7 @@ impl Default for AppConfig {
             test_sweep: None,
             vocoder_config: VocoderConfig::default(),
             no_browser_origin: false,
-            broadcast_rate: None,
+            broadcast_rate: Some(30.0),
             analyse_channels: None,
             record_channels: None,
         }
@@ -200,12 +200,10 @@ impl TryFrom<&Args> for AppConfig {
         validate_filename_pattern(&args.recording.filename_pattern)?;
         validate_vocoder_args(&args.vocoder)?;
 
-        if let Some(rate) = args.network.broadcast_rate {
-            if !is_strictly_positive(rate) {
-                return Err(AppConfigError::InvalidBroadcastRate(
-                    "broadcast rate must be a finite value greater than 0 Hz",
-                ));
-            }
+        if !is_strictly_positive(args.network.broadcast_rate) {
+            return Err(AppConfigError::InvalidBroadcastRate(
+                "broadcast rate must be a finite value greater than 0 Hz",
+            ));
         }
 
         if args.network.max_clients == 0 {
@@ -230,7 +228,7 @@ impl TryFrom<&Args> for AppConfig {
                 filter_q: args.vocoder.filter_q,
             },
             no_browser_origin: args.network.no_browser_origin,
-            broadcast_rate: args.network.broadcast_rate,
+            broadcast_rate: Some(args.network.broadcast_rate),
             analyse_channels: normalise_channel_selection(
                 args.recording.analyse_channels.as_deref(),
             )?,
@@ -374,7 +372,7 @@ mod tests {
             network: NetworkArgs {
                 addr: default_bind_addr(),
                 max_clients: DEFAULT_MAX_CLIENTS,
-                broadcast_rate: None,
+                broadcast_rate: 30.0,
                 no_browser_origin: false,
             },
             recording: RecordingArgs {
@@ -596,18 +594,19 @@ mod tests {
     #[allow(clippy::float_cmp)]
     fn try_from_forwards_broadcast_rate() {
         let mut args = args_with_device(Some(0));
-        args.network.broadcast_rate = Some(30.0);
+        args.network.broadcast_rate = 60.0;
 
         let config = AppConfig::try_from(&args).unwrap();
 
-        assert_eq!(config.broadcast_rate, Some(30.0));
+        assert_eq!(config.broadcast_rate, Some(60.0));
     }
 
-    // The default config has no broadcast rate limit.
+    // The default config uses a 30 Hz broadcast rate.
     #[test]
-    fn default_config_has_no_broadcast_rate() {
+    #[allow(clippy::float_cmp)]
+    fn default_config_has_default_broadcast_rate() {
         let config = AppConfig::default();
-        assert!(config.broadcast_rate.is_none());
+        assert_eq!(config.broadcast_rate, Some(30.0));
     }
 
     // A valid max client count is forwarded into the config.
@@ -639,7 +638,7 @@ mod tests {
     #[test]
     fn try_from_rejects_zero_broadcast_rate() {
         let mut args = args_with_device(Some(0));
-        args.network.broadcast_rate = Some(0.0);
+        args.network.broadcast_rate = 0.0;
 
         let result = AppConfig::try_from(&args);
 
@@ -653,7 +652,7 @@ mod tests {
     #[test]
     fn try_from_rejects_negative_broadcast_rate() {
         let mut args = args_with_device(Some(0));
-        args.network.broadcast_rate = Some(-10.0);
+        args.network.broadcast_rate = -10.0;
 
         let result = AppConfig::try_from(&args);
 
@@ -667,7 +666,7 @@ mod tests {
     #[test]
     fn try_from_rejects_infinite_broadcast_rate() {
         let mut args = args_with_device(Some(0));
-        args.network.broadcast_rate = Some(f32::INFINITY);
+        args.network.broadcast_rate = f32::INFINITY;
 
         let result = AppConfig::try_from(&args);
 
