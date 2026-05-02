@@ -137,6 +137,36 @@ impl Input {
         ringbuf::HeapRb::<f32>::new(capacity.next_power_of_two()).split()
     }
 
+    /// Returns a list of available audio input devices as structured data.
+    ///
+    /// Each entry is `(index, name, sample_rate, channels)`. Devices whose
+    /// hardware configuration cannot be queried are omitted.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the host audio system cannot enumerate input devices.
+    pub fn enumerate_devices() -> Result<Vec<(usize, String, u32, u16)>> {
+        let host = cpal::default_host();
+        let devices = host
+            .input_devices()
+            .context("Failed to query input devices")?;
+
+        let mut result = Vec::new();
+        for (index, device) in devices.enumerate() {
+            let name = device
+                .description()
+                .map_or_else(|_| "Unknown Device".to_string(), |d| d.name().to_string());
+
+            if let Ok(config) = device.default_input_config() {
+                if config.sample_format() == cpal::SampleFormat::F32 {
+                    result.push((index, name, config.sample_rate(), config.channels()));
+                }
+            }
+        }
+
+        Ok(result)
+    }
+
     /// Queries the system for all available audio input devices.
     ///
     /// # Errors

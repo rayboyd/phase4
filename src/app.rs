@@ -205,6 +205,12 @@ impl App {
         })
     }
 
+    /// Returns a reference to the shared application state.
+    #[must_use]
+    pub fn state(&self) -> &Arc<AppState> {
+        &self.state
+    }
+
     /// Hands control to the interactive controller, blocking until shutdown.
     ///
     /// # Errors
