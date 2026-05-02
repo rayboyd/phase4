@@ -35,6 +35,8 @@ const ANALYSE_BUFFER_MS: u32 = 500;
 /// Shared application state flags for cross-thread synchronisation.
 pub struct AppState {
     pub record_ring_overflow_events: AtomicUsize,
+    pub connected_clients: AtomicUsize,
+    pub max_clients: usize,
     pub is_broadcasting_websocket: AtomicBool,
     pub is_recording: AtomicBool,
     pub is_analysing: AtomicBool,
@@ -45,6 +47,8 @@ impl Default for AppState {
     fn default() -> Self {
         Self {
             record_ring_overflow_events: AtomicUsize::new(0),
+            connected_clients: AtomicUsize::new(0),
+            max_clients: 0,
             is_broadcasting_websocket: AtomicBool::new(false),
             is_recording: AtomicBool::new(false),
             is_analysing: AtomicBool::new(false),
@@ -91,7 +95,10 @@ impl App {
     /// Panics if `device_index` is `None` when not in calibration mode. This is
     /// guarded by `AppConfig::TryFrom`, so it should never occur in practice.
     pub fn new(config: AppConfig) -> Result<Self> {
-        let state = Arc::new(AppState::new());
+        let state = Arc::new(AppState {
+            max_clients: config.max_clients,
+            ..AppState::default()
+        });
         let stream_state = Arc::clone(&state);
         let recorder_state = Arc::clone(&state);
         let analyser_state = Arc::clone(&state);

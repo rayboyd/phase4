@@ -188,6 +188,7 @@ impl Server {
                         shutdown_notify.clone(),
                         client_slot,
                         no_browser_origin,
+                        Arc::clone(&state),
                     ));
                 }
                 Err(e) => log::error!("TCP Accept error: {e}"),
@@ -212,6 +213,7 @@ impl Server {
         shutdown: Arc<Notify>,
         _client_slot: OwnedSemaphorePermit,
         no_browser_origin: bool,
+        state: Arc<AppState>,
     ) {
         let handshake = tokio::time::timeout(
             Duration::from_millis(HANDSHAKE_TIMEOUT_MS),
@@ -235,11 +237,14 @@ impl Server {
             return;
         };
 
+        state.connected_clients.fetch_add(1, Ordering::Relaxed);
+
         // Send the current snapshot immediately so new clients do not wait for
         // the next mapper publish before rendering.
         let initial_json: Utf8Bytes = watch_rx.borrow_and_update().clone();
         if ws_stream.send(Message::Text(initial_json)).await.is_err() {
             log::debug!("WebSocket client disconnected: {addr}");
+            state.connected_clients.fetch_sub(1, Ordering::Relaxed);
             return;
         }
 
@@ -261,11 +266,13 @@ impl Server {
 
             if ws_stream.send(msg).await.is_err() {
                 log::debug!("WebSocket client disconnected: {addr}");
+                state.connected_clients.fetch_sub(1, Ordering::Relaxed);
                 return;
             }
         }
 
         // RFC 6455 close frame on graceful shutdown or upstream channel closure.
         ws_stream.close(None).await.ok();
+        state.connected_clients.fetch_sub(1, Ordering::Relaxed);
     }
 }

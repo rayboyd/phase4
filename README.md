@@ -62,7 +62,7 @@ If Phase4 is broadcasting, check this [CodePen example](https://codepen.io/raybo
 
 ## TUI
 
-`phase4-tui` is an interactive front-end for the same audio pipeline. It is built from the same library as the headless binary with no extra processes or IPC.
+`phase4-tui` is an interactive front-end for the application.
 
 On launch it presents a device selection screen populated from the host audio system. Use the arrow keys to choose a device, then press `Enter` to start the pipeline.
 
@@ -73,14 +73,12 @@ On launch it presents a device selection screen populated from the host audio sy
   [3] Microsoft Teams Audio (48000 Hz, 2ch)
 ```
 
-Once running, the control surface shows the live state of each subsystem. The same key bindings apply.
+The same key bindings apply.
 
 ```
 > Phase4
   Analyse [OFF]   Broadcast [ON]   Record [OFF]   Record overruns: 0
 ```
-
-`Q` or `Ctrl+C` shuts down the pipeline and exits cleanly. To install both binaries locally, run `./scripts/install.sh` from the repository root.
 
 ## Roadmap
 

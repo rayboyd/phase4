@@ -89,8 +89,8 @@ pub fn render(frame: &mut Frame, screen: &mut DeviceScreen) {
         )
         .highlight_style(
             Style::default()
-                .fg(Color::Black)
-                .bg(Color::White)
+                .fg(Color::White)
+                .bg(Color::Magenta)
                 .add_modifier(Modifier::BOLD),
         )
         .highlight_symbol("> ");
