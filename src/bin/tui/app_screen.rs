@@ -63,10 +63,10 @@ fn status_span(label: &'static str, active: bool) -> Span<'static> {
 fn overflow_span(count: usize) -> Span<'static> {
     if count > 0 {
         Span::styled(
-            format!("Ring overflows: {count}"),
+            format!("Record overruns: {count}"),
             Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
         )
     } else {
-        Span::styled("Ring overflows: 0", Style::default().fg(Color::DarkGray))
+        Span::styled("Record overruns: 0", Style::default().fg(Color::DarkGray))
     }
 }

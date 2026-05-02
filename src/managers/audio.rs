@@ -4,7 +4,7 @@
 //! two SPSC ringbuf producers, one for the recorder and one for the analyser.
 //!
 //! The stream callback pushes f32 frames to both producers. If the record
-//! producer cannot accept the full slice, one record ring overflow event is
+//! producer cannot accept the full slice, one record overrun event is
 //! counted so the controller can surface a warning to the console.
 //!
 //! [`Specs`] carries the hardware's native channel count and sample rate and

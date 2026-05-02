@@ -54,7 +54,7 @@ impl Controller {
                 .load(Ordering::Relaxed);
             if ring_overflow_events > last_record_ring_overflow_events {
                 log::warn!(
-                    "Record ring full: {} event(s) since last poll (total: {}). Recorder fell behind, audio loss may have occurred.",
+                    "Record overrun: {} event(s) since last poll (total: {}). Recorder fell behind, audio loss may have occurred.",
                     ring_overflow_events - last_record_ring_overflow_events,
                     ring_overflow_events
                 );
