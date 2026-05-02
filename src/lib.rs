@@ -11,6 +11,7 @@ pub mod config;
 pub mod controller;
 pub mod dsp;
 pub mod managers;
+pub mod worker;
 
 use clap::Parser;
 use config::{BitDepth, DEFAULT_ADDR_PATTERN, DEFAULT_FILENAME_PATTERN, DEFAULT_MAX_CLIENTS};
