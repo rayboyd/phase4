@@ -1,3 +1,13 @@
+//! Worker thread ownership and coordinated shutdown for the audio pipeline.
+//!
+//! [`WorkerThreads`] owns the [`JoinHandle`] for each pipeline stage. Shutdown
+//! is driven by [`WorkerThreads::shutdown`], which iterates every [`ShutdownWorker`]
+//! variant in order and waits a bounded time for each one before detaching.
+//!
+//! Adding a new worker requires only extending [`ShutdownWorker`] with a new variant
+//! and updating its three `match` arms. The shutdown loop and [`WorkerThreads`] array
+//! size update automatically via [`ShutdownWorker::COUNT`] and [`ShutdownWorker::ALL`].
+
 use crate::app::RECORD_BUFFER_MS;
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
@@ -22,8 +32,11 @@ const RECORDER_SHUTDOWN_TIMEOUT_MS: u64 = RECORD_BUFFER_MS as u64 + 2_000;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum JoinOutcome {
+    /// The thread finished and joined cleanly.
     Joined,
+    /// The grace period elapsed before the thread finished; it has been detached.
     TimedOut,
+    /// The thread finished but its closure panicked.
     Panicked,
 }
 
@@ -38,7 +51,10 @@ enum ShutdownWorker {
 }
 
 impl ShutdownWorker {
+    /// Total number of variants. Keeps [`WorkerThreads`] array size in sync.
     const COUNT: usize = 5;
+
+    /// Ordered list of all variants, used by the shutdown loop.
     const ALL: [Self; Self::COUNT] = [
         Self::Generator,
         Self::Analyser,
@@ -82,10 +98,14 @@ impl ShutdownWorker {
     }
 }
 
+/// Owns the [`JoinHandle`] for each pipeline stage, indexed by [`ShutdownWorker`] discriminant.
 #[derive(Default)]
 pub(crate) struct WorkerThreads(pub(crate) [Option<JoinHandle<()>>; ShutdownWorker::COUNT]);
 
 impl WorkerThreads {
+    /// Constructs a `WorkerThreads` from individual optional handles.
+    ///
+    /// Any handle that is `None` is simply skipped during shutdown.
     pub(crate) fn new(
         generator: Option<JoinHandle<()>>,
         analyser: Option<JoinHandle<()>>,
@@ -102,6 +122,9 @@ impl WorkerThreads {
         Self(handles)
     }
 
+    /// Signals all workers to stop by iterating [`ShutdownWorker::ALL`] and waiting
+    /// a bounded time for each one. Workers that do not stop within their grace period
+    /// are detached rather than blocking the main thread indefinitely.
     pub(crate) fn shutdown(&mut self) {
         for worker in ShutdownWorker::ALL {
             Self::shutdown_worker(worker, &mut self.0[worker as usize]);
