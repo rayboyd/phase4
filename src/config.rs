@@ -3,6 +3,7 @@
 //! which resolves the CLI arguments and enforces that a device index is present
 //! whenever the application is not running in calibration mode.
 
+use crate::dsp::units::{Hertz, Milliseconds};
 use crate::{Args, VocoderArgs};
 use std::net::SocketAddr;
 use std::path::{Component, Path};
@@ -21,20 +22,20 @@ fn default_bind_addr() -> SocketAddr {
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct VocoderConfig {
-    pub attack_ms: f32,
-    pub release_ms: f32,
-    pub freq_low: f32,
-    pub freq_high: f32,
+    pub attack_ms: Milliseconds,
+    pub release_ms: Milliseconds,
+    pub freq_low: Hertz,
+    pub freq_high: Hertz,
     pub filter_q: f32,
 }
 
 impl Default for VocoderConfig {
     fn default() -> Self {
         Self {
-            attack_ms: 30.0,
-            release_ms: 60.0,
-            freq_low: 40.0,
-            freq_high: 18_000.0,
+            attack_ms: Milliseconds(30.0),
+            release_ms: Milliseconds(60.0),
+            freq_low: Hertz(40.0),
+            freq_high: Hertz(18_000.0),
             filter_q: 2.0,
         }
     }
@@ -222,10 +223,10 @@ impl TryFrom<&Args> for AppConfig {
             test_hz: args.calibration.test_hz,
             test_sweep: args.calibration.test_sweep,
             vocoder_config: VocoderConfig {
-                attack_ms: args.vocoder.attack_ms,
-                release_ms: args.vocoder.release_ms,
-                freq_low: args.vocoder.freq_low,
-                freq_high: args.vocoder.freq_high,
+                attack_ms: Milliseconds(args.vocoder.attack_ms),
+                release_ms: Milliseconds(args.vocoder.release_ms),
+                freq_low: Hertz(args.vocoder.freq_low),
+                freq_high: Hertz(args.vocoder.freq_high),
                 filter_q: args.vocoder.filter_q,
             },
             no_browser_origin: args.network.no_browser_origin,
@@ -334,24 +335,24 @@ fn validate_vocoder_args(vocoder: &VocoderArgs) -> Result<(), AppConfigError> {
 }
 
 pub(crate) fn validate_vocoder_sample_rate(
-    freq_high: f32,
+    freq_high: Hertz,
     sample_rate: u32,
 ) -> Result<(), AppConfigError> {
     let sample_rate_hz = sample_rate as f32;
     let nyquist_hz = sample_rate_hz / 2.0;
-    if freq_high >= nyquist_hz {
+    if freq_high.0 >= nyquist_hz {
         return Err(AppConfigError::InvalidFreqAboveNyquist {
             sample_rate,
-            freq_high,
+            freq_high: freq_high.0,
             nyquist_hz,
         });
     }
 
     let max_safe_hz = sample_rate_hz * 0.45;
-    if freq_high > max_safe_hz {
+    if freq_high.0 > max_safe_hz {
         return Err(AppConfigError::InvalidFreqAboveSafetyCeiling {
             sample_rate,
-            freq_high,
+            freq_high: freq_high.0,
             max_safe_hz,
         });
     }
@@ -446,10 +447,10 @@ mod tests {
     #[allow(clippy::float_cmp)]
     fn vocoder_config_default_values() {
         let config = VocoderConfig::default();
-        assert_eq!(config.attack_ms, 30.0);
-        assert_eq!(config.release_ms, 60.0);
-        assert_eq!(config.freq_low, 40.0);
-        assert_eq!(config.freq_high, 18_000.0);
+        assert_eq!(config.attack_ms, Milliseconds(30.0));
+        assert_eq!(config.release_ms, Milliseconds(60.0));
+        assert_eq!(config.freq_low, Hertz(40.0));
+        assert_eq!(config.freq_high, Hertz(18_000.0));
         assert_eq!(config.filter_q, 2.0);
     }
 
@@ -465,10 +466,10 @@ mod tests {
         args.vocoder.filter_q = 4.0;
 
         let config = AppConfig::try_from(&args).unwrap();
-        assert_eq!(config.vocoder_config.attack_ms, 12.0);
-        assert_eq!(config.vocoder_config.release_ms, 80.0);
-        assert_eq!(config.vocoder_config.freq_low, 40.0);
-        assert_eq!(config.vocoder_config.freq_high, 16_000.0);
+        assert_eq!(config.vocoder_config.attack_ms, Milliseconds(12.0));
+        assert_eq!(config.vocoder_config.release_ms, Milliseconds(80.0));
+        assert_eq!(config.vocoder_config.freq_low, Hertz(40.0));
+        assert_eq!(config.vocoder_config.freq_high, Hertz(16_000.0));
         assert_eq!(config.vocoder_config.filter_q, 4.0);
     }
 
@@ -731,7 +732,7 @@ mod tests {
     // 48 kHz sample rate means Nyquist is 24 kHz
     #[test]
     fn validate_vocoder_sample_rate_rejects_freq_above_nyquist() {
-        let result = validate_vocoder_sample_rate(25_000.0, 48_000);
+        let result = validate_vocoder_sample_rate(Hertz(25_000.0), 48_000);
         assert!(
             matches!(result, Err(AppConfigError::InvalidFreqAboveNyquist { .. })),
             "frequencies above Nyquist should be rejected"
@@ -742,7 +743,7 @@ mod tests {
     // 22 kHz is below Nyquist (24 kHz) but above the safety ceiling
     #[test]
     fn validate_vocoder_sample_rate_rejects_freq_above_safety_ceiling() {
-        let result = validate_vocoder_sample_rate(22_000.0, 48_000);
+        let result = validate_vocoder_sample_rate(Hertz(22_000.0), 48_000);
         assert!(
             matches!(
                 result,
@@ -755,7 +756,7 @@ mod tests {
     // 18 kHz is well below the 21.6 kHz safety ceiling for 48 kHz
     #[test]
     fn validate_vocoder_sample_rate_accepts_valid_frequencies() {
-        let result = validate_vocoder_sample_rate(18_000.0, 48_000);
+        let result = validate_vocoder_sample_rate(Hertz(18_000.0), 48_000);
         assert!(result.is_ok(), "valid frequencies should be accepted");
     }
 }

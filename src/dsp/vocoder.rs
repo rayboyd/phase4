@@ -6,6 +6,7 @@
 use biquad::{Biquad, Coefficients, DirectForm1, ToHertz, Type};
 
 use crate::config::VocoderConfig;
+use crate::dsp::units::{Hertz, Milliseconds};
 
 /// Number of frequency bands in the filter bank.
 pub const VOCODER_BANDS: usize = 64;
@@ -36,9 +37,9 @@ impl EnvelopeFollower {
     }
 }
 
-pub(crate) fn envelope_coeff(milliseconds: f32, sample_rate: f32) -> f32 {
-    let tau_seconds = milliseconds / 1000.0;
-    1.0 - (-1.0 / (tau_seconds * sample_rate)).exp()
+pub(crate) fn envelope_coeff(time: Milliseconds, sample_rate: Hertz) -> f32 {
+    let tau_seconds = time.0 / 1000.0;
+    1.0 - (-1.0 / (tau_seconds * sample_rate.0)).exp()
 }
 
 /// Per-channel vocoder analyser.
@@ -64,9 +65,9 @@ impl VocoderAnalyser {
     /// required to construct the bandpass coefficients.
     #[must_use]
     pub fn new(sample_rate: u32, config: &VocoderConfig) -> Self {
-        let sr = sample_rate as f32;
-        let log_low = config.freq_low.ln();
-        let log_high = config.freq_high.ln();
+        let sr = Hertz(sample_rate as f32);
+        let log_low = config.freq_low.0.ln();
+        let log_high = config.freq_high.0.ln();
 
         let filters = (0..VOCODER_BANDS)
             .map(|i| {
@@ -146,9 +147,9 @@ impl VocoderAnalyser {
     /// keeping the runtime struct free of test-only fields.
     #[cfg(test)]
     #[expect(dead_code, reason = "0.0.2 testing pass will add callers")]
-    pub(crate) fn centre_frequencies(freq_low: f32, freq_high: f32) -> Vec<f32> {
-        let log_low = freq_low.ln();
-        let log_high = freq_high.ln();
+    pub(crate) fn centre_frequencies(freq_low: Hertz, freq_high: Hertz) -> Vec<f32> {
+        let log_low = freq_low.0.ln();
+        let log_high = freq_high.0.ln();
         (0..VOCODER_BANDS)
             .map(|i| {
                 let t = i as f32 / (VOCODER_BANDS as f32 - 1.0);
