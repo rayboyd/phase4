@@ -508,4 +508,26 @@ mod tests {
         assert_eq!(drain(c_all), Vec::<f32>::new());
         assert_eq!(drain(c_sel), Vec::<f32>::new());
     }
+
+    #[test]
+    fn test_ringbuf_power_of_two() {
+        let specs = Specs {
+            sample_rate: 48000,
+            channels: 2,
+        };
+        let buffer_ms = 5000;
+
+        let (prod, _cons) = Input::create_audio_buffer_pair(specs, buffer_ms);
+
+        // Extract the raw usize from NonZero<usize>
+        let usable_capacity: usize = prod.capacity().get();
+        println!("Usable Capacity: {usable_capacity}");
+
+        let is_pow2 = usable_capacity.is_power_of_two();
+
+        assert!(
+            is_pow2,
+            "Usable capacity {usable_capacity} is NOT a power of two!"
+        );
+    }
 }
