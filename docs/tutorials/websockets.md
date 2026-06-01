@@ -30,7 +30,7 @@ Every message is a JSON object containing a `channels` array.
 | Field      | Type    | Description                                                                    |
 | :--------- | :------ | :----------------------------------------------------------------------------- |
 | **`peak`** | `float` | The peak sample amplitude (0.0 to 1.0).                                        |
-| **`bins`** | `array` | Frequency magnitudes (compile-time, default 64 bands) mapped from low to high. |
+| **`bins`** | `array` | Frequency magnitudes (compile-time, default 32 bands) mapped from low to high. |
 
 ## JavaScript Example
 

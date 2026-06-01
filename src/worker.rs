@@ -30,6 +30,9 @@ const SERVER_SHUTDOWN_TIMEOUT_MS: u64 = 1_500;
 /// Grace period for the recorder to drain the record ringbuf and finalise the WAV file.
 const RECORDER_SHUTDOWN_TIMEOUT_MS: u64 = RECORD_BUFFER_MS as u64 + 2_000;
 
+/// Grace period for the OSC sender to observe display channel closure after the mapper exits.
+const OSC_SENDER_SHUTDOWN_TIMEOUT_MS: u64 = 1_500;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum JoinOutcome {
     /// The thread finished and joined cleanly.
@@ -48,11 +51,12 @@ enum ShutdownWorker {
     Mapper = 2,
     Server = 3,
     Recorder = 4,
+    OscSender = 5,
 }
 
 impl ShutdownWorker {
     /// Total number of variants. Keeps [`WorkerThreads`] array size in sync.
-    const COUNT: usize = 5;
+    const COUNT: usize = 6;
 
     /// Ordered list of all variants, used by the shutdown loop.
     const ALL: [Self; Self::COUNT] = [
@@ -61,6 +65,7 @@ impl ShutdownWorker {
         Self::Mapper,
         Self::Server,
         Self::Recorder,
+        Self::OscSender,
     ];
 
     fn name(self) -> &'static str {
@@ -70,6 +75,7 @@ impl ShutdownWorker {
             Self::Mapper => "mapper",
             Self::Server => "server",
             Self::Recorder => "recorder",
+            Self::OscSender => "osc-sender",
         }
     }
 
@@ -80,6 +86,7 @@ impl ShutdownWorker {
             Self::Mapper => "- Mapper shutdown complete",
             Self::Server => "- Server shutdown complete",
             Self::Recorder => "- Recorder shutdown complete",
+            Self::OscSender => "- OSC sender shutdown complete",
         }
     }
 
@@ -90,6 +97,7 @@ impl ShutdownWorker {
             Self::Mapper => MAPPER_SHUTDOWN_TIMEOUT_MS,
             Self::Server => SERVER_SHUTDOWN_TIMEOUT_MS,
             Self::Recorder => RECORDER_SHUTDOWN_TIMEOUT_MS,
+            Self::OscSender => OSC_SENDER_SHUTDOWN_TIMEOUT_MS,
         }
     }
 
@@ -112,13 +120,15 @@ impl WorkerThreads {
         mapper: Option<JoinHandle<()>>,
         server: Option<JoinHandle<()>>,
         recorder: Option<JoinHandle<()>>,
+        osc_sender: Option<JoinHandle<()>>,
     ) -> Self {
-        let mut handles = [None, None, None, None, None];
+        let mut handles = [None, None, None, None, None, None];
         handles[ShutdownWorker::Generator as usize] = generator;
         handles[ShutdownWorker::Analyser as usize] = analyser;
         handles[ShutdownWorker::Mapper as usize] = mapper;
         handles[ShutdownWorker::Server as usize] = server;
         handles[ShutdownWorker::Recorder as usize] = recorder;
+        handles[ShutdownWorker::OscSender as usize] = osc_sender;
         Self(handles)
     }
 

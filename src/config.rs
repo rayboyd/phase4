@@ -163,6 +163,9 @@ pub struct AppConfig {
     /// Sorted, deduplicated hardware channel indices for the recorder.
     /// None means record all channels.
     pub record_channels: Option<Box<[u16]>>,
+
+    /// OSC UDP output target address. None disables OSC output.
+    pub osc_addr: Option<SocketAddr>,
 }
 
 impl Default for AppConfig {
@@ -180,6 +183,7 @@ impl Default for AppConfig {
             broadcast_rate: Some(30.0),
             analyse_channels: None,
             record_channels: None,
+            osc_addr: None,
         }
     }
 }
@@ -235,6 +239,7 @@ impl TryFrom<&Args> for AppConfig {
             record_channels: normalise_channel_selection(
                 args.recording.record_channels.as_deref(),
             )?,
+            osc_addr: args.network.osc_addr,
         })
     }
 }
@@ -374,6 +379,7 @@ mod tests {
                 max_clients: DEFAULT_MAX_CLIENTS,
                 broadcast_rate: 30.0,
                 no_browser_origin: false,
+                osc_addr: None,
             },
             recording: RecordingArgs {
                 bit_depth: BitDepth::Int24,

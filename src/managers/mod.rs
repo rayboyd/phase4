@@ -6,6 +6,7 @@
 //! - [`audio`]: CPAL audio input device and stream management.
 //! - [`generator`]: Synthetic signal generator for calibration mode.
 //! - [`mapper`]: Display payload mapper reducing raw vocoder bins to [`crate::dsp::DISPLAY_BINS`] bins.
+//! - [`osc`]: OSC UDP sender broadcasting bin values to a configured target address.
 //! - [`recorder`]: WAV file writer thread consuming the record ringbuf.
 //! - [`server`]: WebSocket server broadcasting pre-serialised JSON to clients.
 
@@ -13,6 +14,7 @@ pub mod analyser;
 pub mod audio;
 pub mod generator;
 pub mod mapper;
+pub mod osc;
 pub mod recorder;
 pub mod server;
 
@@ -20,6 +22,7 @@ pub use analyser::Processor;
 pub use audio::{Input, Specs};
 pub use generator::Generator;
 pub use mapper::Mapper;
+pub use osc::OscSender;
 pub use recorder::Writer;
 pub use server::Server;
 

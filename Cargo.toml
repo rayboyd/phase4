@@ -6,7 +6,7 @@ edition = "2021"
 rust-version = "1.87"
 
 [features]
-default = ["display-bins-64"]
+default = ["display-bins-32"]
 display-bins-32 = []
 display-bins-64 = []
 display-bins-128 = []
@@ -29,6 +29,7 @@ strip = "symbols"
 [dependencies]
 anyhow = "1.0.102"
 biquad = "0.6.0"
+rosc = "0.10"
 clap = { version = "4.6", features = ["derive"] }
 cpal = "0.17"
 futures-util = "0.3"

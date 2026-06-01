@@ -16,7 +16,7 @@ use crate::config::{validate_vocoder_sample_rate, AppConfig};
 use crate::controller::Controller;
 use crate::dsp::{vocoder::VOCODER_BANDS, DisplayPayload, RawPayload};
 use crate::managers::audio::{ChannelMode, StreamSink};
-use crate::managers::{Generator, Input, Mapper, Processor, Server, Specs, Writer};
+use crate::managers::{Generator, Input, Mapper, OscSender, Processor, Server, Specs, Writer};
 use crate::worker::WorkerThreads;
 use anyhow::Result;
 use std::sync::{
@@ -97,28 +97,14 @@ impl App {
         let analyser_state = Arc::clone(&state);
         let mapper_state = Arc::clone(&state);
         let server_state = Arc::clone(&state);
+        let osc_state = Arc::clone(&state);
         let generator_state = Arc::clone(&state);
         let controller_state = Arc::clone(&state);
 
         let mut input_device = Input::new();
         let calibration_mode = config.test_hz.is_some() || config.test_sweep.is_some();
-
-        // Hardware & Device Resolution.
-        let (hw_specs, device_handle) = if calibration_mode {
-            (
-                Specs {
-                    sample_rate: 44100,
-                    channels: 2,
-                },
-                None,
-            )
-        } else {
-            let idx = config
-                .device_index
-                .expect("device_index required in hardware mode");
-            let (d, c, s) = input_device.get_device(idx)?;
-            (s, Some((d, c)))
-        };
+        let (hw_specs, device_handle) =
+            Self::resolve_hardware(&config, calibration_mode, &mut input_device)?;
         validate_vocoder_sample_rate(config.vocoder_config.freq_high, hw_specs.sample_rate)?;
 
         // Specs & Channel Modes.
@@ -140,6 +126,14 @@ impl App {
         let initial_display = serde_json::to_string(&DisplayPayload::new(display_channels))
             .expect("failed to serialise initial display payload");
         let (display_tx, display_rx) = watch::channel(Utf8Bytes::from(initial_display));
+
+        // OSC typed channel, only allocated when an OSC target address is configured.
+        let (osc_tx, osc_display_rx) = if config.osc_addr.is_some() {
+            let (tx, rx) = watch::channel(DisplayPayload::new(display_channels));
+            (Some(tx), Some(rx))
+        } else {
+            (None, None)
+        };
 
         // Spawn Producers. Hardware or a Generator is spawned.
         let mut generator_thread = None;
@@ -182,6 +176,7 @@ impl App {
         let mapper_thread = Some(Mapper::spawn(
             raw_rx,
             display_tx,
+            osc_tx,
             display_channels,
             mapper_state,
             config.broadcast_rate,
@@ -189,6 +184,14 @@ impl App {
 
         let server = Server::new(config.addr, config.no_browser_origin, config.max_clients);
         let server_thread = Some(server.spawn(display_rx, server_state)?);
+
+        // Spawn the OSC sender when a target address is configured.
+        let osc_sender_thread = if let (Some(addr), Some(rx)) = (config.osc_addr, osc_display_rx) {
+            let sender = OscSender::new(addr);
+            Some(sender.spawn(rx, display_channels, osc_state)?)
+        } else {
+            None
+        };
 
         Ok(Self {
             input_device: Some(input_device),
@@ -199,10 +202,42 @@ impl App {
                 mapper_thread,
                 server_thread,
                 recorder_thread,
+                osc_sender_thread,
             ),
             controller: Controller::new(controller_state),
             shutdown_started: false,
         })
+    }
+
+    /// Returns hardware specs and a device handle, or calibration-mode defaults
+    /// when no real device is needed.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the device cannot be queried.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `device_index` is `None` when not in calibration mode.
+    fn resolve_hardware(
+        config: &AppConfig,
+        calibration_mode: bool,
+        input: &mut Input,
+    ) -> Result<(Specs, Option<(cpal::Device, cpal::SupportedStreamConfig)>)> {
+        if calibration_mode {
+            return Ok((
+                Specs {
+                    sample_rate: 44100,
+                    channels: 2,
+                },
+                None,
+            ));
+        }
+        let idx = config
+            .device_index
+            .expect("device_index required in hardware mode");
+        let (device, stream_config, specs) = input.get_device(idx)?;
+        Ok((specs, Some((device, stream_config))))
     }
 
     /// Hands control to the interactive controller, blocking until shutdown.
@@ -288,7 +323,7 @@ mod tests {
         let mut app = App {
             input_device: None,
             state: state.clone(),
-            workers: WorkerThreads::new(generator_thread, None, None, None, None),
+            workers: WorkerThreads::new(generator_thread, None, None, None, None, None),
             controller: Controller::new(state.clone()),
             shutdown_started: false,
         };

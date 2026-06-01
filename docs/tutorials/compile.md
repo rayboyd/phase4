@@ -12,19 +12,19 @@ cargo build --release --locked
 
 ## Feature flags
 
-The number of display bands sent to clients is set at compile time via a feature flag. For most use cases, `display-bins-64` (the default) is the right choice.
+The number of display bands sent to clients is set at compile time via a feature flag. For most use cases, `display-bins-32` (the default) is the right choice.
 
 Higher bin counts increase spectral detail but also CPU cost and data payload, and the visual difference is often imperceptible. Tuning `--vocoder-attack-ms` and `--vocoder-release-ms` to control envelope responsiveness is usually more effective at shaping the output than increasing bin count. For example, a slow release combined with 32 bins produces a tailed, ambient wash in the data that can be exactly what generative visuals need.
 
 | Feature            | Bands | Notes                              |
 | :----------------- | :---- | :--------------------------------- |
-| `display-bins-32`  | 32    | Least spectral detail. Lowest CPU. |
-| `display-bins-64`  | 64    | Default.                           |
+| `display-bins-32`  | 32    | Default. Lowest CPU.               |
+| `display-bins-64`  | 64    |                                    |
 | `display-bins-128` | 128   |                                    |
 | `display-bins-256` | 256   | Most spectral detail. Highest CPU. |
 
 ```sh
-# Default (64 bands)
+# Default (32 bands)
 cargo build --release --locked
 
 # High resolution (128 bands)
