@@ -233,10 +233,12 @@ impl App {
                 None,
             ));
         }
+
         let idx = config
             .device_index
             .expect("device_index required in hardware mode");
         let (device, stream_config, specs) = input.get_device(idx)?;
+
         Ok((specs, Some((device, stream_config))))
     }
 
