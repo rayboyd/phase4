@@ -4,7 +4,7 @@
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://github.com/rayboyd/phase4/blob/main/LICENSE)
 [![Security Policy](https://img.shields.io/badge/Security-Policy-green.svg)](https://github.com/rayboyd/phase4/blob/main/SECURITY.md)
 
-Phase4 is a fast, lightweight audio analysis tool built for real-time audio visualisation. Any WebSocket-capable tooling, such as [TouchDesigner](https://derivative.ca/) or a browser using the [WebSocket API](https://developer.mozilla.org/en-US/docs/Web/API/WebSockets_API), can connect to the Phase4 server.
+Phase4 is a fast, lightweight audio analysis tool built for real-time audio visualisation. WebSocket and OSC are both first-class output protocols. Any WebSocket-capable tooling, such as [TouchDesigner](https://derivative.ca/) or a browser using the [WebSocket API](https://developer.mozilla.org/en-US/docs/Web/API/WebSockets_API), can connect to the Phase4 server. OSC output can be sent to any UDP target, including [Resolume](https://resolume.com/) and similar media servers.
 
 Check the [platform requirements section](docs/tutorials/compile.md#platform-requirements) of this document if you intend to build Phase4 from source.
 
@@ -16,7 +16,8 @@ Pre-built binaries for macOS and Linux are on the [releases page](https://github
 
 1. [Check](#check) hardware compatibility.
 2. Select a device and [serve](#serve) analysis data.
-3. [Connect](#connect) a client to the server.
+3. [Connect](#connect) a WebSocket client.
+4. Optionally [send OSC output](#osc).
 
 ### Check
 
@@ -60,13 +61,23 @@ Phase4 streams real-time audio analysis data as a JSON broadcast. Any tool capab
 
 If Phase4 is broadcasting, check this [CodePen example](https://codepen.io/rayboyd/full/wBzOPPr) to see the server in action.
 
+### OSC
+
+Phase4 can send real-time analysis data as OSC float messages over UDP. Pass `--osc` with a `host:port` target to enable it alongside the WebSocket broadcast.
+
+```sh
+./phase4 --device 0 --osc 127.0.0.1:7000
+```
+
+Each frequency bin is sent as a separate OSC message with address `/phase4/ch/{channel}/bin/{bin}` and a single `f` argument in the range `0.0` to `1.0`. Map these addresses to parameters using your software's OSC shortcut editor.
+
+See [docs/tutorials/osc.md](docs/tutorials/osc.md) for the full address reference and integration notes.
+
 ## Roadmap
 
 **0.0.2**
 
-- Terminal displays peak levels per selected channel with `--monitor` flag.
 - Local config file support for device presets and persistent flag defaults.
-- Analysis low CPU mode. `--low-cpu` selects 32 bands, default remains 64, possible 128 option? Explain spectral detail trade-off vs smoothness in docs and tutorials.
 - Double-buffered recording to decouple ring drain latency from disk write latency, improving reliability on high channel count devices.
 
 ## Licence

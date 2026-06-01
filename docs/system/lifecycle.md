@@ -40,7 +40,10 @@ flowchart TD
 		N --> O[Spawn analyser thread]
 		O --> P[Spawn mapper thread]
 		P --> Q[Spawn WebSocket server thread]
-		Q --> R[Run controller loop until shutdown]
+		Q --> Q2{--osc flag?}
+		Q2 -->|yes| Q3[Spawn OSC sender thread]
+		Q2 -->|no| R[Run controller loop until shutdown]
+		Q3 --> R
 		R --> S[Shutdown: drop input, signal keep_running=false, join workers with timeouts]
 ```
 
@@ -83,8 +86,11 @@ flowchart LR
 		C2 -->|watch send_replace RawPayload| E[(RawPayload watch)]
 		E --> F[Mapper thread]
 		F -->|map bins plus JSON serialise| G[(Display JSON watch)]
+		F -->|typed DisplayPayload, if --osc| K[(OSC display watch)]
 		G --> H[WebSocket server]
 		H --> I[Clients: browser or native]
+		K --> L[OSC sender thread]
+		L --> M[UDP target]
 
 		J[Controller thread] -->|toggle atomics| C1
 		J -->|toggle atomics| C2
@@ -136,6 +142,7 @@ sequenceDiagram
 		participant Map as Mapper
 		participant Srv as Server
 		participant Rec as Recorder
+		participant Osc as OscSender
 
 		Main->>In: Drop input handle
 		Main->>Main: keep_running=false
@@ -145,7 +152,9 @@ sequenceDiagram
 		Main->>Map: join with 1000ms timeout
 		Main->>Srv: join with 1500ms timeout
 		Main->>Rec: join with RECORD_BUFFER_MS + 2000ms timeout
+		Main->>Osc: join with 1500ms timeout
 
 		note over Main,Srv: Server notifies clients, sends close frames, bounded task join
 		note over Main,Rec: Recorder drains remaining ring buffer and finalises WAV
+		note over Main,Osc: OSC sender exits when display channel closes after mapper exits
 ```
