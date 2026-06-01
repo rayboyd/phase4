@@ -63,10 +63,10 @@ If Phase4 is broadcasting, check this [CodePen example](https://codepen.io/raybo
 
 ### OSC
 
-Phase4 can send real-time analysis data as OSC float messages over UDP. Pass `--osc` with a `host:port` target to enable it alongside the WebSocket broadcast.
+Phase4 can send real-time analysis data as OSC float messages over UDP. Pass `--osc-addr` with a `host:port` target to enable it alongside the WebSocket broadcast.
 
 ```sh
-./phase4 --device 0 --osc 127.0.0.1:7000
+./phase4 --device 0 --osc-addr 127.0.0.1:7000
 ```
 
 Each frequency bin is sent as a separate OSC message with address `/phase4/ch/{channel}/bin/{bin}` and a single `f` argument in the range `0.0` to `1.0`. Map these addresses to parameters using your software's OSC shortcut editor.
