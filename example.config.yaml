@@ -1,0 +1,67 @@
+# Phase4 configuration file.
+#
+# Copy this file to config.yaml in the directory from which you run phase4.
+# Any key may be omitted; absent keys inherit the hardcoded application default.
+# CLI flags always take priority over values set here.
+#
+# Default values are shown in each comment.
+
+network:
+  # WebSocket server bind address. Loopback-only.
+  # default: 127.0.0.1:8889
+  addr: "127.0.0.1:8889"
+
+  # Maximum number of concurrent WebSocket clients.
+  # default: 8
+  max_clients: 8
+
+  # Target broadcast rate sent to WebSocket clients, in Hz.
+  # default: 30.0
+  broadcast_rate: 30.0
+
+  # Reject WebSocket clients that send a browser Origin header.
+  # Only browsers are required by the Fetch spec to send Origin, so enabling
+  # this blocks browser connections while allowing native clients.
+  # default: false
+  no_browser_origin: false
+
+  # OSC UDP output target address. Omit to disable OSC output.
+  # Emits one float message per bin per channel each broadcast frame.
+  # Addresses follow the scheme /phase4/ch/{n}/bin/{n} with a float in 0.0..=1.0.
+  # default: (disabled)
+  # osc_addr: "127.0.0.1:7000"
+
+audio:
+  # Partial or full name of the audio input device to use.
+  # Exact matches are preferred; substring matches are used as a fallback.
+  # default: (none, required unless running in calibration mode)
+  # device_name_match: "Duet 3"
+
+  # Hardware channel indices forwarded to the analyser, as a list.
+  # Omit to forward all channels.
+  # default: (all channels)
+  # analyse_channels: [0, 1]
+
+vocoder:
+  # Envelope follower attack time constant in milliseconds.
+  # Smaller values react faster to transients.
+  # default: 30.0
+  attack_ms: 30.0
+
+  # Envelope follower release time constant in milliseconds.
+  # Smaller values decay faster after a transient.
+  # default: 60.0
+  release_ms: 60.0
+
+  # Lowest filter bank centre frequency in Hz.
+  # default: 40.0
+  freq_low: 40.0
+
+  # Highest filter bank centre frequency in Hz.
+  # Must be below 45 percent of the device sample rate.
+  # default: 18000.0
+  freq_high: 18000.0
+
+  # Bandpass filter Q factor. Higher values produce narrower bands.
+  # default: 2.0
+  filter_q: 2.0
