@@ -40,7 +40,7 @@ flowchart TD
 		M --> N
 		N --> O[Spawn mapper thread]
 		O --> P[Spawn WebSocket server thread]
-		P --> Q{--osc flag?}
+		P --> Q{--osc-addr flag?}
 		Q -->|yes| Q2[Spawn OSC sender thread]
 		Q -->|no| R[Run controller loop until shutdown]
 		Q2 --> R
@@ -115,8 +115,7 @@ stateDiagram-v2
 
 		state Running {
 			[*] --> Flags
-			Flags --> Flags: B key toggles is_broadcasting_websocket
-			Flags --> Flags: A key toggles is_analysing
+			Flags --> Flags: T key toggles is_active
 			Flags --> ExitRequested: Ctrl+C sets keep_running=false
 		}
 

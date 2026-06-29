@@ -112,7 +112,11 @@ pub struct AppConfig {
     /// When true, reject WebSocket clients that send a browser Origin header.
     pub no_browser_origin: bool,
 
-    /// Target WebSocket broadcast rate in Hz. None means no throttle.
+    /// Target WebSocket broadcast rate in Hz. None means no throttle (unlimited rate).
+    ///
+    /// In production this is always `Some` because `resolve_config` always wraps
+    /// the resolved rate in `Some`. The `None` variant is only reachable through
+    /// direct struct construction in tests.
     pub broadcast_rate: Option<f32>,
 
     /// Sorted, deduplicated hardware channel indices for the analyser.

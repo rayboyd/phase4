@@ -5,8 +5,11 @@
 //! argument in the range 0.0..=1.0. The receiver maps these to its own
 //! parameters using its OSC shortcut editor (e.g. Resolume Avenue/Arena).
 //!
-//! All address strings are pre-built before the send loop to avoid per-frame
-//! heap allocation. The UDP socket is bound to an ephemeral local port and
+//! All address strings are pre-built before the send loop to avoid reformatting
+//! them on every frame. Each message still clones the address into an owned
+//! `String` because `rosc::OscMessage.addr` requires ownership, so one
+//! allocation per message is unavoidable with this API. The UDP socket is
+//! bound to an ephemeral local port and
 //! connected to the target address so each send is a plain `socket.send(&bytes)`.
 //!
 //! OSC uses UDP so no connection management, handshake, or backpressure exists.
@@ -90,7 +93,9 @@ impl OscSender {
         channels: usize,
         state: Arc<AppState>,
     ) {
-        // Pre-allocated buffer reused every frame to avoid per-frame heap allocation.
+        // Pre-allocated display buffer reused every frame to minimise allocations
+        // in the blit path. One String clone per message is still required because
+        // rosc::OscMessage.addr takes ownership.
         let mut local = DisplayPayload::new(channels);
 
         while state.keep_running.load(Ordering::Acquire) {

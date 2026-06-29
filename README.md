@@ -42,16 +42,16 @@ _If a device is not supported, you'll see **No hardware support (32-bit required
 
 ### Serve
 
-Launch Phase4 using your device index (e.g., index 0).
+Launch Phase4 using your device name (e.g., Duet 3).
 
 ```sh
-./phase4 --device 0
+./phase4 --device "Duet 3"
 ```
 
-Press `A` to start analysis and `B` to start broadcasting. No harm done if you forget, but you will not get any data.
+Press `T` to toggle the engine active. No harm done if you forget, but you will not get any data.
 
 ```
-> [INFO] 'A' to analyse, 'B' to broadcast, Ctrl+C to exit
+> [INFO] 'T' to toggle engine, Ctrl+C to exit
 > [INFO] WebSocket server listening on ws://127.0.0.1:8889
 ```
 
@@ -66,7 +66,7 @@ If Phase4 is broadcasting, check this [CodePen example](https://codepen.io/raybo
 Phase4 can send real-time analysis data as OSC float messages over UDP. Pass `--osc-addr` with a `host:port` target to enable it alongside the WebSocket broadcast.
 
 ```sh
-./phase4 --device 0 --osc-addr 127.0.0.1:7000
+./phase4 --device "Duet 3" --osc-addr 127.0.0.1:7000
 ```
 
 Each frequency bin is sent as a separate OSC message with address `/phase4/ch/{channel}/bin/{bin}` and a single `f` argument in the range `0.0` to `1.0`. Map these addresses to parameters using your software's OSC shortcut editor.

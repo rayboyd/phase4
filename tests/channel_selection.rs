@@ -22,10 +22,10 @@ async fn selecting_single_channel_updates_analyser_payload() {
 
     let (analyse_tx, analyse_rx) = Input::create_audio_buffer_pair(analyse_specs, 100);
 
-    // Wire the sink as `All` instead of `Selected([2])` to simulates the missing wiring bug in App::new.
+    // Wire the sink to select only hardware channel index 2 (the 0.99 sample).
     let mut sink = StreamSink {
         tx: analyse_tx,
-        mode: ChannelMode::All,
+        mode: ChannelMode::Selected(Box::new([2])),
     };
 
     let (raw_tx, mut raw_rx) = watch::channel(RawPayload::new(analyse_specs.channels as usize, 64));
@@ -52,8 +52,10 @@ async fn selecting_single_channel_updates_analyser_payload() {
         "Payload should only contain the 1 selected channel"
     );
 
-    // The Analyser popped the first float from the ring buffer (0.1) and assumed
-    // it was the start of the 1-channel stream. It completely missed the 0.99?
+    // The Analyser should have received only the sample from channel index 2 (0.99).
+    // If channel selection is broken and all samples are forwarded, the ring buffer
+    // contains [0.1, 0.2, 0.99, 0.4] and the peak would still be 0.99 by accident.
+    // With correct selection the buffer contains only [0.99], leaving no ambiguity.
     assert_eq!(
         payload.channels[0].peak, 0.99,
         "If this fails with 'left: 0.1', the data is scrambled"

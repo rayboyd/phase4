@@ -213,7 +213,7 @@ impl Input {
         {
             let name = device
                 .description()
-                .map_or_else(|_| String::new(), |d| d.name().to_string());
+                .map_or_else(|_| "Unknown Device".to_string(), |d| d.name().to_string());
 
             // Tier 1: exact name match.
             if name == name_query {
@@ -231,7 +231,7 @@ impl Input {
         if let Some(device) = fuzzy_candidate {
             let name = device
                 .description()
-                .map_or_else(|_| String::new(), |d| d.name().to_string());
+                .map_or_else(|_| "Unknown Device".to_string(), |d| d.name().to_string());
             log::info!("Audio device resolved (fuzzy match): {name}");
             return Self::build_device_specs(device);
         }
@@ -243,7 +243,7 @@ impl Input {
             .context("No default input device available")?;
         let name = device
             .description()
-            .map_or_else(|_| String::new(), |d| d.name().to_string());
+            .map_or_else(|_| "Unknown Device".to_string(), |d| d.name().to_string());
         log::info!("Audio device resolved (default fallback): {name}");
         Self::build_device_specs(device)
     }

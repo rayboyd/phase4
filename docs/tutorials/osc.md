@@ -31,7 +31,7 @@ Each frequency bin is sent as a separate OSC message. The address pattern is:
 - `{bin}` is zero-based, ordered from lowest to highest frequency.
 - The argument is a single `f` (32-bit float) in the range `0.0` to `1.0`.
 
-All address strings are pre-built before the send loop, so there is no per-frame heap allocation.
+All address strings are pre-built before the send loop to avoid reformatting them on every frame. Each message clones the address string into an owned `String` because the OSC library requires ownership, so one allocation per message is unavoidable.
 
 ## Message Reference
 
@@ -49,6 +49,6 @@ Phase4 fires and forgets each UDP packet. There is no connection handshake, ackn
 
 ## Notes
 
-- OSC output is disabled by default. Omitting `--osc` adds no overhead to the pipeline.
+- OSC output is disabled by default. Omitting `--osc-addr` adds no overhead to the pipeline.
 - The UDP socket is bound eagerly at startup. If the bind fails, Phase4 exits with an error before spawning any threads.
 - The OSC sender runs on a dedicated background thread with its own single-threaded Tokio runtime, matching the pattern of the WebSocket server.
