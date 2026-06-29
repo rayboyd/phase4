@@ -79,8 +79,8 @@ impl App {
     ///
     /// # Panics
     ///
-    /// Panics if `device_index` is `None` when not in calibration mode. This is
-    /// guarded by `AppConfig::TryFrom`, so it should never occur in practice.
+    /// Panics if the initial display payload cannot be serialised to JSON.
+    /// This is a programmer error and should never occur in practice.
     pub fn new(config: AppConfig) -> Result<Self> {
         let state = Arc::new(AppState::new());
         let stream_state = Arc::clone(&state);
@@ -205,11 +205,12 @@ impl App {
     ///
     /// # Errors
     ///
-    /// Returns an error if the device cannot be queried.
+    /// Returns an error if the device cannot be resolved or queried.
     ///
     /// # Panics
     ///
-    /// Panics if `device_index` is `None` when not in calibration mode.
+    /// Panics if `device_name_match` is `None` when not in calibration mode.
+    /// This is guarded by `AppConfig::TryFrom`, so it should never occur in practice.
     fn resolve_hardware(
         config: &AppConfig,
         calibration_mode: bool,
@@ -225,10 +226,11 @@ impl App {
             ));
         }
 
-        let idx = config
-            .device_index
-            .expect("device_index required in hardware mode");
-        let (device, stream_config, specs) = input.get_device(idx)?;
+        let name_query = config
+            .device_name_match
+            .as_deref()
+            .expect("device_name_match is required in hardware mode");
+        let (device, stream_config, specs) = input.get_device(name_query)?;
 
         Ok((specs, Some((device, stream_config))))
     }

@@ -34,9 +34,9 @@ pub struct CalibrationArgs {
 #[derive(clap::Args)]
 #[command(next_help_heading = "Device")]
 pub struct InputArgs {
-    /// Input device index.
+    /// Input device name or partial name (exact match first, then substring).
     #[arg(short, long)]
-    pub device: Option<usize>,
+    pub device: Option<String>,
 
     /// List available audio input devices and exit.
     #[arg(short, long)]

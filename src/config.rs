@@ -1,6 +1,6 @@
 //! [`AppConfig`] holds the validated settings passed to [`crate::app::App::new`].
 //! It is produced by [`TryFrom<&Args>`][AppConfig#impl-TryFrom<&Args>-for-AppConfig],
-//! which resolves the CLI arguments and enforces that a device index is present
+//! which resolves the CLI arguments and enforces that a device name is present
 //! whenever the application is not running in calibration mode.
 
 use crate::dsp::units::{Hertz, Milliseconds};
@@ -90,8 +90,8 @@ pub struct AppConfig {
     /// Maximum number of concurrent WebSocket clients.
     pub max_clients: usize,
 
-    /// Target device index for the audio stream. None in calibration mode.
-    pub device_index: Option<usize>,
+    /// Device name query for audio device resolution. None in calibration mode.
+    pub device_name_match: Option<String>,
 
     /// A synthetic sine wave at the given frequency (e.g. 440.0).
     pub test_hz: Option<f32>,
@@ -121,7 +121,7 @@ impl Default for AppConfig {
         Self {
             addr: default_bind_addr(),
             max_clients: DEFAULT_MAX_CLIENTS,
-            device_index: None,
+            device_name_match: None,
             test_hz: None,
             test_sweep: None,
             vocoder_config: VocoderConfig::default(),
@@ -139,10 +139,15 @@ impl TryFrom<&Args> for AppConfig {
     fn try_from(args: &Args) -> Result<Self, Self::Error> {
         let in_calibration =
             args.calibration.test_hz.is_some() || args.calibration.test_sweep.is_some();
-        let device_index = if in_calibration {
-            args.input.device
+        let device_name_match = if in_calibration {
+            args.input.device.clone()
         } else {
-            Some(args.input.device.ok_or(AppConfigError::MissingDevice)?)
+            Some(
+                args.input
+                    .device
+                    .clone()
+                    .ok_or(AppConfigError::MissingDevice)?,
+            )
         };
 
         validate_bind_addr(args.network.addr)?;
@@ -163,7 +168,7 @@ impl TryFrom<&Args> for AppConfig {
         Ok(Self {
             addr: args.network.addr,
             max_clients: args.network.max_clients,
-            device_index,
+            device_name_match,
             test_hz: args.calibration.test_hz,
             test_sweep: args.calibration.test_sweep,
             vocoder_config: VocoderConfig {
@@ -283,10 +288,10 @@ mod tests {
     use super::*;
     use crate::{CalibrationArgs, InputArgs, NetworkArgs};
 
-    fn args_with_device(device: Option<usize>) -> Args {
+    fn args_with_device(device: Option<&str>) -> Args {
         Args {
             input: InputArgs {
-                device,
+                device: device.map(str::to_string),
                 list: false,
                 analyse_channels: None,
             },
@@ -320,12 +325,12 @@ mod tests {
         assert!(matches!(result, Err(AppConfigError::MissingDevice)));
     }
 
-    // A device index is accepted and forwarded without modification.
+    // A device name is accepted and forwarded without modification.
     #[test]
     fn try_from_passes_device_index() {
-        let args = args_with_device(Some(2));
+        let args = args_with_device(Some("Focusrite 2i2"));
         let config = AppConfig::try_from(&args).unwrap();
-        assert_eq!(config.device_index, Some(2));
+        assert_eq!(config.device_name_match.as_deref(), Some("Focusrite 2i2"));
     }
 
     // In calibration mode no device is required.
@@ -334,7 +339,7 @@ mod tests {
         let mut args = args_with_device(None);
         args.calibration.test_hz = Some(440.0);
         let config = AppConfig::try_from(&args).unwrap();
-        assert_eq!(config.device_index, None);
+        assert_eq!(config.device_name_match, None);
         assert_eq!(config.test_hz, Some(440.0));
     }
 
@@ -363,7 +368,7 @@ mod tests {
     #[test]
     #[allow(clippy::float_cmp)]
     fn try_from_forwards_vocoder_args() {
-        let mut args = args_with_device(Some(0));
+        let mut args = args_with_device(Some("test"));
         args.vocoder.attack_ms = 12.0;
         args.vocoder.release_ms = 80.0;
         args.vocoder.freq_low = 40.0;
@@ -381,7 +386,7 @@ mod tests {
     // Default vocoder args produce the default VocoderConfig.
     #[test]
     fn try_from_default_vocoder_args_match_default_config() {
-        let args = args_with_device(Some(0));
+        let args = args_with_device(Some("test"));
         let config = AppConfig::try_from(&args).unwrap();
         assert_eq!(config.vocoder_config, VocoderConfig::default());
     }
@@ -389,7 +394,7 @@ mod tests {
     // Review regression: attack times must remain strictly positive.
     #[test]
     fn try_from_rejects_negative_vocoder_attack_ms() {
-        let mut args = args_with_device(Some(0));
+        let mut args = args_with_device(Some("test"));
         args.vocoder.attack_ms = -0.1;
 
         let result = AppConfig::try_from(&args);
@@ -400,7 +405,7 @@ mod tests {
     // Review regression: release times must remain finite.
     #[test]
     fn try_from_rejects_non_finite_vocoder_release_ms() {
-        let mut args = args_with_device(Some(0));
+        let mut args = args_with_device(Some("test"));
         args.vocoder.release_ms = f32::INFINITY;
 
         let result = AppConfig::try_from(&args);
@@ -414,7 +419,7 @@ mod tests {
     // Review regression: logarithmic band spacing requires strictly positive bounds.
     #[test]
     fn try_from_rejects_non_positive_vocoder_low_frequency() {
-        let mut args = args_with_device(Some(0));
+        let mut args = args_with_device(Some("test"));
         args.vocoder.freq_low = 0.0;
 
         let result = AppConfig::try_from(&args);
@@ -428,7 +433,7 @@ mod tests {
     // Review regression: the high bound must remain above the low bound.
     #[test]
     fn try_from_rejects_vocoder_high_frequency_below_low_frequency() {
-        let mut args = args_with_device(Some(0));
+        let mut args = args_with_device(Some("test"));
         args.vocoder.freq_low = 2_000.0;
         args.vocoder.freq_high = 1_000.0;
 
@@ -443,7 +448,7 @@ mod tests {
     // Review regression: the filter Q must be strictly positive.
     #[test]
     fn try_from_rejects_non_positive_vocoder_filter_q() {
-        let mut args = args_with_device(Some(0));
+        let mut args = args_with_device(Some("test"));
         args.vocoder.filter_q = 0.0;
 
         let result = AppConfig::try_from(&args);
@@ -457,7 +462,7 @@ mod tests {
     // The WebSocket server is intentionally loopback-only unless a later change makes this explicit.
     #[test]
     fn try_from_rejects_non_loopback_bind_address() {
-        let mut args = args_with_device(Some(0));
+        let mut args = args_with_device(Some("test"));
         args.network.addr = "0.0.0.0:8889".parse().unwrap();
 
         let result = AppConfig::try_from(&args);
@@ -472,7 +477,7 @@ mod tests {
     #[test]
     #[allow(clippy::float_cmp)]
     fn try_from_forwards_broadcast_rate() {
-        let mut args = args_with_device(Some(0));
+        let mut args = args_with_device(Some("test"));
         args.network.broadcast_rate = 60.0;
 
         let config = AppConfig::try_from(&args).unwrap();
@@ -491,7 +496,7 @@ mod tests {
     // A valid max client count is forwarded into the config.
     #[test]
     fn try_from_forwards_max_clients() {
-        let mut args = args_with_device(Some(0));
+        let mut args = args_with_device(Some("test"));
         args.network.max_clients = 16;
 
         let config = AppConfig::try_from(&args).unwrap();
@@ -502,7 +507,7 @@ mod tests {
     // Zero is not a valid client limit.
     #[test]
     fn try_from_rejects_zero_max_clients() {
-        let mut args = args_with_device(Some(0));
+        let mut args = args_with_device(Some("test"));
         args.network.max_clients = 0;
 
         let result = AppConfig::try_from(&args);
@@ -516,7 +521,7 @@ mod tests {
     // Zero is not a valid broadcast rate.
     #[test]
     fn try_from_rejects_zero_broadcast_rate() {
-        let mut args = args_with_device(Some(0));
+        let mut args = args_with_device(Some("test"));
         args.network.broadcast_rate = 0.0;
 
         let result = AppConfig::try_from(&args);
@@ -530,7 +535,7 @@ mod tests {
     // Negative values are not valid broadcast rates.
     #[test]
     fn try_from_rejects_negative_broadcast_rate() {
-        let mut args = args_with_device(Some(0));
+        let mut args = args_with_device(Some("test"));
         args.network.broadcast_rate = -10.0;
 
         let result = AppConfig::try_from(&args);
@@ -544,7 +549,7 @@ mod tests {
     // Non-finite values are not valid broadcast rates.
     #[test]
     fn try_from_rejects_infinite_broadcast_rate() {
-        let mut args = args_with_device(Some(0));
+        let mut args = args_with_device(Some("test"));
         args.network.broadcast_rate = f32::INFINITY;
 
         let result = AppConfig::try_from(&args);
@@ -558,7 +563,7 @@ mod tests {
     // An empty channel list is rejected because it would produce a silent stream.
     #[test]
     fn try_from_rejects_empty_channel_selection() {
-        let mut args = args_with_device(Some(0));
+        let mut args = args_with_device(Some("test"));
         args.input.analyse_channels = Some(vec![]);
 
         let result = AppConfig::try_from(&args);
@@ -572,7 +577,7 @@ mod tests {
     // Duplicate and unsorted indices are normalised to a sorted, deduplicated slice.
     #[test]
     fn try_from_normalises_channel_selection() {
-        let mut args = args_with_device(Some(0));
+        let mut args = args_with_device(Some("test"));
         args.input.analyse_channels = Some(vec![3, 1, 1, 0]);
 
         let config = AppConfig::try_from(&args).unwrap();
@@ -586,7 +591,7 @@ mod tests {
     // Omitting channel flags results in None, preserving the all-channels fast path.
     #[test]
     fn try_from_defaults_channel_selection_to_none() {
-        let args = args_with_device(Some(0));
+        let args = args_with_device(Some("test"));
         let config = AppConfig::try_from(&args).unwrap();
         assert!(config.analyse_channels.is_none());
     }
