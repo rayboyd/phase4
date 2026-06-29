@@ -30,7 +30,7 @@ All notable changes to Phase4 will be documented in this file.
 ### Refactor
 
 - Split worker code into worker module ([a0b60a8](https://github.com/rayboyd/phase4/commit/a0b60a83afeae495934d58f5be042ed83ee7387b))
-- Clippy point-free refactor ([1f1f1a3](https://github.com/rayboyd/phase4/commit/1f1f1a3c47beca3fd689c37f3a2a735fdbcba7a6)), Note:Passing a method directly rather than wrapping it in a closure, is called point-free style. See it a lot with iterator adapters: .filter(Option::is_some), .map(str::trim), .map(char::is_uppercase), etc. Clippy enforces it because it reduces noise and makes the intent clearer.
+- Clippy point-free refactor ([1f1f1a3](https://github.com/rayboyd/phase4/commit/1f1f1a3c47beca3fd689c37f3a2a735fdbcba7a6))
 - Remove recording thread and all associated infrastructure ([b6e7e7e](https://github.com/rayboyd/phase4/commit/b6e7e7ecf5950e2772a9ec7addc16b6e0be4a22b))
 - Eliminate per-frame heap allocation in OscSender hot path ([09b9a53](https://github.com/rayboyd/phase4/commit/09b9a53d89f7c70c72a55172f86fd588826c7167))
 - Consolidate is_analysing and is_broadcasting_websocket into single is_active flag ([01813ae](https://github.com/rayboyd/phase4/commit/01813ae0fdd6ccd2d48be6ac438a9a435799254b))
