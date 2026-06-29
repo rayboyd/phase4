@@ -4,9 +4,7 @@
 //! [`crate::dsp::RawPayload`] via a [`tokio::sync::watch`] channel.
 //!
 //! The thread runs at elevated scheduling priority (`ANALYSER_THREAD_PRIORITY`)
-//! to avoid starvation, but is ranked below the recorder thread on the
-//! basis that a delayed analysis frame is acceptable whereas a missed disk
-//! write is not. Denormal floating-point values are suppressed via
+//! to avoid starvation. Denormal floating-point values are suppressed via
 //! [`no_denormals()`] to prevent CPU performance degradation under silence or
 //! very low signal levels.
 
@@ -29,8 +27,6 @@ const CHUNK_SIZE_MS: u32 = 10;
 const IDLE_SLEEP_MS: u64 = 10;
 
 /// Processor thread priority in the crate's cross-platform 0-99 scale.
-/// Lower than the recorder thread. Analysis can safely lag a frame. A missed
-/// write to disk cannot.
 const ANALYSER_THREAD_PRIORITY: u8 = 40;
 
 /// Returns the peak absolute sample value for a single channel within an
@@ -160,8 +156,6 @@ impl Processor {
         thread::Builder::new()
             .name("analyser".into())
             .spawn(move || {
-                // Runs at a lower priority than the recorder thread. A delayed
-                // analysis frame is acceptable. A missed disk write is not.
                 // Priority mapping is policy-dependent on Unix. Failures are logged,
                 // but analysis continues to run at the OS default priority.
                 super::log_priority_result(set_current_thread_priority(
