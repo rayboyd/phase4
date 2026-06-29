@@ -25,7 +25,8 @@ flowchart TD
 		A[main] --> B[Parse CLI args]
 		B --> C{--list?}
 		C -->|yes| D[List input devices and exit]
-		C -->|no| E[Build AppConfig from args]
+		C -->|no| E2[Load config.yaml if present]
+		E2 --> E[Build AppConfig: CLI overrides file, file overrides defaults]
 		E --> F{Calibration mode?}
 		F -->|yes| G[Use synthetic specs 44.1kHz, 2ch]
 		F -->|no| H[Resolve input device and native specs]

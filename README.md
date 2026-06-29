@@ -73,11 +73,38 @@ Each frequency bin is sent as a separate OSC message with address `/phase4/ch/{c
 
 See [docs/tutorials/osc.md](docs/tutorials/osc.md) for the full address reference and integration notes.
 
-## Roadmap
+## Configuration file
 
-**0.0.2**
+Instead of passing flags on every invocation you can place a `config.yaml` file in the same directory as the binary. Phase4 reads it at startup and applies a three-tier priority rule: CLI flags override file values, file values override hardcoded defaults. Any key may be omitted; absent keys inherit the default.
 
-- Local config file support for device presets and persistent flag defaults.
+Copy the bundled example as a starting point.
+
+```sh
+cp example.config.yaml config.yaml
+```
+
+Edit only the sections you need. For example, to pin a device and raise the broadcast rate:
+
+```yaml
+network:
+  broadcast_rate: 60.0
+
+audio:
+  device_name_match: "Duet 3"
+```
+
+Persistent OSC output and vocoder tuning are also supported in the file:
+
+```yaml
+network:
+  osc_addr: "127.0.0.1:7000"
+
+vocoder:
+  attack_ms: 20.0
+  freq_high: 16000.0
+```
+
+See [example.config.yaml](example.config.yaml) for the full reference with all keys and their defaults.
 
 ## Licence
 
