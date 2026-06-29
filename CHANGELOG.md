@@ -2,6 +2,44 @@
 
 All notable changes to Phase4 will be documented in this file.
 
+## 0.0.2
+
+[d0ae658](https://github.com/rayboyd/phase4/compare/d0ae6588e8e00a7eb43bdf233ceb717d17c64970...46593e1feb0b6f0605fbe63fd367964fec01b1f7)
+
+### Bug Fixes
+
+- Correct --osc flag reference to --osc-addr ([6a8e4be](https://github.com/rayboyd/phase4/commit/6a8e4be65358994830ee6d69992fb24d8d554a47))
+- Validate channel indices against hardware capacity at startup ([2d8b298](https://github.com/rayboyd/phase4/commit/2d8b29850702f410fa7872cdabd662a39c6fbb09))
+- Change toggle key binding from A/B to T ([de11663](https://github.com/rayboyd/phase4/commit/de11663e4bd43c4de2f108b57448837d1290b65d))
+
+### Documentation
+
+- Add module and public API doc comments ([448b252](https://github.com/rayboyd/phase4/commit/448b252fdc63601e9fb55063cc4af25cad4725cb))
+- Add OSC tutorial, update README and lifecycle diagrams ([ad88086](https://github.com/rayboyd/phase4/commit/ad88086b12cb52cab9e39cf3a2589185fcb58000))
+- Remove all recording references from docs and inline comments ([55033cd](https://github.com/rayboyd/phase4/commit/55033cd7e0b5655745a6c877699e1ccb8131e0e2))
+- Add example.config.yaml with all supported keys and defaults ([db882ad](https://github.com/rayboyd/phase4/commit/db882ad82554324db25b2e3225b4471e8c7bbb1b))
+- Update readme, lifecycle diagram, and tutorials for config.yaml support ([4e94a35](https://github.com/rayboyd/phase4/commit/4e94a3528125167d005d73f4039f29c3b040f12f))
+
+### Features
+
+- Introduce Milliseconds and Hertz newtypes for VocoderConfig, add compile_fail doctests and inner value roundtrip tests ([e588073](https://github.com/rayboyd/phase4/commit/e588073b32fe6abeeaf4856efd96f510f85b0420))
+- Default broadcast rate to 30 Hz ([0dbb788](https://github.com/rayboyd/phase4/commit/0dbb788193fd07cc534596f792fb8f0a78e7050c))
+- Add UDP OSC output via --osc flag and change default display bins to 32 ([21c59a6](https://github.com/rayboyd/phase4/commit/21c59a64c56606b54887322fc253829e65599d50))
+- Add YAML file config layer with three-tier merge (CLI > file > default) ([3818ee4](https://github.com/rayboyd/phase4/commit/3818ee4bfa3eb226d9fe316c3e525ba88ddf719f))
+
+### Refactor
+
+- Split worker code into worker module ([a0b60a8](https://github.com/rayboyd/phase4/commit/a0b60a83afeae495934d58f5be042ed83ee7387b))
+- Clippy point-free refactor ([1f1f1a3](https://github.com/rayboyd/phase4/commit/1f1f1a3c47beca3fd689c37f3a2a735fdbcba7a6)), Note:Passing a method directly rather than wrapping it in a closure, is called point-free style. See it a lot with iterator adapters: .filter(Option::is_some), .map(str::trim), .map(char::is_uppercase), etc. Clippy enforces it because it reduces noise and makes the intent clearer.
+- Remove recording thread and all associated infrastructure ([b6e7e7e](https://github.com/rayboyd/phase4/commit/b6e7e7ecf5950e2772a9ec7addc16b6e0be4a22b))
+- Eliminate per-frame heap allocation in OscSender hot path ([09b9a53](https://github.com/rayboyd/phase4/commit/09b9a53d89f7c70c72a55172f86fd588826c7167))
+- Consolidate is_analysing and is_broadcasting_websocket into single is_active flag ([01813ae](https://github.com/rayboyd/phase4/commit/01813ae0fdd6ccd2d48be6ac438a9a435799254b))
+- Replace device index with name-based 3-tier resolution ([f2caa9f](https://github.com/rayboyd/phase4/commit/f2caa9f9e5c6554b35fc981c8f2c702b2897aa66))
+
+### Testing
+
+- Test_ringbuf_power_of_two ([f3c25b3](https://github.com/rayboyd/phase4/commit/f3c25b3cc3681417d0e0e4ebdfeb297f3f5cffdd))
+
 ## 0.0.1
 
 [60d58cc](https://github.com/rayboyd/phase4/compare/60d58cc830bb339e78d3d10df628b2d51ca78edd...20ddbfaa9faf6ca90ebd603fcd0ad00c30e1f5a5)
