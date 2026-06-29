@@ -51,7 +51,7 @@ Launch Phase4 using your device index (e.g., index 0).
 Press `A` to start analysis and `B` to start broadcasting. No harm done if you forget, but you will not get any data.
 
 ```
-> [INFO] 'A' to analyse, 'B' to broadcast, 'R' to record, Ctrl+C to exit
+> [INFO] 'A' to analyse, 'B' to broadcast, Ctrl+C to exit
 > [INFO] WebSocket server listening on ws://127.0.0.1:8889
 ```
 
@@ -78,7 +78,6 @@ See [docs/tutorials/osc.md](docs/tutorials/osc.md) for the full address referenc
 **0.0.2**
 
 - Local config file support for device presets and persistent flag defaults.
-- Double-buffered recording to decouple ring drain latency from disk write latency, improving reliability on high channel count devices.
 
 ## Licence
 

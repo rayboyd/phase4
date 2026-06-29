@@ -1,5 +1,5 @@
 //! [`Generator::spawn`] starts a background thread that produces a continuous
-//! sine wave and pushes it to the same two ringbuf producers that the hardware
+//! sine wave and pushes it to the same ringbuf producer that the hardware
 //! audio stream would use, making the rest of the pipeline fully operational
 //! without audio hardware attached.
 //!
@@ -8,7 +8,7 @@
 //! `test_sweep` Hz that scans from 20 Hz to just below the Nyquist frequency
 //! (0.45 * sample rate) to avoid aliasing artefacts at the sweep ceiling.
 //! Output level is fixed at `AMPLITUDE` (approximately -12 dBFS) to leave
-//! headroom for the integer-format bit-depth converters in the recorder.
+//! headroom for clipping in the downstream pipeline.
 
 use crate::app::AppState;
 use ringbuf::traits::Producer;
@@ -20,8 +20,8 @@ use std::time::{Duration, Instant};
 
 pub struct Generator;
 
-/// Calibration signal level. -12 dBFS leaves plenty of headroom for the
-/// integer bit-depth converters and keeps the visualiser at a comfortable level.
+/// Calibration signal level. -12 dBFS leaves plenty of headroom and keeps the
+/// visualiser at a comfortable level.
 const AMPLITUDE: f32 = 0.25;
 
 /// Fills `buffer` with a sine-wave signal and returns the updated oscillator
@@ -79,7 +79,6 @@ impl Generator {
         test_sweep: Option<f32>,
         sample_rate: u32,
         channels: u16,
-        mut record_tx: P,
         mut analyse_tx: P,
         state: Arc<AppState>,
     ) -> JoinHandle<()>
@@ -108,9 +107,7 @@ impl Generator {
                         channels,
                     );
 
-                    // These are both intentionally lossy. This is just a test signal, we don't
-                    // care about dropped frames or blips in audio (we might want that for soak testing).
-                    let _ = record_tx.push_slice(&buffer);
+                    // Intentionally lossy. This is just a test signal.
                     let _ = analyse_tx.push_slice(&buffer);
 
                     // Sleep only the remaining time until the next deadline to absorb

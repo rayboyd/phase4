@@ -6,7 +6,7 @@
 //!
 //! Key things this covers end-to-end:
 //!   - `AppConfig` is constructed correctly from a test config
-//!   - All threads (recorder, analyser, mapper, generator) are spawned
+//!   - All threads (analyser, mapper, generator) are spawned
 //!   - The WebSocket server successfully binds to its address
 //!   - `Drop` cleanly signals threads to stop when `app` goes out of scope
 

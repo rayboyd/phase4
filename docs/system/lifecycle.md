@@ -29,21 +29,20 @@ flowchart TD
 		E --> F{Calibration mode?}
 		F -->|yes| G[Use synthetic specs 44.1kHz, 2ch]
 		F -->|no| H[Resolve input device and native specs]
-		G --> I[Create record and analyse ring buffers]
+		G --> I[Create analyse ring buffer]
 		H --> I
 		I --> J[Create watch channels: RawPayload and DisplayPayload JSON]
 		J --> K{Input source}
 		K -->|calibration| M[Spawn generator thread]
 		K -->|hardware| L[Start CPAL stream callback]
-		L --> N[Spawn recorder thread]
+		L --> N[Spawn analyser thread]
 		M --> N
-		N --> O[Spawn analyser thread]
-		O --> P[Spawn mapper thread]
-		P --> Q[Spawn WebSocket server thread]
-		Q --> Q2{--osc flag?}
-		Q2 -->|yes| Q3[Spawn OSC sender thread]
-		Q2 -->|no| R[Run controller loop until shutdown]
-		Q3 --> R
+		N --> O[Spawn mapper thread]
+		O --> P[Spawn WebSocket server thread]
+		P --> Q{--osc flag?}
+		Q -->|yes| Q2[Spawn OSC sender thread]
+		Q -->|no| R[Run controller loop until shutdown]
+		Q2 --> R
 		R --> S[Shutdown: drop input, signal keep_running=false, join workers with timeouts]
 ```
 
@@ -74,13 +73,8 @@ flowchart LR
 			A2[Generator thread]:::source
 		end
 
-		A1 -->|f32 interleaved frames| B1[(Record ring buffer)]
 		A1 -->|f32 interleaved frames| B2[(Analyse ring buffer)]
-		A2 -->|synthetic f32 frames| B1
 		A2 -->|synthetic f32 frames| B2
-
-		B1 --> C1[Recorder thread]
-		C1 --> D1[WAV file in recordings]
 
 		B2 --> C2[Analyser thread]
 		C2 -->|watch send_replace RawPayload| E[(RawPayload watch)]
@@ -92,8 +86,7 @@ flowchart LR
 		K --> L[OSC sender thread]
 		L --> M[UDP target]
 
-		J[Controller thread] -->|toggle atomics| C1
-		J -->|toggle atomics| C2
+		J[Controller thread] -->|toggle atomics| C2
 		J -->|toggle atomics| F
 		J -->|toggle atomics| H
 
@@ -122,7 +115,6 @@ stateDiagram-v2
 		state Running {
 			[*] --> Flags
 			Flags --> Flags: B key toggles is_broadcasting_websocket
-			Flags --> Flags: R key toggles is_recording
 			Flags --> Flags: A key toggles is_analysing
 			Flags --> ExitRequested: Ctrl+C sets keep_running=false
 		}
@@ -141,7 +133,6 @@ sequenceDiagram
 		participant An as Analyser
 		participant Map as Mapper
 		participant Srv as Server
-		participant Rec as Recorder
 		participant Osc as OscSender
 
 		Main->>In: Drop input handle
@@ -151,10 +142,8 @@ sequenceDiagram
 		Main->>An: join with 1000ms timeout
 		Main->>Map: join with 1000ms timeout
 		Main->>Srv: join with 1500ms timeout
-		Main->>Rec: join with RECORD_BUFFER_MS + 2000ms timeout
 		Main->>Osc: join with 1500ms timeout
 
 		note over Main,Srv: Server notifies clients, sends close frames, bounded task join
-		note over Main,Rec: Recorder drains remaining ring buffer and finalises WAV
 		note over Main,Osc: OSC sender exits when display channel closes after mapper exits
 ```
