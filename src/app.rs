@@ -12,7 +12,7 @@
 //! grace period to exit, which prevents one stalled worker from hanging the
 //! main thread indefinitely.
 
-use crate::config::{validate_vocoder_sample_rate, AppConfig};
+use crate::config::{validate_vocoder_sample_rate, AppConfig, AppConfigError};
 use crate::controller::Controller;
 use crate::dsp::{vocoder::VOCODER_BANDS, DisplayPayload, RawPayload};
 use crate::managers::audio::{ChannelMode, StreamSink};
@@ -96,6 +96,21 @@ impl App {
         let (hw_specs, device_handle) =
             Self::resolve_hardware(&config, calibration_mode, &mut input_device)?;
         validate_vocoder_sample_rate(config.vocoder_config.freq_high, hw_specs.sample_rate)?;
+
+        // Validate that all requested channel indices are within the hardware's capacity.
+        // This check is skipped in calibration mode, where no real device is involved.
+        if !calibration_mode {
+            if let Some(indices) = &config.analyse_channels {
+                if let Some(&idx) = indices.iter().max() {
+                    if idx >= hw_specs.channels {
+                        anyhow::bail!(AppConfigError::ChannelIndexOutOfRange {
+                            idx,
+                            channels: hw_specs.channels,
+                        });
+                    }
+                }
+            }
+        }
 
         // Specs & Channel Modes.
         let mut analyser_specs = hw_specs;

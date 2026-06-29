@@ -58,6 +58,9 @@ pub enum AppConfigError {
     #[error("Channel selection must not be empty")]
     EmptyChannelSelection,
 
+    #[error("Selected audio channel index {idx} is unavailable on this {channels}-channel device")]
+    ChannelIndexOutOfRange { idx: u16, channels: u16 },
+
     #[error(
         "Invalid vocoder configuration: Sample rate {sample_rate}Hz: \
         high frequency must be below Nyquist ({nyquist_hz}Hz), got {freq_high}Hz"
