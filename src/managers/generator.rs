@@ -79,7 +79,6 @@ impl Generator {
         test_sweep: Option<f32>,
         sample_rate: u32,
         channels: u16,
-        mut record_tx: P,
         mut analyse_tx: P,
         state: Arc<AppState>,
     ) -> JoinHandle<()>
@@ -108,9 +107,7 @@ impl Generator {
                         channels,
                     );
 
-                    // These are both intentionally lossy. This is just a test signal, we don't
-                    // care about dropped frames or blips in audio (we might want that for soak testing).
-                    let _ = record_tx.push_slice(&buffer);
+                    // Intentionally lossy. This is just a test signal.
                     let _ = analyse_tx.push_slice(&buffer);
 
                     // Sleep only the remaining time until the next deadline to absorb

@@ -3,7 +3,7 @@
 //! [`Controller`] puts the terminal into raw mode for the duration of its
 //! lifetime and polls for key events at a fixed `POLL_RATE_MS` interval.
 //! Key presses toggle the corresponding atomic flags on [`AppState`], which the
-//! worker threads observe to start or stop recording, analysis, and broadcasting.
+//! worker threads observe to start or stop analysis and broadcasting.
 
 use crate::app::AppState;
 use anyhow::Result;
@@ -37,28 +37,13 @@ impl Controller {
     pub fn run(&self) -> Result<()> {
         enable_raw_mode()?;
 
-        log::info!("'A' to analyse, 'B' to broadcast, 'R' to record, Ctrl+C to exit");
-
-        let mut last_record_ring_overflow_events = 0usize;
+        log::info!("'A' to analyse, 'B' to broadcast, Ctrl+C to exit");
 
         while self.state.keep_running.load(Ordering::Acquire) {
             if event::poll(Duration::from_millis(POLL_RATE_MS))? {
                 if let Event::Key(key) = event::read()? {
                     self.handle_key_event(key);
                 }
-            }
-
-            let ring_overflow_events = self
-                .state
-                .record_ring_overflow_events
-                .load(Ordering::Relaxed);
-            if ring_overflow_events > last_record_ring_overflow_events {
-                log::warn!(
-                    "Record ring full: {} event(s) since last poll (total: {}). Recorder fell behind, audio loss may have occurred.",
-                    ring_overflow_events - last_record_ring_overflow_events,
-                    ring_overflow_events
-                );
-                last_record_ring_overflow_events = ring_overflow_events;
             }
         }
 
@@ -83,15 +68,6 @@ impl Controller {
                     "ON"
                 };
                 log::info!("Broadcasting: {status}");
-            }
-
-            KeyCode::Char('r' | 'R') => {
-                let was_recording = self.state.is_recording.load(Ordering::Acquire);
-                self.state
-                    .is_recording
-                    .store(!was_recording, Ordering::Release);
-                let status = if was_recording { "OFF" } else { "ON" };
-                log::info!("Recording: {status}");
             }
 
             KeyCode::Char('a' | 'A') => {

@@ -6,13 +6,10 @@
 use crate::dsp::units::{Hertz, Milliseconds};
 use crate::{Args, VocoderArgs};
 use std::net::SocketAddr;
-use std::path::{Component, Path};
 use thiserror::Error;
 
 pub const DEFAULT_ADDR_PATTERN: &str = "127.0.0.1:8889";
-pub const DEFAULT_FILENAME_PATTERN: &str = "rec_{timestamp}_{sample_rate}hz_{bit_depth}bit.wav";
 pub const DEFAULT_MAX_CLIENTS: usize = 8;
-pub const RECORDINGS_DIR: &str = "recordings";
 
 fn default_bind_addr() -> SocketAddr {
     DEFAULT_ADDR_PATTERN
@@ -41,45 +38,6 @@ impl Default for VocoderConfig {
     }
 }
 
-#[derive(Debug, Clone, Copy, Default, clap::ValueEnum)]
-pub enum BitDepth {
-    #[value(name = "32")]
-    Float32,
-    #[default]
-    #[value(name = "24")]
-    Int24,
-    #[value(name = "16")]
-    Int16,
-}
-
-impl BitDepth {
-    // Scaling constants for converting normalised f32 audio ([-1.0, 1.0]) to
-    // fixed-point integer samples. Both use the positive maximum of the signed
-    // type, which leaves one quantisation level unused at the negative end
-    // (e.g. -8_388_607 rather than -8_388_608 for i24). This is the symmetric
-    // scaling convention adopted by Core Audio, libsndfile, and most DAWs. It
-    // guarantees that +1.0 and -1.0 produce equal magnitudes, keeping a centred
-    // sine wave symmetric after quantisation. The lost code sits at roughly
-    // -140 dBFS for 24-bit, well below any real converter's noise floor.
-    //
-    // Rust has no native i24 type, so the 24-bit result is stored as i32 and
-    // hound packs it to three bytes on disk when bits_per_sample = 24.
-    //
-    // https://en.wikipedia.org/wiki/Audio_bit_depth#Fixed-point_numbers
-    pub const INT24_MAX: f32 = (1i32 << 23) as f32 - 1.0;
-    pub const INT16_MAX: f32 = i16::MAX as f32;
-}
-
-impl std::fmt::Display for BitDepth {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            BitDepth::Float32 => write!(f, "32"),
-            BitDepth::Int24 => write!(f, "24"),
-            BitDepth::Int16 => write!(f, "16"),
-        }
-    }
-}
-
 #[derive(Error, Debug)]
 pub enum AppConfigError {
     #[error("To start the app, run with: --device <ID>")]
@@ -87,9 +45,6 @@ pub enum AppConfigError {
 
     #[error("WebSocket server bind address must be loopback, got {0}")]
     NonLoopbackBindAddress(SocketAddr),
-
-    #[error("Invalid filename pattern: {0}")]
-    InvalidFilenamePattern(&'static str),
 
     #[error("Invalid vocoder configuration: {0}")]
     InvalidVocoderConfig(&'static str),
@@ -132,14 +87,8 @@ pub struct AppConfig {
     /// Maximum number of concurrent WebSocket clients.
     pub max_clients: usize,
 
-    /// Recording bit depth.
-    pub bit_depth: BitDepth,
-
     /// Target device index for the audio stream. None in calibration mode.
     pub device_index: Option<usize>,
-
-    /// Output filename pattern, written inside the fixed recordings directory.
-    pub filename_pattern: String,
 
     /// A synthetic sine wave at the given frequency (e.g. 440.0).
     pub test_hz: Option<f32>,
@@ -160,10 +109,6 @@ pub struct AppConfig {
     /// None means forward all channels.
     pub analyse_channels: Option<Box<[u16]>>,
 
-    /// Sorted, deduplicated hardware channel indices for the recorder.
-    /// None means record all channels.
-    pub record_channels: Option<Box<[u16]>>,
-
     /// OSC UDP output target address. None disables OSC output.
     pub osc_addr: Option<SocketAddr>,
 }
@@ -173,16 +118,13 @@ impl Default for AppConfig {
         Self {
             addr: default_bind_addr(),
             max_clients: DEFAULT_MAX_CLIENTS,
-            bit_depth: BitDepth::Int24,
             device_index: None,
-            filename_pattern: DEFAULT_FILENAME_PATTERN.to_string(),
             test_hz: None,
             test_sweep: None,
             vocoder_config: VocoderConfig::default(),
             no_browser_origin: false,
             broadcast_rate: Some(30.0),
             analyse_channels: None,
-            record_channels: None,
             osc_addr: None,
         }
     }
@@ -201,7 +143,6 @@ impl TryFrom<&Args> for AppConfig {
         };
 
         validate_bind_addr(args.network.addr)?;
-        validate_filename_pattern(&args.recording.filename_pattern)?;
         validate_vocoder_args(&args.vocoder)?;
 
         if !is_strictly_positive(args.network.broadcast_rate) {
@@ -219,9 +160,7 @@ impl TryFrom<&Args> for AppConfig {
         Ok(Self {
             addr: args.network.addr,
             max_clients: args.network.max_clients,
-            bit_depth: args.recording.bit_depth,
             device_index,
-            filename_pattern: args.recording.filename_pattern.clone(),
             test_hz: args.calibration.test_hz,
             test_sweep: args.calibration.test_sweep,
             vocoder_config: VocoderConfig {
@@ -233,12 +172,7 @@ impl TryFrom<&Args> for AppConfig {
             },
             no_browser_origin: args.network.no_browser_origin,
             broadcast_rate: Some(args.network.broadcast_rate),
-            analyse_channels: normalise_channel_selection(
-                args.recording.analyse_channels.as_deref(),
-            )?,
-            record_channels: normalise_channel_selection(
-                args.recording.record_channels.as_deref(),
-            )?,
+            analyse_channels: normalise_channel_selection(args.input.analyse_channels.as_deref())?,
             osc_addr: args.network.osc_addr,
         })
     }
@@ -272,28 +206,6 @@ fn validate_bind_addr(addr: SocketAddr) -> Result<(), AppConfigError> {
         Ok(())
     } else {
         Err(AppConfigError::NonLoopbackBindAddress(addr))
-    }
-}
-
-fn validate_filename_pattern(pattern: &str) -> Result<(), AppConfigError> {
-    if pattern.is_empty() {
-        return Err(AppConfigError::InvalidFilenamePattern(
-            "filename pattern must not be empty",
-        ));
-    }
-
-    if pattern.chars().any(std::path::is_separator) {
-        return Err(AppConfigError::InvalidFilenamePattern(
-            "filename pattern must be a file name only, not a path",
-        ));
-    }
-
-    let mut components = Path::new(pattern).components();
-    match (components.next(), components.next()) {
-        (Some(Component::Normal(_)), None) => Ok(()),
-        _ => Err(AppConfigError::InvalidFilenamePattern(
-            "filename pattern must be a file name only, not a path",
-        )),
     }
 }
 
@@ -366,13 +278,14 @@ pub(crate) fn validate_vocoder_sample_rate(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{CalibrationArgs, InputArgs, NetworkArgs, RecordingArgs};
+    use crate::{CalibrationArgs, InputArgs, NetworkArgs};
 
     fn args_with_device(device: Option<usize>) -> Args {
         Args {
             input: InputArgs {
                 device,
                 list: false,
+                analyse_channels: None,
             },
             network: NetworkArgs {
                 addr: default_bind_addr(),
@@ -380,12 +293,6 @@ mod tests {
                 broadcast_rate: 30.0,
                 no_browser_origin: false,
                 osc_addr: None,
-            },
-            recording: RecordingArgs {
-                bit_depth: BitDepth::Int24,
-                filename_pattern: DEFAULT_FILENAME_PATTERN.to_string(),
-                analyse_channels: None,
-                record_channels: None,
             },
             vocoder: VocoderArgs {
                 attack_ms: 30.0,
@@ -428,22 +335,13 @@ mod tests {
         assert_eq!(config.test_hz, Some(440.0));
     }
 
-    // The default addr and filename pattern match the declared constants.
+    // The default addr matches the declared constants.
     #[test]
     fn default_config_matches_constants() {
         let config = AppConfig::default();
         assert_eq!(config.addr, default_bind_addr());
         assert_eq!(config.max_clients, DEFAULT_MAX_CLIENTS);
-        assert_eq!(config.filename_pattern, DEFAULT_FILENAME_PATTERN);
         assert_eq!(config.vocoder_config, VocoderConfig::default());
-    }
-
-    // BitDepth::Display produces the correct numeric string for each variant.
-    #[test]
-    fn bit_depth_display() {
-        assert_eq!(BitDepth::Float32.to_string(), "32");
-        assert_eq!(BitDepth::Int24.to_string(), "24");
-        assert_eq!(BitDepth::Int16.to_string(), "16");
     }
 
     // VocoderConfig::default produces the documented defaults.
@@ -553,34 +451,6 @@ mod tests {
         );
     }
 
-    // Filename patterns are filename-only. Paths belong to the fixed recordings directory.
-    #[test]
-    fn try_from_rejects_filename_pattern_with_path_separator() {
-        let mut args = args_with_device(Some(0));
-        args.recording.filename_pattern = "nested/rec_{timestamp}.wav".to_string();
-
-        let result = AppConfig::try_from(&args);
-
-        assert!(
-            matches!(result, Err(AppConfigError::InvalidFilenamePattern(_))),
-            "filename patterns with path separators should be rejected"
-        );
-    }
-
-    // Parent traversal must not be accepted via the filename pattern.
-    #[test]
-    fn try_from_rejects_parent_relative_filename_pattern() {
-        let mut args = args_with_device(Some(0));
-        args.recording.filename_pattern = "../rec_{timestamp}.wav".to_string();
-
-        let result = AppConfig::try_from(&args);
-
-        assert!(
-            matches!(result, Err(AppConfigError::InvalidFilenamePattern(_))),
-            "parent-relative filename patterns should be rejected"
-        );
-    }
-
     // The WebSocket server is intentionally loopback-only unless a later change makes this explicit.
     #[test]
     fn try_from_rejects_non_loopback_bind_address() {
@@ -686,7 +556,7 @@ mod tests {
     #[test]
     fn try_from_rejects_empty_channel_selection() {
         let mut args = args_with_device(Some(0));
-        args.recording.analyse_channels = Some(vec![]);
+        args.input.analyse_channels = Some(vec![]);
 
         let result = AppConfig::try_from(&args);
 
@@ -694,34 +564,19 @@ mod tests {
             matches!(result, Err(AppConfigError::EmptyChannelSelection)),
             "empty analyse_channels should be rejected"
         );
-
-        let mut args = args_with_device(Some(0));
-        args.recording.record_channels = Some(vec![]);
-
-        let result = AppConfig::try_from(&args);
-
-        assert!(
-            matches!(result, Err(AppConfigError::EmptyChannelSelection)),
-            "empty record_channels should be rejected"
-        );
     }
 
     // Duplicate and unsorted indices are normalised to a sorted, deduplicated slice.
     #[test]
     fn try_from_normalises_channel_selection() {
         let mut args = args_with_device(Some(0));
-        args.recording.analyse_channels = Some(vec![3, 1, 1, 0]);
-        args.recording.record_channels = Some(vec![2, 0, 2]);
+        args.input.analyse_channels = Some(vec![3, 1, 1, 0]);
 
         let config = AppConfig::try_from(&args).unwrap();
 
         assert_eq!(
             config.analyse_channels.as_deref(),
             Some([0u16, 1, 3].as_slice())
-        );
-        assert_eq!(
-            config.record_channels.as_deref(),
-            Some([0u16, 2].as_slice())
         );
     }
 
@@ -731,7 +586,6 @@ mod tests {
         let args = args_with_device(Some(0));
         let config = AppConfig::try_from(&args).unwrap();
         assert!(config.analyse_channels.is_none());
-        assert!(config.record_channels.is_none());
     }
 
     // 48 kHz sample rate means Nyquist is 24 kHz

@@ -14,7 +14,7 @@ pub mod managers;
 pub mod worker;
 
 use clap::Parser;
-use config::{BitDepth, DEFAULT_ADDR_PATTERN, DEFAULT_FILENAME_PATTERN, DEFAULT_MAX_CLIENTS};
+use config::{DEFAULT_ADDR_PATTERN, DEFAULT_MAX_CLIENTS};
 use std::net::SocketAddr;
 
 /// Synthetic signal generation for device calibration.
@@ -41,6 +41,11 @@ pub struct InputArgs {
     /// List available audio input devices and exit.
     #[arg(short, long)]
     pub list: bool,
+
+    /// Hardware channel indices to forward to the analyser, comma-separated (e.g. 0,1).
+    /// Omit to forward all channels.
+    #[arg(long, value_delimiter = ',')]
+    pub analyse_channels: Option<Vec<u16>>,
 }
 
 /// WebSocket server and broadcast settings.
@@ -76,30 +81,6 @@ pub struct NetworkArgs {
     /// using its OSC shortcut editor.
     #[arg(long)]
     pub osc_addr: Option<SocketAddr>,
-}
-
-/// Audio recording settings.
-#[derive(clap::Args)]
-#[command(next_help_heading = "Recording")]
-pub struct RecordingArgs {
-    /// Recording bit depth.
-    #[arg(short, long, default_value = "24")]
-    pub bit_depth: BitDepth,
-
-    /// Output filename pattern. Supports the tokens {`timestamp`}, {`sample_rate`}, and
-    /// {`bit_depth`}. Treated as a filename only and written inside `recordings/`.
-    #[arg(long, default_value = DEFAULT_FILENAME_PATTERN)]
-    pub filename_pattern: String,
-
-    /// Hardware channel indices to forward to the analyser, comma-separated (e.g. 0,1).
-    /// Omit to forward all channels.
-    #[arg(long, value_delimiter = ',')]
-    pub analyse_channels: Option<Vec<u16>>,
-
-    /// Hardware channel indices to record, comma-separated (e.g. 0,1).
-    /// Omit to record all channels.
-    #[arg(long, value_delimiter = ',')]
-    pub record_channels: Option<Vec<u16>>,
 }
 
 /// Vocoder filter bank tuning.
@@ -150,9 +131,6 @@ pub struct Args {
 
     #[command(flatten)]
     pub network: NetworkArgs,
-
-    #[command(flatten)]
-    pub recording: RecordingArgs,
 
     #[command(flatten)]
     pub vocoder: VocoderArgs,

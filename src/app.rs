@@ -2,9 +2,9 @@
 //!
 //! [`App`] is responsible for constructing the audio pipeline: it queries the
 //! selected input device for its hardware capabilities, sizes the ringbufs
-//! accordingly, spawns the recorder, analyser, WebSocket server, and (in
-//! calibration mode) the synthetic generator threads, then hands control to
-//! the [`Controller`] for interactive keyboard handling.
+//! accordingly, spawns the analyser, WebSocket server, and (in calibration
+//! mode) the synthetic generator threads, then hands control to the
+//! [`Controller`] for interactive keyboard handling.
 //!
 //! Shared runtime state is carried by [`AppState`], which holds a set of
 //! [`std::sync::atomic`] flags that the controller writes and the worker threads
@@ -16,27 +16,22 @@ use crate::config::{validate_vocoder_sample_rate, AppConfig};
 use crate::controller::Controller;
 use crate::dsp::{vocoder::VOCODER_BANDS, DisplayPayload, RawPayload};
 use crate::managers::audio::{ChannelMode, StreamSink};
-use crate::managers::{Generator, Input, Mapper, OscSender, Processor, Server, Specs, Writer};
+use crate::managers::{Generator, Input, Mapper, OscSender, Processor, Server, Specs};
 use crate::worker::WorkerThreads;
 use anyhow::Result;
 use std::sync::{
-    atomic::{AtomicBool, AtomicUsize, Ordering},
+    atomic::{AtomicBool, Ordering},
     Arc,
 };
 use tokio::sync::watch;
 use tokio_tungstenite::tungstenite::Utf8Bytes;
-
-/// Safety buffer for the record ringbuf, absorbs disk write jitter.
-pub(crate) const RECORD_BUFFER_MS: u32 = 5000;
 
 /// Safety buffer for the analyse ringbuf, headroom for analysis accumulation.
 const ANALYSE_BUFFER_MS: u32 = 500;
 
 /// Shared application state flags for cross-thread synchronisation.
 pub struct AppState {
-    pub record_ring_overflow_events: AtomicUsize,
     pub is_broadcasting_websocket: AtomicBool,
-    pub is_recording: AtomicBool,
     pub is_analysing: AtomicBool,
     pub keep_running: AtomicBool,
 }
@@ -44,9 +39,7 @@ pub struct AppState {
 impl Default for AppState {
     fn default() -> Self {
         Self {
-            record_ring_overflow_events: AtomicUsize::new(0),
             is_broadcasting_websocket: AtomicBool::new(false),
-            is_recording: AtomicBool::new(false),
             is_analysing: AtomicBool::new(false),
             keep_running: AtomicBool::new(true),
         }
@@ -93,7 +86,6 @@ impl App {
     pub fn new(config: AppConfig) -> Result<Self> {
         let state = Arc::new(AppState::new());
         let stream_state = Arc::clone(&state);
-        let recorder_state = Arc::clone(&state);
         let analyser_state = Arc::clone(&state);
         let mapper_state = Arc::clone(&state);
         let server_state = Arc::clone(&state);
@@ -108,15 +100,11 @@ impl App {
         validate_vocoder_sample_rate(config.vocoder_config.freq_high, hw_specs.sample_rate)?;
 
         // Specs & Channel Modes.
-        let mut recorder_specs = hw_specs;
         let mut analyser_specs = hw_specs;
 
-        let record_mode = ChannelMode::resolve(config.record_channels, &mut recorder_specs);
         let analyse_mode = ChannelMode::resolve(config.analyse_channels, &mut analyser_specs);
 
         // Allocate Inter-thread Channels (Ringbufs & Watch).
-        let (record_tx, record_rx) =
-            Input::create_audio_buffer_pair(recorder_specs, RECORD_BUFFER_MS);
         let (analyse_tx, analyse_rx) =
             Input::create_audio_buffer_pair(analyser_specs, ANALYSE_BUFFER_MS);
 
@@ -143,7 +131,6 @@ impl App {
                 config.test_sweep,
                 hw_specs.sample_rate,
                 hw_specs.channels,
-                record_tx,
                 analyse_tx,
                 generator_state,
             ));
@@ -153,22 +140,14 @@ impl App {
                 &device,
                 &stream_config,
                 StreamSink {
-                    tx: record_tx,
-                    mode: record_mode,
-                },
-                StreamSink {
                     tx: analyse_tx,
                     mode: analyse_mode,
                 },
-                stream_state,
+                &stream_state,
             )?;
         }
 
         // Spawn Worker Threads.
-        let recorder = Writer::new(config.filename_pattern);
-        let recorder_thread =
-            Some(recorder.spawn(record_rx, config.bit_depth, recorder_specs, recorder_state));
-
         let analyser = Processor::new(config.vocoder_config);
         let analyser_thread =
             Some(analyser.spawn(analyse_rx, raw_tx, analyser_specs, analyser_state));
@@ -201,7 +180,6 @@ impl App {
                 analyser_thread,
                 mapper_thread,
                 server_thread,
-                recorder_thread,
                 osc_sender_thread,
             ),
             controller: Controller::new(controller_state),
@@ -325,7 +303,7 @@ mod tests {
         let mut app = App {
             input_device: None,
             state: state.clone(),
-            workers: WorkerThreads::new(generator_thread, None, None, None, None, None),
+            workers: WorkerThreads::new(generator_thread, None, None, None, None),
             controller: Controller::new(state.clone()),
             shutdown_started: false,
         };

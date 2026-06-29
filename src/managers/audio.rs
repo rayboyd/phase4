@@ -1,11 +1,11 @@
 //! [`Input`] wraps a `cpal::Stream` and provides two methods:
 //! [`Input::get_device`], which queries the hardware configuration without
 //! starting a stream, and [`Input::start_stream`], which binds the device to
-//! two SPSC ringbuf producers, one for the recorder and one for the analyser.
+//! an SPSC ringbuf producer for the analyser.
 //!
-//! The stream callback pushes f32 frames to both producers. If the record
-//! producer cannot accept the full slice, one record ring overflow event is
-//! counted so the controller can surface a warning to the console.
+//! The stream callback pushes f32 frames to the analyser producer. Dropped
+//! analysis frames are intentionally tolerated as a missed frame is invisible
+//! to the user.
 //!
 //! [`Specs`] carries the hardware's native channel count and sample rate and
 //! is used throughout the pipeline for buffer sizing.
@@ -214,7 +214,7 @@ impl Input {
         Ok((device, config, specs))
     }
 
-    /// Binds the device to the record and analyse SPSC producers.
+    /// Binds the device to the analyse SPSC producer.
     ///
     /// # Errors
     ///
@@ -224,9 +224,8 @@ impl Input {
         &mut self,
         device: &cpal::Device,
         config: &cpal::SupportedStreamConfig,
-        mut record: StreamSink<P>,
         mut analyse: StreamSink<P>,
-        state: Arc<AppState>,
+        state: &Arc<AppState>,
     ) -> Result<()>
     where
         P: Producer<Item = f32> + Send + 'static,
@@ -240,7 +239,7 @@ impl Input {
             );
         }
 
-        let error_state = state.clone();
+        let error_state = Arc::clone(state);
         let stream_config = config.config();
 
         // Captured once at stream construction. Never touched again inside the callback.
@@ -252,16 +251,8 @@ impl Input {
             // rate. It must be lock-free, allocation-free, and non-blocking. Any stall
             // here will cause a buffer underrun and an audible glitch.
             move |data: &[f32], _| {
-                // Record path: lossless. One overflow event counted per callback
-                // invocation that drops any sample, matching existing semantics.
-                if record.push(data, hw_channels) {
-                    state
-                        .record_ring_overflow_events
-                        .fetch_add(1, Ordering::Relaxed);
-                }
-
                 // Analyse path is intentionally lossy. A dropped analysis frame is
-                // invisible; a dropped recording frame is not.
+                // invisible to the user.
                 let _ = analyse.push(data, hw_channels);
             },
             move |err| {
