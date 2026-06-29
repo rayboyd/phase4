@@ -140,4 +140,20 @@ impl VocoderAnalyser {
         }
         self.bins.fill(0.0);
     }
+
+    /// Returns the centre frequency of each vocoder band.
+    ///
+    /// Recomputed from the supplied frequency range rather than stored state,
+    /// keeping the runtime struct free of test-only fields.
+    #[expect(dead_code)]
+    pub(crate) fn centre_frequencies(freq_low: Hertz, freq_high: Hertz) -> Vec<f32> {
+        let log_low = freq_low.0.ln();
+        let log_high = freq_high.0.ln();
+        (0..VOCODER_BANDS)
+            .map(|i| {
+                let t = i as f32 / (VOCODER_BANDS as f32 - 1.0);
+                (log_low + t * (log_high - log_low)).exp()
+            })
+            .collect()
+    }
 }
