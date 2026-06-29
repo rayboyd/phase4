@@ -10,6 +10,13 @@ Pass `--osc-addr` with a `host:port` target when starting Phase4.
 ./phase4 --device 0 --osc-addr 127.0.0.1:7000
 ```
 
+To avoid passing the flag on every invocation, set `osc_addr` in `config.yaml` instead.
+
+```yaml
+network:
+  osc_addr: "127.0.0.1:7000"
+```
+
 Phase4 binds an ephemeral local UDP port and sends to the specified target. OSC output shares the same rate-limit gate as the WebSocket broadcast, so `--broadcast-rate` applies to both.
 
 ## Address Scheme

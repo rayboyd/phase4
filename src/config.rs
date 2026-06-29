@@ -1,15 +1,19 @@
 //! [`AppConfig`] holds the validated settings passed to [`crate::app::App::new`].
 //! It is produced by [`TryFrom<&Args>`][AppConfig#impl-TryFrom<&Args>-for-AppConfig],
-//! which resolves the CLI arguments and enforces that a device name is present
+//! which resolves CLI arguments, optional `config.yaml` file settings, and hardcoded
+//! defaults in that order of priority, then enforces that a device name is present
 //! whenever the application is not running in calibration mode.
 
 use crate::dsp::units::{Hertz, Milliseconds};
-use crate::{Args, VocoderArgs};
+use crate::Args;
+use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
+use std::path::Path;
 use thiserror::Error;
 
 pub const DEFAULT_ADDR_PATTERN: &str = "127.0.0.1:8889";
 pub const DEFAULT_MAX_CLIENTS: usize = 8;
+const DEFAULT_BROADCAST_RATE_HZ: f32 = 30.0;
 
 fn default_bind_addr() -> SocketAddr {
     DEFAULT_ADDR_PATTERN
@@ -60,6 +64,9 @@ pub enum AppConfigError {
 
     #[error("Selected audio channel index {idx} is unavailable on this {channels}-channel device")]
     ChannelIndexOutOfRange { idx: u16, channels: u16 },
+
+    #[error("Failed to parse config.yaml: {0}")]
+    ConfigFileParseError(String),
 
     #[error(
         "Invalid vocoder configuration: Sample rate {sample_rate}Hz: \
@@ -133,57 +140,193 @@ impl Default for AppConfig {
     }
 }
 
+/// Network-layer fields that may be set via `config.yaml`.
+///
+/// All fields are `Option<T>` so users can omit any subset; absent keys fall
+/// back to the hardcoded application defaults.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct FileNetworkConfig {
+    pub addr: Option<SocketAddr>,
+    pub max_clients: Option<usize>,
+    pub broadcast_rate: Option<f32>,
+    pub no_browser_origin: Option<bool>,
+    pub osc_addr: Option<SocketAddr>,
+}
+
+/// Audio-layer fields that may be set via `config.yaml`.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct FileAudioConfig {
+    pub device_name_match: Option<String>,
+    pub analyse_channels: Option<Vec<u16>>,
+}
+
+/// Vocoder filter-bank fields that may be set via `config.yaml`.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct FileVocoderConfig {
+    pub attack_ms: Option<f32>,
+    pub release_ms: Option<f32>,
+    pub freq_low: Option<f32>,
+    pub freq_high: Option<f32>,
+    pub filter_q: Option<f32>,
+}
+
+/// Mirror of the application's configurable surface, deserialised from
+/// `config.yaml`.  Each sub-block is independently optional; a missing file
+/// or missing key falls back to the hardcoded application default.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct FileConfig {
+    #[serde(default)]
+    pub network: FileNetworkConfig,
+    #[serde(default)]
+    pub audio: FileAudioConfig,
+    #[serde(default)]
+    pub vocoder: FileVocoderConfig,
+}
+
 impl TryFrom<&Args> for AppConfig {
     type Error = AppConfigError;
 
     fn try_from(args: &Args) -> Result<Self, Self::Error> {
-        let in_calibration =
-            args.calibration.test_hz.is_some() || args.calibration.test_sweep.is_some();
-        let device_name_match = if in_calibration {
-            args.input.device.clone()
-        } else {
-            Some(
-                args.input
-                    .device
-                    .clone()
-                    .ok_or(AppConfigError::MissingDevice)?,
-            )
-        };
-
-        validate_bind_addr(args.network.addr)?;
-        validate_vocoder_args(&args.vocoder)?;
-
-        if !is_strictly_positive(args.network.broadcast_rate) {
-            return Err(AppConfigError::InvalidBroadcastRate(
-                "broadcast rate must be a finite value greater than 0 Hz",
-            ));
+        let file_opt = load_file_config()?;
+        if file_opt.is_some() {
+            log::info!("Configuration loaded from config.yaml");
         }
-
-        if args.network.max_clients == 0 {
-            return Err(AppConfigError::InvalidMaxClients(
-                "max clients must be greater than 0",
-            ));
-        }
-
-        Ok(Self {
-            addr: args.network.addr,
-            max_clients: args.network.max_clients,
-            device_name_match,
-            test_hz: args.calibration.test_hz,
-            test_sweep: args.calibration.test_sweep,
-            vocoder_config: VocoderConfig {
-                attack_ms: Milliseconds(args.vocoder.attack_ms),
-                release_ms: Milliseconds(args.vocoder.release_ms),
-                freq_low: Hertz(args.vocoder.freq_low),
-                freq_high: Hertz(args.vocoder.freq_high),
-                filter_q: args.vocoder.filter_q,
-            },
-            no_browser_origin: args.network.no_browser_origin,
-            broadcast_rate: Some(args.network.broadcast_rate),
-            analyse_channels: normalise_channel_selection(args.input.analyse_channels.as_deref())?,
-            osc_addr: args.network.osc_addr,
-        })
+        resolve_config(args, file_opt.unwrap_or_default())
     }
+}
+
+/// Attempts to load and deserialise `config.yaml` from the current working
+/// directory.  Returns `Ok(None)` if the file does not exist.
+fn load_file_config() -> Result<Option<FileConfig>, AppConfigError> {
+    let path = Path::new("config.yaml");
+    if !path.exists() {
+        return Ok(None);
+    }
+    let content = std::fs::read_to_string(path)
+        .map_err(|e| AppConfigError::ConfigFileParseError(e.to_string()))?;
+    let config: FileConfig = serde_yaml::from_str(&content)
+        .map_err(|e| AppConfigError::ConfigFileParseError(e.to_string()))?;
+    Ok(Some(config))
+}
+
+/// Merges three configuration layers (CLI > file > default) and validates the
+/// result.  Separated from `TryFrom` so tests can inject a `FileConfig`
+/// without touching the filesystem.
+fn resolve_config(args: &Args, file: FileConfig) -> Result<AppConfig, AppConfigError> {
+    let app_def = AppConfig::default();
+    let voc_def = app_def.vocoder_config;
+
+    // Network
+    let addr = args
+        .network
+        .addr
+        .or(file.network.addr)
+        .unwrap_or(app_def.addr);
+
+    let max_clients = args
+        .network
+        .max_clients
+        .or(file.network.max_clients)
+        .unwrap_or(app_def.max_clients);
+
+    let broadcast_rate = args
+        .network
+        .broadcast_rate
+        .or(file.network.broadcast_rate)
+        .unwrap_or(DEFAULT_BROADCAST_RATE_HZ);
+
+    let no_browser_origin = if args.network.no_browser_origin {
+        true
+    } else {
+        file.network
+            .no_browser_origin
+            .unwrap_or(app_def.no_browser_origin)
+    };
+
+    let osc_addr = args.network.osc_addr.or(file.network.osc_addr);
+
+    // Audio
+    let raw_device = args.input.device.clone().or(file.audio.device_name_match);
+    let raw_channels = args
+        .input
+        .analyse_channels
+        .clone()
+        .or(file.audio.analyse_channels);
+
+    // Vocoder
+    let attack_ms = args
+        .vocoder
+        .attack_ms
+        .or(file.vocoder.attack_ms)
+        .unwrap_or(voc_def.attack_ms.0);
+
+    let release_ms = args
+        .vocoder
+        .release_ms
+        .or(file.vocoder.release_ms)
+        .unwrap_or(voc_def.release_ms.0);
+
+    let freq_low = args
+        .vocoder
+        .freq_low
+        .or(file.vocoder.freq_low)
+        .unwrap_or(voc_def.freq_low.0);
+
+    let freq_high = args
+        .vocoder
+        .freq_high
+        .or(file.vocoder.freq_high)
+        .unwrap_or(voc_def.freq_high.0);
+
+    let filter_q = args
+        .vocoder
+        .filter_q
+        .or(file.vocoder.filter_q)
+        .unwrap_or(voc_def.filter_q);
+
+    // Device requirement
+    let in_calibration =
+        args.calibration.test_hz.is_some() || args.calibration.test_sweep.is_some();
+    let device_name_match = if in_calibration {
+        raw_device
+    } else {
+        Some(raw_device.ok_or(AppConfigError::MissingDevice)?)
+    };
+
+    // Validation
+    validate_bind_addr(addr)?;
+    validate_vocoder_fields(attack_ms, release_ms, freq_low, freq_high, filter_q)?;
+
+    if !is_strictly_positive(broadcast_rate) {
+        return Err(AppConfigError::InvalidBroadcastRate(
+            "broadcast rate must be a finite value greater than 0 Hz",
+        ));
+    }
+
+    if max_clients == 0 {
+        return Err(AppConfigError::InvalidMaxClients(
+            "max clients must be greater than 0",
+        ));
+    }
+
+    Ok(AppConfig {
+        addr,
+        max_clients,
+        device_name_match,
+        test_hz: args.calibration.test_hz,
+        test_sweep: args.calibration.test_sweep,
+        vocoder_config: VocoderConfig {
+            attack_ms: Milliseconds(attack_ms),
+            release_ms: Milliseconds(release_ms),
+            freq_low: Hertz(freq_low),
+            freq_high: Hertz(freq_high),
+            filter_q,
+        },
+        no_browser_origin,
+        broadcast_rate: Some(broadcast_rate),
+        analyse_channels: normalise_channel_selection(raw_channels.as_deref())?,
+        osc_addr,
+    })
 }
 
 /// Deduplicates and sorts a channel index slice, returning `None` when the
@@ -217,38 +360,44 @@ fn validate_bind_addr(addr: SocketAddr) -> Result<(), AppConfigError> {
     }
 }
 
-fn validate_vocoder_args(vocoder: &VocoderArgs) -> Result<(), AppConfigError> {
-    if !is_strictly_positive(vocoder.attack_ms) {
+fn validate_vocoder_fields(
+    attack_ms: f32,
+    release_ms: f32,
+    freq_low: f32,
+    freq_high: f32,
+    filter_q: f32,
+) -> Result<(), AppConfigError> {
+    if !is_strictly_positive(attack_ms) {
         return Err(AppConfigError::InvalidVocoderConfig(
             "attack time must be a finite value greater than 0 ms",
         ));
     }
 
-    if !is_strictly_positive(vocoder.release_ms) {
+    if !is_strictly_positive(release_ms) {
         return Err(AppConfigError::InvalidVocoderConfig(
             "release time must be a finite value greater than 0 ms",
         ));
     }
 
-    if !is_strictly_positive(vocoder.freq_low) {
+    if !is_strictly_positive(freq_low) {
         return Err(AppConfigError::InvalidVocoderConfig(
             "low frequency must be greater than 0 Hz",
         ));
     }
 
-    if !is_strictly_positive(vocoder.freq_high) {
+    if !is_strictly_positive(freq_high) {
         return Err(AppConfigError::InvalidVocoderConfig(
             "high frequency must be greater than 0 Hz",
         ));
     }
 
-    if vocoder.freq_low >= vocoder.freq_high {
+    if freq_low >= freq_high {
         return Err(AppConfigError::InvalidVocoderConfig(
             "high frequency must be greater than low frequency",
         ));
     }
 
-    if !is_strictly_positive(vocoder.filter_q) {
+    if !is_strictly_positive(filter_q) {
         return Err(AppConfigError::InvalidVocoderConfig(
             "filter Q must be greater than 0",
         ));
@@ -296,18 +445,18 @@ mod tests {
                 analyse_channels: None,
             },
             network: NetworkArgs {
-                addr: default_bind_addr(),
-                max_clients: DEFAULT_MAX_CLIENTS,
-                broadcast_rate: 30.0,
+                addr: Some(default_bind_addr()),
+                max_clients: Some(DEFAULT_MAX_CLIENTS),
+                broadcast_rate: Some(30.0),
                 no_browser_origin: false,
                 osc_addr: None,
             },
-            vocoder: VocoderArgs {
-                attack_ms: 30.0,
-                release_ms: 60.0,
-                freq_low: 40.0,
-                freq_high: 18_000.0,
-                filter_q: 2.0,
+            vocoder: crate::VocoderArgs {
+                attack_ms: Some(30.0),
+                release_ms: Some(60.0),
+                freq_low: Some(40.0),
+                freq_high: Some(18_000.0),
+                filter_q: Some(2.0),
             },
             calibration: CalibrationArgs {
                 test_hz: None,
@@ -369,11 +518,11 @@ mod tests {
     #[allow(clippy::float_cmp)]
     fn try_from_forwards_vocoder_args() {
         let mut args = args_with_device(Some("test"));
-        args.vocoder.attack_ms = 12.0;
-        args.vocoder.release_ms = 80.0;
-        args.vocoder.freq_low = 40.0;
-        args.vocoder.freq_high = 16_000.0;
-        args.vocoder.filter_q = 4.0;
+        args.vocoder.attack_ms = Some(12.0);
+        args.vocoder.release_ms = Some(80.0);
+        args.vocoder.freq_low = Some(40.0);
+        args.vocoder.freq_high = Some(16_000.0);
+        args.vocoder.filter_q = Some(4.0);
 
         let config = AppConfig::try_from(&args).unwrap();
         assert_eq!(config.vocoder_config.attack_ms, Milliseconds(12.0));
@@ -395,7 +544,7 @@ mod tests {
     #[test]
     fn try_from_rejects_negative_vocoder_attack_ms() {
         let mut args = args_with_device(Some("test"));
-        args.vocoder.attack_ms = -0.1;
+        args.vocoder.attack_ms = Some(-0.1);
 
         let result = AppConfig::try_from(&args);
 
@@ -406,7 +555,7 @@ mod tests {
     #[test]
     fn try_from_rejects_non_finite_vocoder_release_ms() {
         let mut args = args_with_device(Some("test"));
-        args.vocoder.release_ms = f32::INFINITY;
+        args.vocoder.release_ms = Some(f32::INFINITY);
 
         let result = AppConfig::try_from(&args);
 
@@ -420,7 +569,7 @@ mod tests {
     #[test]
     fn try_from_rejects_non_positive_vocoder_low_frequency() {
         let mut args = args_with_device(Some("test"));
-        args.vocoder.freq_low = 0.0;
+        args.vocoder.freq_low = Some(0.0);
 
         let result = AppConfig::try_from(&args);
 
@@ -434,8 +583,8 @@ mod tests {
     #[test]
     fn try_from_rejects_vocoder_high_frequency_below_low_frequency() {
         let mut args = args_with_device(Some("test"));
-        args.vocoder.freq_low = 2_000.0;
-        args.vocoder.freq_high = 1_000.0;
+        args.vocoder.freq_low = Some(2_000.0);
+        args.vocoder.freq_high = Some(1_000.0);
 
         let result = AppConfig::try_from(&args);
 
@@ -449,7 +598,7 @@ mod tests {
     #[test]
     fn try_from_rejects_non_positive_vocoder_filter_q() {
         let mut args = args_with_device(Some("test"));
-        args.vocoder.filter_q = 0.0;
+        args.vocoder.filter_q = Some(0.0);
 
         let result = AppConfig::try_from(&args);
 
@@ -463,7 +612,7 @@ mod tests {
     #[test]
     fn try_from_rejects_non_loopback_bind_address() {
         let mut args = args_with_device(Some("test"));
-        args.network.addr = "0.0.0.0:8889".parse().unwrap();
+        args.network.addr = Some("0.0.0.0:8889".parse().unwrap());
 
         let result = AppConfig::try_from(&args);
 
@@ -478,7 +627,7 @@ mod tests {
     #[allow(clippy::float_cmp)]
     fn try_from_forwards_broadcast_rate() {
         let mut args = args_with_device(Some("test"));
-        args.network.broadcast_rate = 60.0;
+        args.network.broadcast_rate = Some(60.0);
 
         let config = AppConfig::try_from(&args).unwrap();
 
@@ -497,7 +646,7 @@ mod tests {
     #[test]
     fn try_from_forwards_max_clients() {
         let mut args = args_with_device(Some("test"));
-        args.network.max_clients = 16;
+        args.network.max_clients = Some(16);
 
         let config = AppConfig::try_from(&args).unwrap();
 
@@ -508,7 +657,7 @@ mod tests {
     #[test]
     fn try_from_rejects_zero_max_clients() {
         let mut args = args_with_device(Some("test"));
-        args.network.max_clients = 0;
+        args.network.max_clients = Some(0);
 
         let result = AppConfig::try_from(&args);
 
@@ -522,7 +671,7 @@ mod tests {
     #[test]
     fn try_from_rejects_zero_broadcast_rate() {
         let mut args = args_with_device(Some("test"));
-        args.network.broadcast_rate = 0.0;
+        args.network.broadcast_rate = Some(0.0);
 
         let result = AppConfig::try_from(&args);
 
@@ -536,7 +685,7 @@ mod tests {
     #[test]
     fn try_from_rejects_negative_broadcast_rate() {
         let mut args = args_with_device(Some("test"));
-        args.network.broadcast_rate = -10.0;
+        args.network.broadcast_rate = Some(-10.0);
 
         let result = AppConfig::try_from(&args);
 
@@ -550,7 +699,7 @@ mod tests {
     #[test]
     fn try_from_rejects_infinite_broadcast_rate() {
         let mut args = args_with_device(Some("test"));
-        args.network.broadcast_rate = f32::INFINITY;
+        args.network.broadcast_rate = Some(f32::INFINITY);
 
         let result = AppConfig::try_from(&args);
 
@@ -625,5 +774,150 @@ mod tests {
     fn validate_vocoder_sample_rate_accepts_valid_frequencies() {
         let result = validate_vocoder_sample_rate(Hertz(18_000.0), 48_000);
         assert!(result.is_ok(), "valid frequencies should be accepted");
+    }
+
+    // --- Three-tier merge tests (CLI > file > default) ---
+
+    // When the CLI supplies no value for a field the file config value is used.
+    #[test]
+    #[allow(clippy::float_cmp)]
+    fn file_config_broadcast_rate_overrides_default_when_cli_absent() {
+        let mut args = args_with_device(Some("test"));
+        args.network.broadcast_rate = None;
+
+        let file = FileConfig {
+            network: FileNetworkConfig {
+                broadcast_rate: Some(45.0),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
+        let config = resolve_config(&args, file).unwrap();
+        assert_eq!(config.broadcast_rate, Some(45.0));
+    }
+
+    // A CLI value takes priority over a file config value.
+    #[test]
+    #[allow(clippy::float_cmp)]
+    fn cli_broadcast_rate_overrides_file_config() {
+        let mut args = args_with_device(Some("test"));
+        args.network.broadcast_rate = Some(60.0);
+
+        let file = FileConfig {
+            network: FileNetworkConfig {
+                broadcast_rate: Some(10.0),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
+        let config = resolve_config(&args, file).unwrap();
+        assert_eq!(config.broadcast_rate, Some(60.0));
+    }
+
+    // When neither CLI nor file supplies a value the hardcoded default is used.
+    #[test]
+    #[allow(clippy::float_cmp)]
+    fn default_broadcast_rate_used_when_both_cli_and_file_absent() {
+        let mut args = args_with_device(Some("test"));
+        args.network.broadcast_rate = None;
+
+        let config = resolve_config(&args, FileConfig::default()).unwrap();
+        assert_eq!(config.broadcast_rate, Some(DEFAULT_BROADCAST_RATE_HZ));
+    }
+
+    // File config max_clients is used when the CLI supplies None.
+    #[test]
+    fn file_config_max_clients_overrides_default_when_cli_absent() {
+        let mut args = args_with_device(Some("test"));
+        args.network.max_clients = None;
+
+        let file = FileConfig {
+            network: FileNetworkConfig {
+                max_clients: Some(4),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
+        let config = resolve_config(&args, file).unwrap();
+        assert_eq!(config.max_clients, 4);
+    }
+
+    // File config vocoder attack_ms is respected when CLI is absent.
+    #[test]
+    #[allow(clippy::float_cmp)]
+    fn file_config_vocoder_attack_ms_overrides_default_when_cli_absent() {
+        let mut args = args_with_device(Some("test"));
+        args.vocoder.attack_ms = None;
+
+        let file = FileConfig {
+            vocoder: FileVocoderConfig {
+                attack_ms: Some(15.0),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
+        let config = resolve_config(&args, file).unwrap();
+        assert_eq!(config.vocoder_config.attack_ms, Milliseconds(15.0));
+    }
+
+    // File config device_name_match is used when CLI device is absent.
+    #[test]
+    fn file_config_device_overrides_none_when_cli_absent() {
+        let mut args = args_with_device(None);
+        args.calibration.test_hz = Some(440.0); // calibration mode to skip MissingDevice error
+
+        let file = FileConfig {
+            audio: FileAudioConfig {
+                device_name_match: Some("Focusrite 2i2".to_string()),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
+        let config = resolve_config(&args, file).unwrap();
+        assert_eq!(config.device_name_match.as_deref(), Some("Focusrite 2i2"));
+    }
+
+    // An invalid file config value (zero max_clients) is rejected by validation
+    // even when it originates from the file layer.
+    #[test]
+    fn file_config_invalid_max_clients_is_rejected() {
+        let mut args = args_with_device(Some("test"));
+        args.network.max_clients = None;
+
+        let file = FileConfig {
+            network: FileNetworkConfig {
+                max_clients: Some(0),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
+        let result = resolve_config(&args, file);
+        assert!(
+            matches!(result, Err(AppConfigError::InvalidMaxClients(_))),
+            "zero max clients from file config should be rejected"
+        );
+    }
+
+    // no_browser_origin from file config is respected when CLI flag is not set.
+    #[test]
+    fn file_config_no_browser_origin_overrides_default() {
+        let args = args_with_device(Some("test")); // no_browser_origin = false
+
+        let file = FileConfig {
+            network: FileNetworkConfig {
+                no_browser_origin: Some(true),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
+        let config = resolve_config(&args, file).unwrap();
+        assert!(config.no_browser_origin);
     }
 }
