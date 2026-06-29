@@ -14,7 +14,6 @@ pub mod managers;
 pub mod worker;
 
 use clap::Parser;
-use config::{DEFAULT_ADDR_PATTERN, DEFAULT_MAX_CLIENTS};
 use std::net::SocketAddr;
 
 /// Synthetic signal generation for device calibration.
@@ -52,17 +51,17 @@ pub struct InputArgs {
 #[derive(clap::Args)]
 #[command(next_help_heading = "Network")]
 pub struct NetworkArgs {
-    /// WebSocket server bind address.
-    #[arg(short, long, default_value = DEFAULT_ADDR_PATTERN)]
-    pub addr: SocketAddr,
+    /// WebSocket server bind address (default: 127.0.0.1:8889).
+    #[arg(short, long)]
+    pub addr: Option<SocketAddr>,
 
-    /// Maximum number of concurrent WebSocket clients.
-    #[arg(long, default_value_t = DEFAULT_MAX_CLIENTS)]
-    pub max_clients: usize,
+    /// Maximum number of concurrent WebSocket clients (default: 8).
+    #[arg(long)]
+    pub max_clients: Option<usize>,
 
-    /// Target WebSocket broadcast rate in Hz (e.g. 30 or 60).
-    #[arg(long, default_value_t = 30.0_f32)]
-    pub broadcast_rate: f32,
+    /// Target WebSocket broadcast rate in Hz, e.g. 30 or 60 (default: 30).
+    #[arg(long)]
+    pub broadcast_rate: Option<f32>,
 
     /// Reject WebSocket clients whose handshake includes an Origin header.
     ///
@@ -87,25 +86,25 @@ pub struct NetworkArgs {
 #[derive(clap::Args)]
 #[command(next_help_heading = "Vocoder")]
 pub struct VocoderArgs {
-    /// Vocoder envelope attack time constant in milliseconds. Smaller is faster.
-    #[arg(long = "vocoder-attack-ms", default_value_t = 30.0)]
-    pub attack_ms: f32,
+    /// Vocoder envelope attack time constant in milliseconds. Smaller is faster (default: 30).
+    #[arg(long = "vocoder-attack-ms")]
+    pub attack_ms: Option<f32>,
 
-    /// Vocoder envelope release time constant in milliseconds. Smaller is faster.
-    #[arg(long = "vocoder-release-ms", default_value_t = 60.0)]
-    pub release_ms: f32,
+    /// Vocoder envelope release time constant in milliseconds. Smaller is faster (default: 60).
+    #[arg(long = "vocoder-release-ms")]
+    pub release_ms: Option<f32>,
 
-    /// Vocoder lowest band centre frequency in Hz.
-    #[arg(long = "vocoder-freq-low", default_value_t = 40.0)]
-    pub freq_low: f32,
+    /// Vocoder lowest band centre frequency in Hz (default: 40).
+    #[arg(long = "vocoder-freq-low")]
+    pub freq_low: Option<f32>,
 
-    /// Vocoder highest band centre frequency in Hz.
-    #[arg(long = "vocoder-freq-high", default_value_t = 18_000.0)]
-    pub freq_high: f32,
+    /// Vocoder highest band centre frequency in Hz (default: 18000).
+    #[arg(long = "vocoder-freq-high")]
+    pub freq_high: Option<f32>,
 
-    /// Vocoder bandpass filter Q factor. Higher is narrower.
-    #[arg(long = "vocoder-filter-q", default_value_t = 2.0)]
-    pub filter_q: f32,
+    /// Vocoder bandpass filter Q factor. Higher is narrower (default: 2).
+    #[arg(long = "vocoder-filter-q")]
+    pub filter_q: Option<f32>,
 }
 
 #[derive(Parser)]
