@@ -185,23 +185,77 @@ impl Input {
         Ok(())
     }
 
-    /// Retrieves a concrete handle to the device and its default info. This allows
-    /// the App to size ringbufs before starting the stream callback (hotpath).
+    /// Retrieves a concrete handle to the device and its default configuration.
+    ///
+    /// Resolution follows a 3-tier fallback sequence:
+    /// 1. Exact match: picks the first device whose name matches `name_query` exactly.
+    /// 2. Fuzzy match: if no exact match, picks the first device whose name contains
+    ///    `name_query` as a case-insensitive substring.
+    /// 3. Default fallback: if no match is found at all, logs a warning and falls
+    ///    back to the system default input device.
     ///
     /// # Errors
     ///
-    /// Returns an error if the device index is out of range or the hardware
-    /// configuration cannot be queried.
+    /// Returns an error if input devices cannot be enumerated, hardware configuration
+    /// cannot be queried, or no default input device is available when the fallback
+    /// path is taken.
     pub fn get_device(
         &self,
-        index: usize,
+        name_query: &str,
     ) -> Result<(cpal::Device, cpal::SupportedStreamConfig, Specs)> {
         let host = cpal::default_host();
-        let device = host
-            .input_devices()?
-            .nth(index)
-            .context("Device index not found")?;
+        let query_lower = name_query.to_lowercase();
+        let mut fuzzy_candidate: Option<cpal::Device> = None;
 
+        for device in host
+            .input_devices()
+            .context("Failed to enumerate input devices")?
+        {
+            let name = device
+                .description()
+                .map_or_else(|_| String::new(), |d| d.name().to_string());
+
+            // Tier 1: exact name match.
+            if name == name_query {
+                log::info!("Audio device resolved (exact match): {name}");
+                return Self::build_device_specs(device);
+            }
+
+            // Tier 2: record the first case-insensitive substring match.
+            if fuzzy_candidate.is_none() && name.to_lowercase().contains(&query_lower) {
+                fuzzy_candidate = Some(device);
+            }
+        }
+
+        // Tier 2: use the fuzzy candidate if one was found.
+        if let Some(device) = fuzzy_candidate {
+            let name = device
+                .description()
+                .map_or_else(|_| String::new(), |d| d.name().to_string());
+            log::info!("Audio device resolved (fuzzy match): {name}");
+            return Self::build_device_specs(device);
+        }
+
+        // Tier 3: no match found, fall back to the system default.
+        log::warn!("No input device matched \"{name_query}\", falling back to system default");
+        let device = host
+            .default_input_device()
+            .context("No default input device available")?;
+        let name = device
+            .description()
+            .map_or_else(|_| String::new(), |d| d.name().to_string());
+        log::info!("Audio device resolved (default fallback): {name}");
+        Self::build_device_specs(device)
+    }
+
+    /// Queries the default input configuration for `device` and assembles a `Specs` block.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the hardware configuration cannot be queried.
+    fn build_device_specs(
+        device: cpal::Device,
+    ) -> Result<(cpal::Device, cpal::SupportedStreamConfig, Specs)> {
         let config = device
             .default_input_config()
             .context("Failed to query hardware config")?;

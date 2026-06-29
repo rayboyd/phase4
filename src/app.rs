@@ -12,7 +12,7 @@
 //! grace period to exit, which prevents one stalled worker from hanging the
 //! main thread indefinitely.
 
-use crate::config::{validate_vocoder_sample_rate, AppConfig};
+use crate::config::{validate_vocoder_sample_rate, AppConfig, AppConfigError};
 use crate::controller::Controller;
 use crate::dsp::{vocoder::VOCODER_BANDS, DisplayPayload, RawPayload};
 use crate::managers::audio::{ChannelMode, StreamSink};
@@ -31,16 +31,14 @@ const ANALYSE_BUFFER_MS: u32 = 500;
 
 /// Shared application state flags for cross-thread synchronisation.
 pub struct AppState {
-    pub is_broadcasting_websocket: AtomicBool,
-    pub is_analysing: AtomicBool,
+    pub is_active: AtomicBool,
     pub keep_running: AtomicBool,
 }
 
 impl Default for AppState {
     fn default() -> Self {
         Self {
-            is_broadcasting_websocket: AtomicBool::new(false),
-            is_analysing: AtomicBool::new(false),
+            is_active: AtomicBool::new(true),
             keep_running: AtomicBool::new(true),
         }
     }
@@ -81,8 +79,8 @@ impl App {
     ///
     /// # Panics
     ///
-    /// Panics if `device_index` is `None` when not in calibration mode. This is
-    /// guarded by `AppConfig::TryFrom`, so it should never occur in practice.
+    /// Panics if the initial display payload cannot be serialised to JSON.
+    /// This is a programmer error and should never occur in practice.
     pub fn new(config: AppConfig) -> Result<Self> {
         let state = Arc::new(AppState::new());
         let stream_state = Arc::clone(&state);
@@ -98,6 +96,21 @@ impl App {
         let (hw_specs, device_handle) =
             Self::resolve_hardware(&config, calibration_mode, &mut input_device)?;
         validate_vocoder_sample_rate(config.vocoder_config.freq_high, hw_specs.sample_rate)?;
+
+        // Validate that all requested channel indices are within the hardware's capacity.
+        // This check is skipped in calibration mode, where no real device is involved.
+        if !calibration_mode {
+            if let Some(indices) = &config.analyse_channels {
+                if let Some(&idx) = indices.iter().max() {
+                    if idx >= hw_specs.channels {
+                        anyhow::bail!(AppConfigError::ChannelIndexOutOfRange {
+                            idx,
+                            channels: hw_specs.channels,
+                        });
+                    }
+                }
+            }
+        }
 
         // Specs & Channel Modes.
         let mut analyser_specs = hw_specs;
@@ -192,11 +205,12 @@ impl App {
     ///
     /// # Errors
     ///
-    /// Returns an error if the device cannot be queried.
+    /// Returns an error if the device cannot be resolved or queried.
     ///
     /// # Panics
     ///
-    /// Panics if `device_index` is `None` when not in calibration mode.
+    /// Panics if `device_name_match` is `None` when not in calibration mode.
+    /// This is guarded by `AppConfig::TryFrom`, so it should never occur in practice.
     fn resolve_hardware(
         config: &AppConfig,
         calibration_mode: bool,
@@ -212,10 +226,11 @@ impl App {
             ));
         }
 
-        let idx = config
-            .device_index
-            .expect("device_index required in hardware mode");
-        let (device, stream_config, specs) = input.get_device(idx)?;
+        let name_query = config
+            .device_name_match
+            .as_deref()
+            .expect("device_name_match is required in hardware mode");
+        let (device, stream_config, specs) = input.get_device(name_query)?;
 
         Ok((specs, Some((device, stream_config))))
     }

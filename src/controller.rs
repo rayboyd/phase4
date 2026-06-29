@@ -37,7 +37,7 @@ impl Controller {
     pub fn run(&self) -> Result<()> {
         enable_raw_mode()?;
 
-        log::info!("'A' to analyse, 'B' to broadcast, Ctrl+C to exit");
+        log::info!("'T' to toggle engine, Ctrl+C to exit");
 
         while self.state.keep_running.load(Ordering::Acquire) {
             if event::poll(Duration::from_millis(POLL_RATE_MS))? {
@@ -56,27 +56,11 @@ impl Controller {
         }
 
         match key.code {
-            KeyCode::Char('b' | 'B') => {
-                let was_broadcasting_websocket =
-                    self.state.is_broadcasting_websocket.load(Ordering::Acquire);
-                self.state
-                    .is_broadcasting_websocket
-                    .store(!was_broadcasting_websocket, Ordering::Release);
-                let status = if was_broadcasting_websocket {
-                    "OFF"
-                } else {
-                    "ON"
-                };
-                log::info!("Broadcasting: {status}");
-            }
-
-            KeyCode::Char('a' | 'A') => {
-                let was_analysing = self.state.is_analysing.load(Ordering::Acquire);
-                self.state
-                    .is_analysing
-                    .store(!was_analysing, Ordering::Release);
-                let status = if was_analysing { "OFF" } else { "ON" };
-                log::info!("Analysis: {status}");
+            KeyCode::Char('t' | 'T') => {
+                let was_active = self.state.is_active.load(Ordering::Acquire);
+                self.state.is_active.store(!was_active, Ordering::Release);
+                let status = if was_active { "PAUSED" } else { "ACTIVE" };
+                log::info!("Engine Status: {status}");
             }
 
             KeyCode::Char('c' | 'C') if key.modifiers.contains(KeyModifiers::CONTROL) => {
@@ -109,12 +93,13 @@ mod tests {
         let (controller, state) = controller_with_state();
 
         controller.handle_key_event(KeyEvent::new_with_kind(
-            KeyCode::Char('b'),
+            KeyCode::Char('t'),
             KeyModifiers::NONE,
             KeyEventKind::Press,
         ));
 
-        assert!(state.is_broadcasting_websocket.load(Ordering::Acquire));
+        // is_active starts true; pressing 't' toggles it to false.
+        assert!(!state.is_active.load(Ordering::Acquire));
     }
 
     #[test]
@@ -122,12 +107,13 @@ mod tests {
         let (controller, state) = controller_with_state();
 
         controller.handle_key_event(KeyEvent::new_with_kind(
-            KeyCode::Char('b'),
+            KeyCode::Char('t'),
             KeyModifiers::NONE,
             KeyEventKind::Release,
         ));
 
-        assert!(!state.is_broadcasting_websocket.load(Ordering::Acquire));
+        // Release events do not toggle; is_active remains true.
+        assert!(state.is_active.load(Ordering::Acquire));
     }
 
     #[test]
@@ -135,12 +121,13 @@ mod tests {
         let (controller, state) = controller_with_state();
 
         controller.handle_key_event(KeyEvent::new_with_kind(
-            KeyCode::Char('b'),
+            KeyCode::Char('t'),
             KeyModifiers::NONE,
             KeyEventKind::Repeat,
         ));
 
-        assert!(!state.is_broadcasting_websocket.load(Ordering::Acquire));
+        // Repeat events do not toggle; is_active remains true.
+        assert!(state.is_active.load(Ordering::Acquire));
     }
 
     #[test]

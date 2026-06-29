@@ -56,7 +56,6 @@ struct State {
     /// Published via swap into the watch channel gives us no clones or allocations.
     frame_data: RawPayload,
     raw_tx: watch::Sender<RawPayload>,
-    app: Arc<AppState>,
     analysers: Vec<VocoderAnalyser>,
 }
 
@@ -64,7 +63,6 @@ impl State {
     fn new(
         specs: Specs,
         raw_tx: watch::Sender<RawPayload>,
-        state: Arc<AppState>,
         vocoder_config: &VocoderConfig,
     ) -> Self {
         let channels = specs.channels as usize;
@@ -80,7 +78,6 @@ impl State {
             transfer_buffer: vec![0.0f32; specs.samples_for_ms(CHUNK_SIZE_MS)],
             frame_data,
             raw_tx,
-            app: state,
             analysers,
         }
     }
@@ -100,21 +97,19 @@ impl State {
             out.bins.copy_from_slice(self.analysers[ch].current_bins());
         }
 
-        if self.app.is_broadcasting_websocket.load(Ordering::Acquire) {
-            if self.raw_tx.is_closed() {
-                log::warn!("Mapper receiver has dropped, analysis frames will be discarded");
-                return;
-            }
-
-            // Swap the frame into the watch channel in-place. Keep std::mem::take
-            // and send_replace adjacent, adding an early return between them would
-            // drop the reusable buffer and force a fresh allocation next frame.
-            // frame_data retains the previous frame's buffer. This preserves Vec
-            // capacity for reuse on the next iteration.
-            self.frame_data = self
-                .raw_tx
-                .send_replace(std::mem::take(&mut self.frame_data));
+        if self.raw_tx.is_closed() {
+            log::warn!("Mapper receiver has dropped, analysis frames will be discarded");
+            return;
         }
+
+        // Swap the frame into the watch channel in-place. Keep std::mem::take
+        // and send_replace adjacent, adding an early return between them would
+        // drop the reusable buffer and force a fresh allocation next frame.
+        // frame_data retains the previous frame's buffer. This preserves Vec
+        // capacity for reuse on the next iteration.
+        self.frame_data = self
+            .raw_tx
+            .send_replace(std::mem::take(&mut self.frame_data));
     }
 }
 
@@ -136,8 +131,8 @@ impl Processor {
     /// Spawns the analyser background thread.
     ///
     /// The thread drains `consumer`, runs per-channel peak and vocoder envelope
-    /// analysis on each `CHUNK_SIZE_MS` block, and sends the result to `watch_tx` when
-    /// `is_broadcasting_websocket` is set. The thread exits when `keep_running` is cleared
+    /// analysis on each `CHUNK_SIZE_MS` block, and publishes the result to `raw_tx` when
+    /// `is_active` is set. The thread exits when `keep_running` is cleared
     /// and the ringbuf is empty.
     ///
     /// # Panics
@@ -165,8 +160,8 @@ impl Processor {
                     ),
                 ));
 
-                let mut dsp_state = State::new(specs, raw_tx, state.clone(), &self.vocoder_config);
-                let mut was_analysing = false;
+                let mut dsp_state = State::new(specs, raw_tx, &self.vocoder_config);
+                let mut was_active = false;
 
                 // Set the CPU's FTZ (Flush-to-Zero) and DAZ (Denormals-Are-Zero) flags here.
                 // Prevents CPU spikes when processing near-silent audio signals (subnormal numbers).
@@ -174,24 +169,29 @@ impl Processor {
                 unsafe {
                     no_denormals(|| {
                         while state.keep_running.load(Ordering::Acquire) || !consumer.is_empty() {
-                            // Check for any state transitions.
-                            let is_analysing_active = state.is_analysing.load(Ordering::Acquire);
+                            let is_active = state.is_active.load(Ordering::Acquire);
 
-                            // If we just turned analysis back ON, flush the old analysis history.
-                            if is_analysing_active && !was_analysing {
+                            if !is_active {
+                                // Drain hardware samples so the ring buffer does not back up.
+                                while consumer.pop_slice(&mut dsp_state.transfer_buffer) > 0 {}
+                                thread::sleep(Duration::from_millis(100));
+                                was_active = false;
+                                continue;
+                            }
+
+                            // If we just transitioned from inactive to active, reset analysis history.
+                            if !was_active {
                                 for analyser in &mut dsp_state.analysers {
                                     analyser.reset();
                                 }
                             }
-                            was_analysing = is_analysing_active;
+                            was_active = true;
 
                             // Drain the ringbuf, or sleep briefly when empty to avoid
                             // spinning the CPU with nothing to process.
                             let samples = consumer.pop_slice(&mut dsp_state.transfer_buffer);
                             if samples > 0 {
-                                if is_analysing_active {
-                                    dsp_state.process(samples);
-                                }
+                                dsp_state.process(samples);
                             } else if state.keep_running.load(Ordering::Acquire) {
                                 // Idle backoff only, not a timing-critical path. Sample throughput is
                                 // governed by the producer (CPAL callback or generator), not by this
