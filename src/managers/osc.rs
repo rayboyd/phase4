@@ -76,7 +76,7 @@ impl OscSender {
                     .enable_all()
                     .build()
                     .expect("failed to build tokio runtime for osc-sender")
-                    .block_on(Self::run(display_rx, socket, addrs, state));
+                    .block_on(Self::run(display_rx, socket, addrs, channels, state));
             })
             .expect("failed to spawn osc-sender thread");
 
@@ -87,17 +87,29 @@ impl OscSender {
         mut display_rx: watch::Receiver<DisplayPayload>,
         socket: UdpSocket,
         addrs: Vec<Vec<String>>,
+        channels: usize,
         state: Arc<AppState>,
     ) {
+        // Pre-allocated buffer reused every frame to avoid per-frame heap allocation.
+        let mut local = DisplayPayload::new(channels);
+
         while state.keep_running.load(Ordering::Acquire) {
             if display_rx.changed().await.is_err() {
                 log::info!("- Display channel closed, OSC sender exiting");
                 break;
             }
 
-            let payload = display_rx.borrow_and_update().clone();
+            // Minimise the watch read-lock duration: blit values into the local
+            // buffer and release the guard before any I/O work begins.
+            {
+                let guard = display_rx.borrow_and_update();
+                for (local_ch, remote_ch) in local.channels.iter_mut().zip(guard.channels.iter()) {
+                    local_ch.peak = remote_ch.peak;
+                    local_ch.bins.copy_from_slice(&remote_ch.bins);
+                }
+            }
 
-            for (ch_idx, channel) in payload.channels.iter().enumerate() {
+            for (ch_idx, channel) in local.channels.iter().enumerate() {
                 let ch_addrs = &addrs[ch_idx];
                 for (bin_idx, &value) in channel.bins.iter().enumerate() {
                     let packet = OscPacket::Message(OscMessage {
