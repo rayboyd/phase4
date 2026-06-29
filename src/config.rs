@@ -133,7 +133,7 @@ impl Default for AppConfig {
             test_sweep: None,
             vocoder_config: VocoderConfig::default(),
             no_browser_origin: false,
-            broadcast_rate: Some(30.0),
+            broadcast_rate: Some(DEFAULT_BROADCAST_RATE_HZ),
             analyse_channels: None,
             osc_addr: None,
         }
@@ -447,7 +447,7 @@ mod tests {
             network: NetworkArgs {
                 addr: Some(default_bind_addr()),
                 max_clients: Some(DEFAULT_MAX_CLIENTS),
-                broadcast_rate: Some(30.0),
+                broadcast_rate: Some(DEFAULT_BROADCAST_RATE_HZ),
                 no_browser_origin: false,
                 osc_addr: None,
             },
