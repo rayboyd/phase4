@@ -246,7 +246,7 @@ impl Input {
         let hw_channels = stream_config.channels as usize;
 
         let stream = device.build_input_stream(
-            &stream_config,
+            stream_config,
             // This callback runs on cpal's dedicated audio thread at hardware interrupt
             // rate. It must be lock-free, allocation-free, and non-blocking. Any stall
             // here will cause a buffer underrun and an audible glitch.
