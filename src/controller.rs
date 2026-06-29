@@ -37,7 +37,7 @@ impl Controller {
     pub fn run(&self) -> Result<()> {
         enable_raw_mode()?;
 
-        log::info!("'A' or 'B' to toggle engine, Ctrl+C to exit");
+        log::info!("'T' to toggle engine, Ctrl+C to exit");
 
         while self.state.keep_running.load(Ordering::Acquire) {
             if event::poll(Duration::from_millis(POLL_RATE_MS))? {
@@ -56,7 +56,7 @@ impl Controller {
         }
 
         match key.code {
-            KeyCode::Char('a' | 'A' | 'b' | 'B') => {
+            KeyCode::Char('t' | 'T') => {
                 let was_active = self.state.is_active.load(Ordering::Acquire);
                 self.state.is_active.store(!was_active, Ordering::Release);
                 let status = if was_active { "PAUSED" } else { "ACTIVE" };
@@ -93,12 +93,12 @@ mod tests {
         let (controller, state) = controller_with_state();
 
         controller.handle_key_event(KeyEvent::new_with_kind(
-            KeyCode::Char('b'),
+            KeyCode::Char('t'),
             KeyModifiers::NONE,
             KeyEventKind::Press,
         ));
 
-        // is_active starts true; pressing 'b' toggles it to false.
+        // is_active starts true; pressing 't' toggles it to false.
         assert!(!state.is_active.load(Ordering::Acquire));
     }
 
@@ -107,7 +107,7 @@ mod tests {
         let (controller, state) = controller_with_state();
 
         controller.handle_key_event(KeyEvent::new_with_kind(
-            KeyCode::Char('b'),
+            KeyCode::Char('t'),
             KeyModifiers::NONE,
             KeyEventKind::Release,
         ));
@@ -121,7 +121,7 @@ mod tests {
         let (controller, state) = controller_with_state();
 
         controller.handle_key_event(KeyEvent::new_with_kind(
-            KeyCode::Char('b'),
+            KeyCode::Char('t'),
             KeyModifiers::NONE,
             KeyEventKind::Repeat,
         ));
