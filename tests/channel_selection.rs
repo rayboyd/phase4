@@ -30,12 +30,6 @@ async fn selecting_single_channel_updates_analyser_payload() {
 
     let (raw_tx, mut raw_rx) = watch::channel(RawPayload::new(analyse_specs.channels as usize, 64));
     let state = Arc::new(AppState::new());
-    state
-        .is_analysing
-        .store(true, std::sync::atomic::Ordering::Release);
-    state
-        .is_broadcasting_websocket
-        .store(true, std::sync::atomic::Ordering::Release);
 
     // Spawn the analyser with the specs.
     let processor = Processor::new(VocoderConfig::default());

@@ -31,16 +31,14 @@ const ANALYSE_BUFFER_MS: u32 = 500;
 
 /// Shared application state flags for cross-thread synchronisation.
 pub struct AppState {
-    pub is_broadcasting_websocket: AtomicBool,
-    pub is_analysing: AtomicBool,
+    pub is_active: AtomicBool,
     pub keep_running: AtomicBool,
 }
 
 impl Default for AppState {
     fn default() -> Self {
         Self {
-            is_broadcasting_websocket: AtomicBool::new(false),
-            is_analysing: AtomicBool::new(false),
+            is_active: AtomicBool::new(true),
             keep_running: AtomicBool::new(true),
         }
     }
