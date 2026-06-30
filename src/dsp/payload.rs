@@ -62,7 +62,7 @@ const _: () = assert!(
 
 //
 // Raw Payload (Internal)
-// Produced by the Analyser thread. Full resolution, not serialised.
+//
 
 #[derive(Debug, Clone)]
 pub struct RawChannelLevel {
@@ -91,7 +91,7 @@ impl RawPayload {
 
 //
 // Display Payload (Broadcast)
-// Produced by the Mapper thread. Reduced resolution, serialised for the WebSocket.
+//
 
 #[derive(Debug, Clone)]
 pub struct DisplayChannelLevel {

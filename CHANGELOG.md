@@ -2,9 +2,39 @@
 
 All notable changes to Phase4 will be documented in this file.
 
-## 0.0.2
+## 0.0.3
 
-[d0ae658](https://github.com/rayboyd/phase4/compare/d0ae6588e8e00a7eb43bdf233ceb717d17c64970...46593e1feb0b6f0605fbe63fd367964fec01b1f7)
+### Bug Fixes
+
+- Use DEFAULT_BROADCAST_RATE_HZ ([08eb227](https://github.com/rayboyd/phase4/commit/08eb2279d959b90d517bd83ca5e48bce2599788f))
+- Address code review findings across all priority levels ([52b2bdf](https://github.com/rayboyd/phase4/commit/52b2bdf1b5d7c7f664d357694fd071a03873b28f))
+- Remove default input device fallback ([56de9d7](https://github.com/rayboyd/phase4/commit/56de9d74fb094e062fcd515676aca774338e76e7))
+
+### Documentation
+
+- Correct allocation claim after sender refactor ([ad36b83](https://github.com/rayboyd/phase4/commit/ad36b83e482e914d400fa17854091c471b920123))
+- Update data-flow diagram for single typed display channel ([ebeac2b](https://github.com/rayboyd/phase4/commit/ebeac2ba334f8e45c7cce90ade8b00f48bc4445a))
+
+### Features
+
+- Add centre_frequencies ([d9e9305](https://github.com/rayboyd/phase4/commit/d9e93050c2471ce3ab39eced844f0f15f956b21a))
+- Centralise display payload fanout and server side serialisation ([f93a59c](https://github.com/rayboyd/phase4/commit/f93a59c007ee7694fb6dd9f7a0567dfae5f9eb94))
+
+### Performance
+
+- Serialise display payload without a per-frame clone ([41ad5e8](https://github.com/rayboyd/phase4/commit/41ad5e87bda9970339044132b2aa301bc3d1e7ae))
+
+### Refactor
+
+- Eliminate per-frame allocations and hoist runtime state ([145f633](https://github.com/rayboyd/phase4/commit/145f633f5dc957a298e9693924650a01de26d27e))
+- Seed serialised channel and drop first-frame bootstrap ([39fd904](https://github.com/rayboyd/phase4/commit/39fd904c08c03f670a206843504c8fd593765d4b))
+- Drop unused enumerate in the send loop ([58134f1](https://github.com/rayboyd/phase4/commit/58134f1da83c104330bfc401fd2b93440580ae81))
+
+### Testing
+
+- Move wire-contract test beside the serialize impl ([da2aa63](https://github.com/rayboyd/phase4/commit/da2aa63309c7a9e352a249cfc7deb45c3d2d3ade))
+
+## 0.0.2
 
 ### Bug Fixes
 
@@ -41,8 +71,6 @@ All notable changes to Phase4 will be documented in this file.
 - Test_ringbuf_power_of_two ([f3c25b3](https://github.com/rayboyd/phase4/commit/f3c25b3cc3681417d0e0e4ebdfeb297f3f5cffdd))
 
 ## 0.0.1
-
-[60d58cc](https://github.com/rayboyd/phase4/compare/60d58cc830bb339e78d3d10df628b2d51ca78edd...20ddbfaa9faf6ca90ebd603fcd0ad00c30e1f5a5)
 
 ### Bug Fixes
 
