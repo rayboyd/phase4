@@ -32,7 +32,7 @@ flowchart TD
 		F -->|no| H[Resolve input device and native specs]
 		G --> I[Create analyse ring buffer]
 		H --> I
-		I --> J[Create watch channels: RawPayload and DisplayPayload JSON]
+		I --> J[Create watch channels: RawPayload and typed DisplayPayload]
 		J --> K{Input source}
 		K -->|calibration| M[Spawn generator thread]
 		K -->|hardware| L[Start CPAL stream callback]
@@ -80,11 +80,11 @@ flowchart LR
 		B2 --> C2[Analyser thread]
 		C2 -->|watch send_replace RawPayload| E[(RawPayload watch)]
 		E --> F[Mapper thread]
-		F -->|map bins plus JSON serialise| G[(Display JSON watch)]
-		F -->|typed DisplayPayload, if --osc| K[(OSC display watch)]
+		F -->|map bins plus broadcast-rate gate| G[(DisplayPayload watch)]
 		G --> H[WebSocket server]
-		H --> I[Clients: browser or native]
-		K --> L[OSC sender thread]
+		H -->|serialise once per frame in dedicated task| H2[(Server JSON watch)]
+		H2 --> I[Clients: browser or native]
+		G --> L[OSC sender thread]
 		L --> M[UDP target]
 
 		J[Controller thread] -->|toggle atomics| C2
