@@ -11,7 +11,7 @@ use tokio::io::AsyncReadExt;
 use tokio::sync::watch;
 use tokio::time::{sleep, timeout};
 use tokio_tungstenite::{
-    tungstenite::{self, client::IntoClientRequest, Message, Utf8Bytes},
+    tungstenite::{self, client::IntoClientRequest, Message},
     MaybeTlsStream, WebSocketStream,
 };
 
@@ -88,9 +88,8 @@ async fn client_receives_current_payload_immediately_on_connect() {
     payload.channels[0].bins[0] = 0.25;
     payload.channels[0].bins[1] = 0.5;
 
-    let initial_display =
-        serde_json::to_string(&payload).expect("failed to serialise initial display payload");
-    let (_display_tx, display_rx) = watch::channel(Utf8Bytes::from(initial_display.clone()));
+    let initial_display = serde_json::to_string(&payload).expect("failed to serialise payload");
+    let (_display_tx, display_rx) = watch::channel(payload);
     let state = Arc::new(AppState::new());
 
     let handle = Server::new(address, false, DEFAULT_MAX_CLIENTS)
@@ -107,9 +106,9 @@ async fn client_receives_current_payload_immediately_on_connect() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn server_sends_close_frame_on_shutdown() {
     let address = free_local_address();
-    let initial_display = serde_json::to_string(&DisplayPayload::new(0))
-        .expect("failed to serialise initial display payload");
-    let (_display_tx, display_rx) = watch::channel(Utf8Bytes::from(initial_display.clone()));
+    let payload = DisplayPayload::new(0);
+    let initial_display = serde_json::to_string(&payload).expect("failed to serialise payload");
+    let (_display_tx, display_rx) = watch::channel(payload);
     let state = Arc::new(AppState::new());
 
     let handle = Server::new(address, false, DEFAULT_MAX_CLIENTS)
@@ -138,9 +137,9 @@ async fn server_sends_close_frame_on_shutdown() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn multiple_clients_receive_close_frames_on_shutdown() {
     let address = free_local_address();
-    let initial_display = serde_json::to_string(&DisplayPayload::new(0))
-        .expect("failed to serialise initial display payload");
-    let (_display_tx, display_rx) = watch::channel(Utf8Bytes::from(initial_display.clone()));
+    let payload = DisplayPayload::new(0);
+    let initial_display = serde_json::to_string(&payload).expect("failed to serialise payload");
+    let (_display_tx, display_rx) = watch::channel(payload);
     let state = Arc::new(AppState::new());
 
     let handle = Server::new(address, false, DEFAULT_MAX_CLIENTS)
@@ -175,9 +174,7 @@ async fn multiple_clients_receive_close_frames_on_shutdown() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn idle_tcp_client_is_closed_after_handshake_timeout() {
     let address = free_local_address();
-    let initial_display = serde_json::to_string(&DisplayPayload::new(0))
-        .expect("failed to serialise initial display payload");
-    let (_display_tx, display_rx) = watch::channel(Utf8Bytes::from(initial_display));
+    let (_display_tx, display_rx) = watch::channel(DisplayPayload::new(0));
     let state = Arc::new(AppState::new());
 
     let handle = Server::new(address, false, DEFAULT_MAX_CLIENTS)
@@ -217,9 +214,7 @@ async fn idle_tcp_client_is_closed_after_handshake_timeout() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn client_with_origin_header_is_rejected_when_flag_set() {
     let address = free_local_address();
-    let initial_display = serde_json::to_string(&DisplayPayload::new(0))
-        .expect("failed to serialise initial display payload");
-    let (_display_tx, display_rx) = watch::channel(Utf8Bytes::from(initial_display));
+    let (_display_tx, display_rx) = watch::channel(DisplayPayload::new(0));
     let state = Arc::new(AppState::new());
 
     let handle = Server::new(address, true, DEFAULT_MAX_CLIENTS)
@@ -263,9 +258,10 @@ async fn client_with_origin_header_is_rejected_when_flag_set() {
 async fn extra_client_is_refused_while_existing_clients_keep_working() {
     let address = free_local_address();
     let max_clients = 2;
-    let initial_display = serde_json::to_string(&DisplayPayload::new(1))
-        .expect("failed to serialise initial display payload");
-    let (display_tx, display_rx) = watch::channel(Utf8Bytes::from(initial_display.clone()));
+    let initial_payload = DisplayPayload::new(1);
+    let initial_display =
+        serde_json::to_string(&initial_payload).expect("failed to serialise payload");
+    let (display_tx, display_rx) = watch::channel(initial_payload);
     let state = Arc::new(AppState::new());
 
     let handle = Server::new(address, false, max_clients)
@@ -308,11 +304,11 @@ async fn extra_client_is_refused_while_existing_clients_keep_working() {
     updated_payload.channels[0].peak = 0.5;
     updated_payload.channels[0].bins[0] = 0.25;
     updated_payload.channels[0].bins[1] = 0.75;
-    let updated_display = serde_json::to_string(&updated_payload)
-        .expect("failed to serialise updated display payload");
+    let updated_display =
+        serde_json::to_string(&updated_payload).expect("failed to serialise payload");
 
     display_tx
-        .send(Utf8Bytes::from(updated_display.clone()))
+        .send(updated_payload)
         .expect("broadcast update should reach connected clients");
 
     for (index, client) in clients.iter_mut().enumerate() {
