@@ -187,18 +187,19 @@ impl Input {
 
     /// Retrieves a concrete handle to the device and its default configuration.
     ///
-    /// Resolution follows a 3-tier fallback sequence:
+    /// Resolution attempts two matching strategies in order:
     /// 1. Exact match: picks the first device whose name matches `name_query` exactly.
     /// 2. Fuzzy match: if no exact match, picks the first device whose name contains
     ///    `name_query` as a case-insensitive substring.
-    /// 3. Default fallback: if no match is found at all, logs a warning and falls
-    ///    back to the system default input device.
+    ///
+    /// If neither strategy matches, an error is returned. There is no fallback to the
+    /// system default input device, as in a professional audio setup it may be a live
+    /// input, and silently capturing it would be unsafe. Device selection must be explicit.
     ///
     /// # Errors
     ///
     /// Returns an error if input devices cannot be enumerated, hardware configuration
-    /// cannot be queried, or no default input device is available when the fallback
-    /// path is taken.
+    /// cannot be queried, or if no device matches `name_query`.
     pub fn get_device(
         &self,
         name_query: &str,
@@ -236,16 +237,12 @@ impl Input {
             return Self::build_device_specs(device);
         }
 
-        // Tier 3: no match found, fall back to the system default.
-        log::warn!("No input device matched \"{name_query}\", falling back to system default");
-        let device = host
-            .default_input_device()
-            .context("No default input device available")?;
-        let name = device
-            .description()
-            .map_or_else(|_| "Unknown Device".to_string(), |d| d.name().to_string());
-        log::info!("Audio device resolved (default fallback): {name}");
-        Self::build_device_specs(device)
+        // No default fallback: in a professional audio setup the system default may be
+        // a live input, so silently capturing it is unsafe. Device selection must be explicit.
+        anyhow::bail!(
+            "No input device matched \"{name_query}\". phase4 will not fall back to the \
+             system default. Run with --list to see available devices."
+        );
     }
 
     /// Queries the default input configuration for `device` and assembles a `Specs` block.
