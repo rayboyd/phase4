@@ -31,7 +31,7 @@ Each frequency bin is sent as a separate OSC message. The address pattern is:
 - `{bin}` is zero-based, ordered from lowest to highest frequency.
 - The argument is a single `f` (32-bit float) in the range `0.0` to `1.0`.
 
-All address strings are pre-built before the send loop to avoid reformatting them on every frame. Each message clones the address string into an owned `String` because the OSC library requires ownership, so one allocation per message is unavoidable.
+All OSC message structures (addresses and argument slots) are built once before the send loop. On each frame, only the float value is updated in place. The encoded bytes are written into a reused buffer, so the send loop performs no heap allocation in steady state.
 
 ## Message Reference
 
