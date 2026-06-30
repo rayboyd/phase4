@@ -135,10 +135,9 @@ impl OscRuntime {
             // the guard before any encoding or I/O work begins.
             {
                 let guard = self.display_rx.borrow_and_update();
-                for ((_ch_idx, ch_packets), channel) in self
+                for (ch_packets, channel) in self
                     .packets
                     .chunks_exact_mut(DISPLAY_BINS)
-                    .enumerate()
                     .zip(guard.channels.iter())
                 {
                     for (packet, &bin_value) in ch_packets.iter_mut().zip(channel.bins.iter()) {

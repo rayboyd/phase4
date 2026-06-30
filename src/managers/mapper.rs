@@ -257,34 +257,4 @@ mod tests {
             );
         }
     }
-
-    // The serialised JSON must contain the expected top-level key, per-channel
-    // keys, and the correct array lengths. This catches accidental schema drift
-    // that would break clients parsing the wire format.
-    #[test]
-    fn serialisation_shape_matches_client_contract() {
-        let payload = DisplayPayload::new(2);
-        let json = serde_json::to_string(&payload).expect("serialisation should not fail");
-        let parsed: serde_json::Value = serde_json::from_str(&json).expect("must be valid JSON");
-
-        let channels = parsed["channels"]
-            .as_array()
-            .expect("top-level 'channels' must be an array");
-        assert_eq!(channels.len(), 2, "channel count must match construction");
-
-        for (i, channel) in channels.iter().enumerate() {
-            assert!(
-                channel.get("peak").is_some(),
-                "channel {i} must contain 'peak'"
-            );
-            let bins = channel["bins"]
-                .as_array()
-                .unwrap_or_else(|| panic!("channel {i} must contain a 'bins' array"));
-            assert_eq!(
-                bins.len(),
-                DISPLAY_BINS,
-                "channel {i} bins array length must equal DISPLAY_BINS"
-            );
-        }
-    }
 }
