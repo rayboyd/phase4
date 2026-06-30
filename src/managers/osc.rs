@@ -5,12 +5,12 @@
 //! argument in the range 0.0..=1.0. The receiver maps these to its own
 //! parameters using its OSC shortcut editor (e.g. Resolume Avenue/Arena).
 //!
-//! All address strings are pre-built before the send loop to avoid reformatting
-//! them on every frame. Each message still clones the address into an owned
-//! `String` because `rosc::OscMessage.addr` requires ownership, so one
-//! allocation per message is unavoidable with this API. The UDP socket is
-//! bound to an ephemeral local port and
-//! connected to the target address so each send is a plain `socket.send(&bytes)`.
+//! Message structures and addresses are pre-built once before the send loop.
+//! Each frame, only the float argument is mutated in place. The UDP socket is
+//! bound to an ephemeral local port and connected to the target address so each
+//! send is a plain `socket.send(&bytes)`. A reusable Vec<u8> scratch buffer is
+//! cleared and reused for each frame's encoding, so the steady-state send loop
+//! performs no heap allocation.
 //!
 //! OSC uses UDP so no connection management, handshake, or backpressure exists.
 //! The sender is a plain OS thread with a minimal single-threaded Tokio runtime,
@@ -60,16 +60,7 @@ impl OscSender {
             .connect(self.target)
             .with_context(|| format!("Failed to connect OSC UDP socket to {}", self.target))?;
 
-        // Pre-build all address strings before the thread starts to avoid
-        // per-frame heap allocation in the send loop.
-        let addrs: Vec<Vec<String>> = (0..channels)
-            .map(|ch| {
-                (0..DISPLAY_BINS)
-                    .map(|bin| format!("/phase4/ch/{ch}/bin/{bin}"))
-                    .collect()
-            })
-            .collect();
-
+        let packets = Self::build_packets(channels);
         let target = self.target;
         let handle = thread::Builder::new()
             .name("osc-sender".into())
@@ -79,56 +70,101 @@ impl OscSender {
                     .enable_all()
                     .build()
                     .expect("failed to build tokio runtime for osc-sender")
-                    .block_on(Self::run(display_rx, socket, addrs, channels, state));
+                    .block_on(
+                        OscRuntime {
+                            display_rx,
+                            socket,
+                            packets,
+                            scratch: Vec::new(),
+                            state,
+                        }
+                        .run(),
+                    );
             })
             .expect("failed to spawn osc-sender thread");
 
         Ok(handle)
     }
 
-    async fn run(
-        mut display_rx: watch::Receiver<DisplayPayload>,
-        socket: UdpSocket,
-        addrs: Vec<Vec<String>>,
-        channels: usize,
-        state: Arc<AppState>,
-    ) {
-        // Pre-allocated display buffer reused every frame to minimise allocations
-        // in the blit path. One String clone per message is still required because
-        // rosc::OscMessage.addr takes ownership.
-        let mut local = DisplayPayload::new(channels);
+    /// Pre-builds the packet table for a given channel count.
+    ///
+    /// Each packet is an `OscMessage` with address and a placeholder float argument.
+    /// The table is flattened into a single Vec indexed by ch * `DISPLAY_BINS` + bin.
+    fn build_packets(channels: usize) -> Vec<OscPacket> {
+        let mut packets = Vec::with_capacity(channels * DISPLAY_BINS);
+        for ch in 0..channels {
+            for bin in 0..DISPLAY_BINS {
+                let addr = format!("/phase4/ch/{ch}/bin/{bin}");
+                packets.push(OscPacket::Message(OscMessage {
+                    addr,
+                    args: vec![OscType::Float(0.0)],
+                }));
+            }
+        }
+        packets
+    }
+}
 
-        while state.keep_running.load(Ordering::Acquire) {
-            if display_rx.changed().await.is_err() {
+/// Runtime state for the OSC sender thread.
+///
+/// Owns the watch receiver, connected UDP socket, pre-built packet table,
+/// reusable encode scratch buffer, and app state. The async run loop
+/// is a method on this struct.
+struct OscRuntime {
+    display_rx: watch::Receiver<DisplayPayload>,
+    socket: UdpSocket,
+    packets: Vec<OscPacket>,
+    scratch: Vec<u8>,
+    state: Arc<AppState>,
+}
+
+impl OscRuntime {
+    /// Main async loop for the OSC sender.
+    ///
+    /// Waits for the display channel to signal a change, reads the payload
+    /// with minimal lock duration, updates each packet's float argument,
+    /// encodes and sends all packets, then loops.
+    async fn run(mut self) {
+        while self.state.keep_running.load(Ordering::Acquire) {
+            if self.display_rx.changed().await.is_err() {
                 log::info!("- Display channel closed, OSC sender exiting");
                 break;
             }
 
-            // Minimise the watch read-lock duration: blit values into the local
-            // buffer and release the guard before any I/O work begins.
+            // Minimise the watch read-lock duration: update packet values and release
+            // the guard before any encoding or I/O work begins.
             {
-                let guard = display_rx.borrow_and_update();
-                for (local_ch, remote_ch) in local.channels.iter_mut().zip(guard.channels.iter()) {
-                    local_ch.peak = remote_ch.peak;
-                    local_ch.bins.copy_from_slice(&remote_ch.bins);
+                let guard = self.display_rx.borrow_and_update();
+                for ((_ch_idx, ch_packets), channel) in self
+                    .packets
+                    .chunks_exact_mut(DISPLAY_BINS)
+                    .enumerate()
+                    .zip(guard.channels.iter())
+                {
+                    for (packet, &bin_value) in ch_packets.iter_mut().zip(channel.bins.iter()) {
+                        if let OscPacket::Message(msg) = packet {
+                            if let Some(OscType::Float(ref mut f)) = msg.args.first_mut() {
+                                *f = bin_value;
+                            }
+                        }
+                    }
                 }
             }
 
-            for (ch_idx, channel) in local.channels.iter().enumerate() {
-                let ch_addrs = &addrs[ch_idx];
-                for (bin_idx, &value) in channel.bins.iter().enumerate() {
-                    let packet = OscPacket::Message(OscMessage {
-                        addr: ch_addrs[bin_idx].clone(),
-                        args: vec![OscType::Float(value)],
-                    });
-                    match rosc::encoder::encode(&packet) {
-                        Ok(bytes) => {
-                            if let Err(e) = socket.send(&bytes) {
-                                log::warn!("OSC send failed for {}: {e}", ch_addrs[bin_idx]);
+            // Encode and send each packet. No allocations occur in this loop.
+            for packet in &self.packets {
+                self.scratch.clear();
+                match rosc::encoder::encode_into(packet, &mut self.scratch) {
+                    Ok(_) => {
+                        if let Err(e) = self.socket.send(&self.scratch) {
+                            if let OscPacket::Message(msg) = packet {
+                                log::warn!("OSC send failed for {}: {e}", msg.addr);
                             }
                         }
-                        Err(e) => {
-                            log::warn!("OSC encode failed for {}: {e}", ch_addrs[bin_idx]);
+                    }
+                    Err(e) => {
+                        if let OscPacket::Message(msg) = packet {
+                            log::warn!("OSC encode failed for {}: {e}", msg.addr);
                         }
                     }
                 }
@@ -140,7 +176,39 @@ impl OscSender {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rosc::encoder;
+
+    // Pre-built packet table must have the right shape and structure.
+    #[test]
+    fn pre_built_address_table_has_correct_shape() {
+        let channels = 2;
+        let packets = OscSender::build_packets(channels);
+
+        assert_eq!(
+            packets.len(),
+            channels * DISPLAY_BINS,
+            "packet table length must be channels * DISPLAY_BINS"
+        );
+
+        // Check a specific index mapping.
+        let ch_0_bin_0_idx = 0;
+        let ch_1_bin_5_idx = DISPLAY_BINS + 5;
+
+        if let OscPacket::Message(msg) = &packets[ch_0_bin_0_idx] {
+            assert_eq!(msg.addr, "/phase4/ch/0/bin/0");
+            assert_eq!(msg.args.len(), 1);
+            assert!(matches!(msg.args[0], OscType::Float(_)));
+        } else {
+            panic!("packet at [{ch_0_bin_0_idx}] must be an OscMessage");
+        }
+
+        if let OscPacket::Message(msg) = &packets[ch_1_bin_5_idx] {
+            assert_eq!(msg.addr, "/phase4/ch/1/bin/5");
+            assert_eq!(msg.args.len(), 1);
+            assert!(matches!(msg.args[0], OscType::Float(_)));
+        } else {
+            panic!("packet at [{ch_1_bin_5_idx}] must be an OscMessage");
+        }
+    }
 
     // Address strings must follow the /phase4/ch/{n}/bin/{n} scheme exactly.
     #[test]
@@ -155,37 +223,34 @@ mod tests {
         );
     }
 
-    // Pre-built address table must have the right shape and values.
+    // Encoding a float OSC message with encode_into must succeed and produce
+    // non-empty bytes. The scratch buffer must be cleared before each encode.
     #[test]
-    fn pre_built_address_table_has_correct_shape() {
-        let channels = 2;
-        let addrs: Vec<Vec<String>> = (0..channels)
-            .map(|ch| {
-                (0..DISPLAY_BINS)
-                    .map(|bin| format!("/phase4/ch/{ch}/bin/{bin}"))
-                    .collect()
-            })
-            .collect();
-
-        assert_eq!(addrs.len(), channels);
-        assert_eq!(addrs[0].len(), DISPLAY_BINS);
-        assert_eq!(addrs[0][0], "/phase4/ch/0/bin/0");
-        assert_eq!(
-            addrs[1][DISPLAY_BINS - 1],
-            format!("/phase4/ch/1/bin/{}", DISPLAY_BINS - 1)
-        );
-    }
-
-    // Encoding a float OSC message must succeed and produce non-empty bytes.
-    #[test]
-    fn osc_float_encodes_without_error() {
+    fn osc_float_encodes_with_encode_into() {
         let packet = OscPacket::Message(OscMessage {
             addr: "/phase4/ch/0/bin/0".to_string(),
             args: vec![OscType::Float(0.5_f32)],
         });
-        let bytes = encoder::encode(&packet).expect("encode must succeed");
-        assert!(!bytes.is_empty(), "encoded packet must not be empty");
-        assert_eq!(bytes[0], b'/', "OSC address must begin with '/'");
+
+        let mut scratch = Vec::new();
+        scratch.clear();
+        let result = rosc::encoder::encode_into(&packet, &mut scratch);
+        assert!(result.is_ok(), "encode_into must succeed");
+        assert!(!scratch.is_empty(), "encoded packet must not be empty");
+        assert_eq!(scratch[0], b'/', "OSC address must begin with '/'");
+
+        // Second encode into the same cleared buffer.
+        scratch.clear();
+        let packet2 = OscPacket::Message(OscMessage {
+            addr: "/phase4/ch/1/bin/10".to_string(),
+            args: vec![OscType::Float(0.75_f32)],
+        });
+        let result2 = rosc::encoder::encode_into(&packet2, &mut scratch);
+        assert!(result2.is_ok(), "second encode_into must succeed");
+        assert!(
+            !scratch.is_empty(),
+            "second encoded packet must not be empty"
+        );
     }
 
     // The float value 0.0 and 1.0 (the range bounds) must encode cleanly.
@@ -196,9 +261,10 @@ mod tests {
                 addr: "/phase4/ch/0/bin/0".to_string(),
                 args: vec![OscType::Float(value)],
             });
+            let mut scratch = Vec::new();
             assert!(
-                encoder::encode(&packet).is_ok(),
-                "encode must succeed for value {value}"
+                rosc::encoder::encode_into(&packet, &mut scratch).is_ok(),
+                "encode_into must succeed for value {value}"
             );
         }
     }
