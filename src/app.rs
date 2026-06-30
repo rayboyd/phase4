@@ -24,7 +24,6 @@ use std::sync::{
     Arc,
 };
 use tokio::sync::watch;
-use tokio_tungstenite::tungstenite::Utf8Bytes;
 
 /// Safety buffer for the analyse ringbuf, headroom for analysis accumulation.
 const ANALYSE_BUFFER_MS: u32 = 500;
@@ -79,8 +78,7 @@ impl App {
     ///
     /// # Panics
     ///
-    /// Panics if the initial display payload cannot be serialised to JSON.
-    /// This is a programmer error and should never occur in practice.
+    /// Panics if worker thread startup fails internally.
     pub fn new(config: AppConfig) -> Result<Self> {
         let state = Arc::new(AppState::new());
         let stream_state = Arc::clone(&state);
@@ -123,18 +121,7 @@ impl App {
 
         let display_channels = analyser_specs.channels as usize;
         let (raw_tx, raw_rx) = watch::channel(RawPayload::new(display_channels, VOCODER_BANDS));
-
-        let initial_display = serde_json::to_string(&DisplayPayload::new(display_channels))
-            .expect("failed to serialise initial display payload");
-        let (display_tx, display_rx) = watch::channel(Utf8Bytes::from(initial_display));
-
-        // OSC typed channel, only allocated when an OSC target address is configured.
-        let (osc_tx, osc_display_rx) = if config.osc_addr.is_some() {
-            let (tx, rx) = watch::channel(DisplayPayload::new(display_channels));
-            (Some(tx), Some(rx))
-        } else {
-            (None, None)
-        };
+        let (display_tx, display_rx) = watch::channel(DisplayPayload::new(display_channels));
 
         // Spawn Producers. Hardware or a Generator is spawned.
         let mut generator_thread = None;
@@ -168,19 +155,18 @@ impl App {
         let mapper_thread = Some(Mapper::spawn(
             raw_rx,
             display_tx,
-            osc_tx,
             display_channels,
             mapper_state,
             config.broadcast_rate,
         ));
 
         let server = Server::new(config.addr, config.no_browser_origin, config.max_clients);
-        let server_thread = Some(server.spawn(display_rx, server_state)?);
+        let server_thread = Some(server.spawn(display_rx.clone(), server_state)?);
 
         // Spawn the OSC sender when a target address is configured.
-        let osc_sender_thread = if let (Some(addr), Some(rx)) = (config.osc_addr, osc_display_rx) {
+        let osc_sender_thread = if let Some(addr) = config.osc_addr {
             let sender = OscSender::new(addr);
-            Some(sender.spawn(rx, display_channels, osc_state)?)
+            Some(sender.spawn(display_rx, display_channels, osc_state)?)
         } else {
             None
         };

@@ -12,13 +12,15 @@ use std::sync::{atomic::Ordering, Arc};
 use std::time::Duration;
 use tokio::sync::watch;
 use tokio::time::sleep;
-use tokio_tungstenite::tungstenite::Utf8Bytes;
 
-/// Build the initial display JSON and watch channel pair used by all tests.
-fn display_channel(channels: usize) -> (watch::Sender<Utf8Bytes>, watch::Receiver<Utf8Bytes>) {
-    let initial = serde_json::to_string(&DisplayPayload::new(channels))
-        .expect("failed to serialise initial display payload");
-    watch::channel(Utf8Bytes::from(initial))
+/// Build the initial typed display watch channel pair used by all tests.
+fn display_channel(
+    channels: usize,
+) -> (
+    watch::Sender<DisplayPayload>,
+    watch::Receiver<DisplayPayload>,
+) {
+    watch::channel(DisplayPayload::new(channels))
 }
 
 /// Send a raw frame with a unique peak value so each frame is distinguishable.
@@ -37,7 +39,7 @@ fn send_frame(raw_tx: &watch::Sender<RawPayload>, channels: usize, peak: f32) {
 /// multiple `send_replace` calls. This function counts the number of
 /// successful `changed()` returns before the deadline expires.
 async fn drain_display_updates(
-    display_rx: &mut watch::Receiver<Utf8Bytes>,
+    display_rx: &mut watch::Receiver<DisplayPayload>,
     deadline: Duration,
 ) -> usize {
     let mut count = 0usize;
@@ -60,7 +62,7 @@ async fn unlimited_rate_forwards_every_frame() {
     let (display_tx, mut display_rx) = display_channel(channels);
     let state = Arc::new(AppState::new());
 
-    let handle = Mapper::spawn(raw_rx, display_tx, None, channels, state.clone(), None);
+    let handle = Mapper::spawn(raw_rx, display_tx, channels, state.clone(), None);
 
     // Allow the mapper thread to start and block on raw_rx.changed().
     sleep(Duration::from_millis(50)).await;
@@ -97,7 +99,7 @@ async fn first_frame_is_broadcast_immediately() {
 
     // A very low rate (2 Hz, 500 ms interval) to prove the first frame does
     // not wait for the interval to elapse.
-    let handle = Mapper::spawn(raw_rx, display_tx, None, channels, state.clone(), Some(2.0));
+    let handle = Mapper::spawn(raw_rx, display_tx, channels, state.clone(), Some(2.0));
 
     sleep(Duration::from_millis(50)).await;
     send_frame(&raw_tx, channels, 0.42);
@@ -127,7 +129,7 @@ async fn throttle_suppresses_intermediate_frames() {
     let state = Arc::new(AppState::new());
 
     // 5 Hz means one broadcast per 200 ms.
-    let handle = Mapper::spawn(raw_rx, display_tx, None, channels, state.clone(), Some(5.0));
+    let handle = Mapper::spawn(raw_rx, display_tx, channels, state.clone(), Some(5.0));
 
     sleep(Duration::from_millis(50)).await;
 

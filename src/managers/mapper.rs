@@ -1,18 +1,15 @@
 //! [`Mapper`] sits between the [`crate::managers::analyser`] and the front-end
 //! [`crate::managers::server`] and [`crate::managers::osc`]. It receives the raw
 //! vocoder envelope bins and maps them to a [`DISPLAY_BINS`]-bin representation
-//! for WebSocket broadcast and optional OSC output.
+//! for display broadcast.
 //!
 //! When the raw bin count exceeds [`DISPLAY_BINS`] the mapper averages adjacent
 //! bins (downsampling). When it is lower the mapper spreads each raw bin across
 //! multiple display slots (upsampling). An exact match is a direct copy.
 //!
-//! JSON serialisation happens here, once per frame, so the server tasks become
-//! pure I/O forwarders. The watch channel carries a [`Utf8Bytes`] containing
-//! the pre-serialised JSON rather than the typed payload.
-//!
-//! When `osc_tx` is provided the mapper also publishes a typed [`DisplayPayload`]
-//! clone to the OSC sender on the same rate-limit gate as the WebSocket broadcast.
+//! The mapper publishes a typed [`DisplayPayload`] over one watch channel.
+//! Downstream transports subscribe to this channel and apply their own wire
+//! encoding where appropriate.
 
 use crate::app::AppState;
 use crate::dsp::{DisplayChannelLevel, DisplayPayload, RawChannelLevel, RawPayload, DISPLAY_BINS};
@@ -21,7 +18,6 @@ use std::sync::{atomic::Ordering, Arc};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 use tokio::sync::watch;
-use tokio_tungstenite::tungstenite::Utf8Bytes;
 
 pub struct Mapper;
 
@@ -34,8 +30,7 @@ impl Mapper {
     /// Tokio runtime cannot be built.
     pub fn spawn(
         raw_rx: watch::Receiver<RawPayload>,
-        display_tx: watch::Sender<Utf8Bytes>,
-        osc_tx: Option<watch::Sender<DisplayPayload>>,
+        display_tx: watch::Sender<DisplayPayload>,
         channels: usize,
         state: Arc<AppState>,
         broadcast_rate: Option<f32>,
@@ -54,7 +49,6 @@ impl Mapper {
                     .block_on(Self::run(
                         raw_rx,
                         display_tx,
-                        osc_tx,
                         channels,
                         state,
                         broadcast_interval,
@@ -65,8 +59,7 @@ impl Mapper {
 
     async fn run(
         mut raw_rx: watch::Receiver<RawPayload>,
-        display_tx: watch::Sender<Utf8Bytes>,
-        osc_tx: Option<watch::Sender<DisplayPayload>>,
+        display_tx: watch::Sender<DisplayPayload>,
         channels: usize,
         state: Arc<AppState>,
         broadcast_interval: Option<Duration>,
@@ -107,20 +100,9 @@ impl Mapper {
                 }
             }
 
-            // Serialise once per frame. Every connected client receives a cheap
-            // Utf8Bytes::clone rather than re-serialising or re-allocating independently.
-            match serde_json::to_string(&display_data) {
-                Ok(json) => {
-                    display_tx.send_replace(Utf8Bytes::from(json));
-                    if let Some(ref tx) = osc_tx {
-                        tx.send_replace(display_data.clone());
-                    }
-                    last_broadcast = Some(Instant::now());
-                }
-                Err(e) => {
-                    log::error!("Failed to serialise display payload: {e}");
-                }
-            }
+            let payload = std::mem::take(&mut display_data);
+            display_data = display_tx.send_replace(payload);
+            last_broadcast = Some(Instant::now());
         }
     }
 }

@@ -3,12 +3,13 @@
 //! runtime, accepted TCP connections are upgraded to WebSocket sessions via
 //! [`tokio_tungstenite`] and each client is handled in its own Tokio task.
 //!
-//! Each task subscribes to a [`tokio::sync::watch`] channel carrying
-//! pre-serialised JSON as a [`Utf8Bytes`]. Serialisation is performed once per
-//! frame by the mapper thread, so the server tasks are pure I/O forwarders.
+//! A dedicated serialiser task subscribes to a typed
+//! [`tokio::sync::watch`] channel of [`crate::dsp::DisplayPayload`],
+//! serialises once per frame into [`Utf8Bytes`], and publishes to a private
+//! watch channel that all client tasks subscribe to.
 //!
 //! Connected clients receive the current payload immediately after handshake,
-//! then subsequent updates as the mapper publishes them.  Connected clients
+//! then subsequent updates as the mapper publishes them. Connected clients
 //! receive an RFC 6455 close frame on graceful shutdown.
 //!
 //! When `no_browser_origin` is set, the server rejects handshakes that carry
@@ -17,6 +18,7 @@
 //! authentication mechanism.
 
 use crate::app::AppState;
+use crate::dsp::DisplayPayload;
 use anyhow::{Context, Result};
 use futures_util::SinkExt;
 use std::net::SocketAddr;
@@ -107,7 +109,7 @@ impl Server {
     /// Tokio runtime cannot be built.
     pub fn spawn(
         self,
-        watch_rx: watch::Receiver<Utf8Bytes>,
+        display_rx: watch::Receiver<DisplayPayload>,
         state: Arc<AppState>,
     ) -> Result<JoinHandle<()>> {
         // Bind eagerly so a port-in-use error is returned to the caller as a
@@ -132,7 +134,7 @@ impl Server {
                     .block_on(Self::run(
                         std_listener,
                         addr,
-                        watch_rx,
+                        display_rx,
                         state,
                         no_browser_origin,
                         max_clients,
@@ -146,7 +148,7 @@ impl Server {
     async fn run(
         std_listener: std::net::TcpListener,
         addr: SocketAddr,
-        watch_rx: watch::Receiver<Utf8Bytes>,
+        mut display_rx: watch::Receiver<DisplayPayload>,
         state: Arc<AppState>,
         no_browser_origin: bool,
         max_clients: usize,
@@ -160,6 +162,38 @@ impl Server {
         let shutdown_notify = Arc::new(Notify::new());
         let client_slots = Arc::new(Semaphore::new(max_clients));
         let mut join_set: JoinSet<()> = JoinSet::new();
+
+        // One task owns JSON serialisation and fan-out to connected clients.
+        let (serialised_tx, serialised_rx) = watch::channel(Utf8Bytes::from("{}".to_owned()));
+        let (ready_tx, ready_rx) = tokio::sync::oneshot::channel::<()>();
+        join_set.spawn(async move {
+            let mut first_frame_sent = false;
+            let mut ready_tx = Some(ready_tx);
+            loop {
+                let payload = display_rx.borrow_and_update().clone();
+                match serde_json::to_string(&payload) {
+                    Ok(json) => {
+                        serialised_tx.send_replace(Utf8Bytes::from(json));
+                    }
+                    Err(error) => {
+                        log::error!("Failed to serialise display payload: {error}");
+                    }
+                }
+
+                if !first_frame_sent {
+                    first_frame_sent = true;
+                    if let Some(tx) = ready_tx.take() {
+                        let _ = tx.send(());
+                    }
+                }
+
+                if display_rx.changed().await.is_err() {
+                    break;
+                }
+            }
+        });
+
+        let _ = ready_rx.await;
 
         loop {
             if !state.keep_running.load(Ordering::Acquire) {
@@ -184,7 +218,7 @@ impl Server {
                     join_set.spawn(Self::handle_client(
                         stream,
                         client_addr,
-                        watch_rx.clone(),
+                        serialised_rx.clone(),
                         shutdown_notify.clone(),
                         client_slot,
                         no_browser_origin,
