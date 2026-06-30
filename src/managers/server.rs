@@ -170,8 +170,9 @@ impl Server {
             let mut first_frame_sent = false;
             let mut ready_tx = Some(ready_tx);
             loop {
-                let payload = display_rx.borrow_and_update().clone();
-                match serde_json::to_string(&payload) {
+                // Avoid a per-frame DisplayPayload clone, the serialised output still needs
+                // a fresh owned buffer per frame for fan-out to client tasks.
+                match serde_json::to_string(&*display_rx.borrow_and_update()) {
                     Ok(json) => {
                         serialised_tx.send_replace(Utf8Bytes::from(json));
                     }
