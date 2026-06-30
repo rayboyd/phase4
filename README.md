@@ -29,16 +29,7 @@ List available input devices to find your device index and confirm 32-bit Float 
 
 Core Audio, the macOS audio subsystem, works internally with 32-bit Float and typically presents devices (including the built-in microphone) as F32 to applications. So running `./phase4 --list` on a MacBook will almost certainly show the built-in mic as F32-capable.
 
-The output from my **MacBook Pro M4** is as follows.
-
-```
-> [INFO] [0] Test Soundcard One (16000Hz, 1ch, I16) * No hardware support (32-bit required)
-> [INFO] [1] Duet 3 (48000Hz, 2ch, F32)
-> [INFO] [2] MacBook Pro Microphone (48000Hz, 1ch, F32)
-> [INFO] [3] Microsoft Teams Audio (48000Hz, 2ch, F32)
-```
-
-_If a device is not supported, you'll see **No hardware support (32-bit required)** in the terminal output._
+If a device is not supported, you'll see **No hardware support (32-bit required)** in the terminal output.
 
 ### Serve
 
@@ -48,7 +39,7 @@ Launch Phase4 using your device name (e.g., Duet 3).
 ./phase4 --device "Duet 3"
 ```
 
-Press `T` to toggle the engine active. No harm done if you forget, but you will not get any data.
+Press `T` to toggle the engines active state.
 
 ```
 > [INFO] 'T' to toggle engine, Ctrl+C to exit
@@ -75,7 +66,7 @@ See [docs/tutorials/osc.md](docs/tutorials/osc.md) for the full address referenc
 
 ## Configuration file
 
-Instead of passing flags on every invocation you can place a `config.yaml` file in the same directory as the binary. Phase4 reads it at startup and applies a three-tier priority rule: CLI flags override file values, file values override hardcoded defaults. Any key may be omitted; absent keys inherit the default.
+Instead of passing flags on every invocation you can place a `config.yaml` file in the same directory as the binary. Phase4 reads it at startup and applies a three-tier priority rule. CLI flags override file values, file values override hardcoded defaults. Any key may be omitted, and absent keys inherit the default.
 
 Copy the bundled example as a starting point.
 
