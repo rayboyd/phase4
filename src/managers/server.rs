@@ -164,12 +164,20 @@ impl Server {
         let mut join_set: JoinSet<()> = JoinSet::new();
 
         // One task owns JSON serialisation and fan-out to connected clients.
-        let (serialised_tx, serialised_rx) = watch::channel(Utf8Bytes::from("{}".to_owned()));
-        let (ready_tx, ready_rx) = tokio::sync::oneshot::channel::<()>();
+        let initial_serialised = match serde_json::to_string(&*display_rx.borrow()) {
+            Ok(json) => Utf8Bytes::from(json),
+            Err(error) => {
+                log::error!("Failed to serialise initial display payload: {error}");
+                Utf8Bytes::from("{}".to_owned())
+            }
+        };
+        let (serialised_tx, serialised_rx) = watch::channel(initial_serialised);
         join_set.spawn(async move {
-            let mut first_frame_sent = false;
-            let mut ready_tx = Some(ready_tx);
             loop {
+                if display_rx.changed().await.is_err() {
+                    break;
+                }
+
                 // Avoid a per-frame DisplayPayload clone, the serialised output still needs
                 // a fresh owned buffer per frame for fan-out to client tasks.
                 match serde_json::to_string(&*display_rx.borrow_and_update()) {
@@ -180,21 +188,8 @@ impl Server {
                         log::error!("Failed to serialise display payload: {error}");
                     }
                 }
-
-                if !first_frame_sent {
-                    first_frame_sent = true;
-                    if let Some(tx) = ready_tx.take() {
-                        let _ = tx.send(());
-                    }
-                }
-
-                if display_rx.changed().await.is_err() {
-                    break;
-                }
             }
         });
-
-        let _ = ready_rx.await;
 
         loop {
             if !state.keep_running.load(Ordering::Acquire) {
