@@ -22,7 +22,7 @@ use anyhow::{Context, Result};
 use rosc::{OscMessage, OscPacket, OscType};
 use std::net::{SocketAddr, UdpSocket};
 use std::sync::{atomic::Ordering, Arc};
-use std::thread::{self, JoinHandle};
+use std::thread::JoinHandle;
 use tokio::sync::watch;
 
 pub struct OscSender {
@@ -62,26 +62,18 @@ impl OscSender {
 
         let packets = Self::build_packets(channels);
         let target = self.target;
-        let handle = thread::Builder::new()
-            .name("osc-sender".into())
-            .spawn(move || {
-                log::info!("OSC sender transmitting to udp://{target}");
-                tokio::runtime::Builder::new_current_thread()
-                    .enable_all()
-                    .build()
-                    .expect("failed to build tokio runtime for osc-sender")
-                    .block_on(
-                        OscRuntime {
-                            display_rx,
-                            socket,
-                            packets,
-                            scratch: Vec::new(),
-                            state,
-                        }
-                        .run(),
-                    );
-            })
-            .expect("failed to spawn osc-sender thread");
+        let handle = super::spawn_async_worker("osc-sender", async move {
+            log::info!("OSC sender transmitting to udp://{target}");
+            OscRuntime {
+                display_rx,
+                socket,
+                packets,
+                scratch: Vec::new(),
+                state,
+            }
+            .run()
+            .await;
+        });
 
         Ok(handle)
     }

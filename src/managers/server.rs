@@ -23,7 +23,7 @@ use anyhow::{Context, Result};
 use futures_util::SinkExt;
 use std::net::SocketAddr;
 use std::sync::{atomic::Ordering, Arc};
-use std::thread::{self, JoinHandle};
+use std::thread::JoinHandle;
 use std::time::Duration;
 use tokio::sync::{watch, Notify, OwnedSemaphorePermit, Semaphore};
 use tokio::task::JoinSet;
@@ -123,24 +123,17 @@ impl Server {
         let addr = self.address;
         let no_browser_origin = self.no_browser_origin;
         let max_clients = self.max_clients;
-        let handle = thread::Builder::new()
-            .name("websocket-server".into())
-            .spawn(move || {
-                // Build the async runtime inside this dedicated OS thread.
-                tokio::runtime::Builder::new_current_thread()
-                    .enable_all()
-                    .build()
-                    .expect("failed to build tokio runtime")
-                    .block_on(Self::run(
-                        std_listener,
-                        addr,
-                        display_rx,
-                        state,
-                        no_browser_origin,
-                        max_clients,
-                    ));
-            })
-            .expect("failed to spawn server thread");
+        let handle = super::spawn_async_worker(
+            "websocket-server",
+            Self::run(
+                std_listener,
+                addr,
+                display_rx,
+                state,
+                no_browser_origin,
+                max_clients,
+            ),
+        );
 
         Ok(handle)
     }
