@@ -1,3 +1,4 @@
+use anyhow::Result;
 use clap::Parser;
 use phase4::app::App;
 use phase4::config::AppConfig;
@@ -5,7 +6,7 @@ use phase4::managers::audio::Input;
 use phase4::Args;
 use std::io::Write;
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn main() -> Result<()> {
     // Defaults to "info" level, can be overridden via RUST_LOG env var. Init logging
     // so it will play nice with terminal raw mode when app interactive mode is enabled.
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
