@@ -78,6 +78,32 @@ impl Drop for Controller {
     }
 }
 
+/// Restores the terminal to cooperative mode and logs the panic message.
+///
+/// Called from the installed panic hook before the process aborts. Terminal
+/// restoration is best effort, since `disable_raw_mode` can itself fail if the
+/// terminal is already gone, and that failure is deliberately swallowed here.
+fn handle_panic(message: &str) {
+    let _ = disable_raw_mode();
+    log::error!("{message}");
+}
+
+/// Installs a process-wide panic hook that restores the terminal before the
+/// process aborts.
+///
+/// With `panic = "abort"` set in the release profile, `Drop` implementations
+/// do not run on panic, so `Controller`'s `Drop` impl never fires on this
+/// path. This hook is the only opportunity to leave the terminal in a
+/// cooperative state before the process terminates. The previous hook, which
+/// prints the panic message and backtrace, is preserved and still runs.
+pub fn install_panic_hook() {
+    let previous_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        handle_panic(&info.to_string());
+        previous_hook(info);
+    }));
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -145,5 +171,24 @@ mod tests {
 
         // The keep_running flag should now be false.
         assert!(!state.keep_running.load(Ordering::Acquire));
+    }
+
+    #[test]
+    fn handle_panic_logs_the_panic_message() {
+        testing_logger::setup();
+
+        handle_panic("deliberate test panic message");
+
+        testing_logger::validate(|captured_logs| {
+            assert_eq!(captured_logs.len(), 1, "expected exactly one log entry");
+            assert_eq!(captured_logs[0].level, log::Level::Error);
+            assert!(
+                captured_logs[0]
+                    .body
+                    .contains("deliberate test panic message"),
+                "log body should include the panic message, got: {}",
+                captured_logs[0].body
+            );
+        });
     }
 }

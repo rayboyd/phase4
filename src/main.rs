@@ -15,6 +15,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         })
         .init();
 
+    phase4::controller::install_panic_hook();
+
     let args = Args::parse();
     if args.input.list {
         Input::list_devices()?;
