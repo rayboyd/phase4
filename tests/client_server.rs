@@ -135,6 +135,32 @@ async fn server_sends_close_frame_on_shutdown() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn shutdown_completes_well_under_the_old_accept_timeout() {
+    let address = free_local_address();
+    let (display_tx, display_rx) = watch::channel(DisplayPayload::new(0));
+    let state = Arc::new(AppState::new());
+
+    let handle = Server::new(address, false, DEFAULT_MAX_CLIENTS)
+        .spawn(display_rx, state.clone())
+        .unwrap();
+
+    // Let the server thread finish starting and enter its accept loop.
+    sleep(Duration::from_millis(50)).await;
+
+    drop(display_tx);
+
+    let start = std::time::Instant::now();
+    state.keep_running.store(false, Ordering::Release);
+    join_server_bounded(handle).await;
+    let elapsed = start.elapsed();
+
+    assert!(
+        elapsed < Duration::from_millis(300),
+        "shutdown took {elapsed:?}, expected well under 300ms with a 100ms accept timeout, this likely means ACCEPT_TIMEOUT_MS has regressed back towards its old 500ms value"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn multiple_clients_receive_close_frames_on_shutdown() {
     let address = free_local_address();
     let payload = DisplayPayload::new(0);

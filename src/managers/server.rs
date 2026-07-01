@@ -33,7 +33,9 @@ use tokio_tungstenite::tungstenite::{
 };
 
 /// How long the TCP listener blocks before yielding to check the `keep_running` flag.
-const ACCEPT_TIMEOUT_MS: u64 = 500;
+/// Matches `Controller::POLL_RATE_MS`, the app's existing threshold for "responsive
+/// enough to feel instant, cheap enough to poll continuously".
+const ACCEPT_TIMEOUT_MS: u64 = 100;
 
 /// How long a newly accepted TCP client has to complete the WebSocket handshake.
 const HANDSHAKE_TIMEOUT_MS: u64 = 1_000;
