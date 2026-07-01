@@ -2,6 +2,24 @@
 
 All notable changes to Phase4 will be documented in this file.
 
+## Unreleased
+
+[b12fd5b](https://github.com/rayboyd/phase4/compare/b12fd5bd5a75d44e86ca2f22fa00e910de2d4483...77c1b52851ca263b1392f05bee2848fca1b18656)
+
+### Bug Fixes
+
+- Restore terminal on panic before process abort ([71635f0](https://github.com/rayboyd/phase4/commit/71635f088eb5bd5c5448c5cfb6d6f9d492533c7f))
+
+### Performance
+
+- Reduce ACCEPT_TIMEOUT_MS to match Controller::POLL_RATE_MS ([7817880](https://github.com/rayboyd/phase4/commit/7817880de336c08a7dc911e7f65a5b2e94c0d313))
+
+### Refactor
+
+- Extract spawn_async_worker helper for tokio worker threads ([1873b7f](https://github.com/rayboyd/phase4/commit/1873b7fb26f6a6dd8a1ab672133ae687350bc6aa))
+- Structure AppConfigError variants instead of carrying strings ([0f24d52](https://github.com/rayboyd/phase4/commit/0f24d52d67917ef6e91efc8c6a7893dd6488b4ff))
+- Standardise main() on anyhow::Result ([8db9382](https://github.com/rayboyd/phase4/commit/8db93821a45f674d7445c2017f27f9621b6e0352))
+
 ## 0.0.3
 
 ### Bug Fixes
