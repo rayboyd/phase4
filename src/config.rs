@@ -50,14 +50,34 @@ pub enum AppConfigError {
     #[error("WebSocket server bind address must be loopback, got {0}")]
     NonLoopbackBindAddress(SocketAddr),
 
-    #[error("Invalid vocoder configuration: {0}")]
-    InvalidVocoderConfig(&'static str),
+    #[error("Invalid vocoder configuration: attack time must be a finite value greater than 0 ms, got {value}")]
+    InvalidAttackTime { value: f32 },
 
-    #[error("Invalid broadcast rate: {0}")]
-    InvalidBroadcastRate(&'static str),
+    #[error("Invalid vocoder configuration: release time must be a finite value greater than 0 ms, got {value}")]
+    InvalidReleaseTime { value: f32 },
 
-    #[error("Invalid max clients: {0}")]
-    InvalidMaxClients(&'static str),
+    #[error("Invalid vocoder configuration: low frequency must be greater than 0 Hz, got {value}")]
+    InvalidFreqLow { value: f32 },
+
+    #[error(
+        "Invalid vocoder configuration: high frequency must be greater than 0 Hz, got {value}"
+    )]
+    InvalidFreqHigh { value: f32 },
+
+    #[error(
+        "Invalid vocoder configuration: high frequency ({freq_high}Hz) must be \
+        greater than low frequency ({freq_low}Hz)"
+    )]
+    InvalidFreqRange { freq_low: f32, freq_high: f32 },
+
+    #[error("Invalid vocoder configuration: filter Q must be greater than 0, got {value}")]
+    InvalidFilterQ { value: f32 },
+
+    #[error("Invalid broadcast rate: must be a finite value greater than 0 Hz, got {value}")]
+    InvalidBroadcastRate { value: f32 },
+
+    #[error("Invalid max clients: must be greater than 0")]
+    InvalidMaxClients,
 
     #[error("Channel selection must not be empty")]
     EmptyChannelSelection,
@@ -302,15 +322,13 @@ fn resolve_config(args: &Args, file: FileConfig) -> Result<AppConfig, AppConfigE
     validate_vocoder_fields(attack_ms, release_ms, freq_low, freq_high, filter_q)?;
 
     if !is_strictly_positive(broadcast_rate) {
-        return Err(AppConfigError::InvalidBroadcastRate(
-            "broadcast rate must be a finite value greater than 0 Hz",
-        ));
+        return Err(AppConfigError::InvalidBroadcastRate {
+            value: broadcast_rate,
+        });
     }
 
     if max_clients == 0 {
-        return Err(AppConfigError::InvalidMaxClients(
-            "max clients must be greater than 0",
-        ));
+        return Err(AppConfigError::InvalidMaxClients);
     }
 
     Ok(AppConfig {
@@ -372,39 +390,30 @@ fn validate_vocoder_fields(
     filter_q: f32,
 ) -> Result<(), AppConfigError> {
     if !is_strictly_positive(attack_ms) {
-        return Err(AppConfigError::InvalidVocoderConfig(
-            "attack time must be a finite value greater than 0 ms",
-        ));
+        return Err(AppConfigError::InvalidAttackTime { value: attack_ms });
     }
 
     if !is_strictly_positive(release_ms) {
-        return Err(AppConfigError::InvalidVocoderConfig(
-            "release time must be a finite value greater than 0 ms",
-        ));
+        return Err(AppConfigError::InvalidReleaseTime { value: release_ms });
     }
 
     if !is_strictly_positive(freq_low) {
-        return Err(AppConfigError::InvalidVocoderConfig(
-            "low frequency must be greater than 0 Hz",
-        ));
+        return Err(AppConfigError::InvalidFreqLow { value: freq_low });
     }
 
     if !is_strictly_positive(freq_high) {
-        return Err(AppConfigError::InvalidVocoderConfig(
-            "high frequency must be greater than 0 Hz",
-        ));
+        return Err(AppConfigError::InvalidFreqHigh { value: freq_high });
     }
 
     if freq_low >= freq_high {
-        return Err(AppConfigError::InvalidVocoderConfig(
-            "high frequency must be greater than low frequency",
-        ));
+        return Err(AppConfigError::InvalidFreqRange {
+            freq_low,
+            freq_high,
+        });
     }
 
     if !is_strictly_positive(filter_q) {
-        return Err(AppConfigError::InvalidVocoderConfig(
-            "filter Q must be greater than 0",
-        ));
+        return Err(AppConfigError::InvalidFilterQ { value: filter_q });
     }
 
     Ok(())
@@ -666,7 +675,7 @@ mod tests {
         let result = AppConfig::try_from(&args);
 
         assert!(
-            matches!(result, Err(AppConfigError::InvalidMaxClients(_))),
+            matches!(result, Err(AppConfigError::InvalidMaxClients)),
             "zero max clients should be rejected"
         );
     }
@@ -680,7 +689,7 @@ mod tests {
         let result = AppConfig::try_from(&args);
 
         assert!(
-            matches!(result, Err(AppConfigError::InvalidBroadcastRate(_))),
+            matches!(result, Err(AppConfigError::InvalidBroadcastRate { .. })),
             "zero broadcast rate should be rejected"
         );
     }
@@ -694,7 +703,7 @@ mod tests {
         let result = AppConfig::try_from(&args);
 
         assert!(
-            matches!(result, Err(AppConfigError::InvalidBroadcastRate(_))),
+            matches!(result, Err(AppConfigError::InvalidBroadcastRate { .. })),
             "negative broadcast rates should be rejected"
         );
     }
@@ -708,7 +717,7 @@ mod tests {
         let result = AppConfig::try_from(&args);
 
         assert!(
-            matches!(result, Err(AppConfigError::InvalidBroadcastRate(_))),
+            matches!(result, Err(AppConfigError::InvalidBroadcastRate { .. })),
             "non-finite broadcast rates should be rejected"
         );
     }
@@ -903,7 +912,7 @@ mod tests {
 
         let result = resolve_config(&args, file);
         assert!(
-            matches!(result, Err(AppConfigError::InvalidMaxClients(_))),
+            matches!(result, Err(AppConfigError::InvalidMaxClients)),
             "zero max clients from file config should be rejected"
         );
     }
