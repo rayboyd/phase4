@@ -15,7 +15,7 @@ use crate::app::AppState;
 use crate::dsp::{DisplayChannelLevel, DisplayPayload, RawChannelLevel, RawPayload, DISPLAY_BINS};
 use std::cmp::Ordering::{Equal, Greater, Less};
 use std::sync::{atomic::Ordering, Arc};
-use std::thread::{self, JoinHandle};
+use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 use tokio::sync::watch;
 
@@ -35,26 +35,13 @@ impl Mapper {
         state: Arc<AppState>,
         broadcast_rate: Option<f32>,
     ) -> JoinHandle<()> {
-        thread::Builder::new()
-            .name("mapper".into())
-            .spawn(move || {
-                let broadcast_interval =
-                    broadcast_rate.map(|hz| Duration::from_secs_f64(1.0 / f64::from(hz)));
+        let broadcast_interval =
+            broadcast_rate.map(|hz| Duration::from_secs_f64(1.0 / f64::from(hz)));
 
-                // Build the async runtime inside this dedicated OS thread.
-                tokio::runtime::Builder::new_current_thread()
-                    .enable_all()
-                    .build()
-                    .expect("failed to build tokio runtime for mapper")
-                    .block_on(Self::run(
-                        raw_rx,
-                        display_tx,
-                        channels,
-                        state,
-                        broadcast_interval,
-                    ));
-            })
-            .expect("failed to spawn mapper thread")
+        super::spawn_async_worker(
+            "mapper",
+            Self::run(raw_rx, display_tx, channels, state, broadcast_interval),
+        )
     }
 
     async fn run(
