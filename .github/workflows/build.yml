@@ -57,3 +57,12 @@ jobs:
 
       - name: Test
         run: cargo ci-test
+
+      # The crate's shipped default features (display-bins-32) differ from
+      # the ci-* aliases above (display-bins-128), so the default
+      # configuration must be exercised directly rather than via an alias.
+      - name: Clippy (default features)
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: Test (default features)
+        run: cargo test

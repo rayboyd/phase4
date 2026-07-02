@@ -3,22 +3,38 @@ use clap::Parser;
 use phase4::app::App;
 use phase4::config::AppConfig;
 use phase4::managers::audio::Input;
-use phase4::Args;
+use phase4::{Args, ControllerMode};
 use std::io::Write;
 
+/// Returns the line ending appended to each log line for the given controller mode.
+///
+/// Term mode enables terminal raw mode, so a carriage return is appended to keep the
+/// cursor snapped back to the left of the terminal. Headless mode is intended for a
+/// wrapper process consuming stderr as plain, line-oriented text, so no carriage
+/// return is appended there, leaving each line ending in a plain `\n`.
+fn log_line_ending(mode: ControllerMode) -> &'static str {
+    match mode {
+        ControllerMode::Term => "\r",
+        ControllerMode::Headless => "",
+    }
+}
+
 fn main() -> Result<()> {
-    // Defaults to "info" level, can be overridden via RUST_LOG env var. Init logging
-    // so it will play nice with terminal raw mode when app interactive mode is enabled.
+    let args = Args::parse();
+
+    // Defaults to "info" level, can be overridden via RUST_LOG env var. The line
+    // ending depends on the controller mode: \r keeps output aligned under raw mode
+    // in term mode, and is omitted in headless mode so wrapper processes receive
+    // plain \n line endings.
+    let line_ending = log_line_ending(args.runtime.controller_mode);
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
-        .format(|buf, record| {
-            // The \r ensures the cursor snaps back to the left side of the terminal.
-            writeln!(buf, "[{}] {}\r", record.level(), record.args())
+        .format(move |buf, record| {
+            writeln!(buf, "[{}] {}{line_ending}", record.level(), record.args())
         })
         .init();
 
     phase4::controller::install_panic_hook();
 
-    let args = Args::parse();
     if args.input.list {
         Input::list_devices(args.input.list_format)?;
         return Ok(());
@@ -36,4 +52,19 @@ fn main() -> Result<()> {
     app.run_until_shutdown()?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn log_line_ending_appends_carriage_return_in_term_mode() {
+        assert_eq!(log_line_ending(ControllerMode::Term), "\r");
+    }
+
+    #[test]
+    fn log_line_ending_is_empty_in_headless_mode() {
+        assert_eq!(log_line_ending(ControllerMode::Headless), "");
+    }
 }
