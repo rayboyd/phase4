@@ -91,9 +91,9 @@ pub struct NetworkArgs {
     /// OSC UDP output target address (e.g. 127.0.0.1:7000). Omit to disable OSC output.
     ///
     /// When set, phase4 emits one OSC float message per bin per channel each broadcast
-    /// frame to the given address. Addresses follow the scheme /phase4/ch/{n}/bin/{n}
-    /// with a float argument in 0.0..=1.0. Map these to your VJ software parameters
-    /// using its OSC shortcut editor.
+    /// frame to the given address.
+    /// Addresses follow the scheme /phase4/ch/{n}/bin/{n} with a float argument in 0.0..=1.0.
+    /// Map these to your VJ software parameters using its OSC shortcut editor.
     #[arg(long)]
     pub osc_addr: Option<SocketAddr>,
 }
