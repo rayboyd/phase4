@@ -20,7 +20,7 @@ fn main() -> Result<()> {
 
     let args = Args::parse();
     if args.input.list {
-        Input::list_devices()?;
+        Input::list_devices(args.input.list_format)?;
         return Ok(());
     }
 
