@@ -133,6 +133,39 @@ fn serialise_display_payload(
     }
 }
 
+/// Literal fallback used when even `DisplayPayload::default()` cannot be
+/// serialised. Kept as a named constant so the wire contract shape
+/// (`{"channels":[]}`, no bare `{}`) is documented in one place.
+const EMPTY_DISPLAY_PAYLOAD_JSON: &str = r#"{"channels":[]}"#;
+
+/// Produces the seed value for the serialised watch channel from the initial
+/// display payload, routing it through the same validation path used for
+/// every subsequent frame rather than serialising it directly.
+///
+/// Shares `already_logged` with the frame loop's serialisation task, so a
+/// rejected initial payload counts towards the same once-per-streak logging
+/// streak as subsequent frames rather than always logging at startup.
+///
+/// Falls back to a serialised, empty [`DisplayPayload`] when the initial
+/// payload is rejected. This keeps the fallback shaped like every other
+/// frame (a `channels` array, empty rather than absent) instead of the bare
+/// `{}` the wire contract never otherwise emits.
+fn initial_serialised_snapshot(payload: &DisplayPayload, already_logged: &mut bool) -> Utf8Bytes {
+    if let Some(json) = serialise_display_payload(payload, already_logged) {
+        return json;
+    }
+
+    log::error!("Falling back to an empty display payload for the initial WebSocket snapshot");
+
+    match serde_json::to_string(&DisplayPayload::default()) {
+        Ok(json) => Utf8Bytes::from(json),
+        Err(error) => {
+            log::error!("Failed to serialise the empty fallback display payload: {error}");
+            Utf8Bytes::from(EMPTY_DISPLAY_PAYLOAD_JSON.to_owned())
+        }
+    }
+}
+
 pub struct Server {
     address: SocketAddr,
     no_browser_origin: bool,
@@ -210,17 +243,14 @@ impl Server {
         let mut join_set: JoinSet<()> = JoinSet::new();
 
         // One task owns JSON serialisation and fan-out to connected clients.
-        let initial_serialised = match serde_json::to_string(&*display_rx.borrow()) {
-            Ok(json) => Utf8Bytes::from(json),
-            Err(error) => {
-                log::error!("Failed to serialise initial display payload: {error}");
-                Utf8Bytes::from("{}".to_owned())
-            }
-        };
+        // The failure-logged flag is shared with the frame loop below, so a
+        // rejected initial payload and a rejected first frame count as one
+        // logging streak rather than two.
+        let mut serialise_failure_logged = false;
+        let initial_serialised =
+            initial_serialised_snapshot(&display_rx.borrow(), &mut serialise_failure_logged);
         let (serialised_tx, serialised_rx) = watch::channel(initial_serialised);
         join_set.spawn(async move {
-            let mut serialise_failure_logged = false;
-
             loop {
                 if display_rx.changed().await.is_err() {
                     break;
@@ -392,6 +422,80 @@ mod tests {
                 captured_logs.len(),
                 2,
                 "a fresh rejection after a valid frame should log again"
+            );
+        });
+    }
+
+    /// An empty `DisplayPayload` (zero channels) must serialise to exactly
+    /// `{"channels":[]}`. This is the fallback shape the wire contract uses
+    /// when the initial snapshot cannot be validated, and must never regress
+    /// to a bare `{}`.
+    #[test]
+    fn empty_display_payload_serialises_to_channels_array() {
+        let json = serde_json::to_string(&DisplayPayload::default())
+            .expect("infallible for an empty, finite payload");
+
+        assert_eq!(json, r#"{"channels":[]}"#);
+    }
+
+    #[test]
+    fn initial_serialised_snapshot_passes_through_a_valid_payload_unchanged() {
+        let payload = DisplayPayload::new(1);
+        let mut already_logged = false;
+
+        let seeded = initial_serialised_snapshot(&payload, &mut already_logged);
+
+        let expected = serde_json::to_string(&payload).expect("failed to serialise payload");
+        assert_eq!(seeded.as_str(), expected);
+        assert!(
+            !already_logged,
+            "a valid payload should not mark a logging streak"
+        );
+    }
+
+    #[test]
+    fn initial_serialised_snapshot_falls_back_to_empty_channels_on_non_finite_value() {
+        testing_logger::setup();
+
+        let mut payload = DisplayPayload::new(1);
+        payload.channels[0].peak = f32::NAN;
+        let mut already_logged = false;
+
+        let seeded = initial_serialised_snapshot(&payload, &mut already_logged);
+
+        assert_eq!(
+            seeded.as_str(),
+            r#"{"channels":[]}"#,
+            "a rejected initial payload must fall back to an empty channels array, not {{}}"
+        );
+        assert!(
+            already_logged,
+            "a rejected initial payload should mark the logging streak"
+        );
+    }
+
+    #[test]
+    fn initial_serialised_snapshot_shares_the_logging_streak_with_the_frame_loop() {
+        testing_logger::setup();
+
+        let mut failing = DisplayPayload::new(1);
+        failing.channels[0].peak = f32::NAN;
+        let mut already_logged = false;
+
+        // The initial snapshot and the first frame both reject the same
+        // non-finite payload; sharing already_logged across both should
+        // count as a single streak, not two.
+        initial_serialised_snapshot(&failing, &mut already_logged);
+        serialise_display_payload(&failing, &mut already_logged);
+
+        testing_logger::validate(|captured_logs| {
+            let rejection_logs = captured_logs
+                .iter()
+                .filter(|log| log.body.contains("non-finite value"))
+                .count();
+            assert_eq!(
+                rejection_logs, 1,
+                "the initial snapshot and the first frame share one logging streak"
             );
         });
     }
