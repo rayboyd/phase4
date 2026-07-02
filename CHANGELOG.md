@@ -2,6 +2,25 @@
 
 All notable changes to Phase4 will be documented in this file.
 
+## Unreleased
+
+### Bug Fixes
+
+- Omit carriage return from log lines in headless mode ([f26be8d](https://github.com/rayboyd/phase4/commit/f26be8d2b246935d88a18a3aacb9ae77122797a4))
+
+### Build
+
+- Scope rt-multi-thread tokio feature to dev-dependencies ([74c8c35](https://github.com/rayboyd/phase4/commit/74c8c35b102ecce8c0d362dd2d0153db5d153f3a))
+
+### CI/CD
+
+- Test the default display-bins-32 configuration ([535b046](https://github.com/rayboyd/phase4/commit/535b04636f9314f48be049179831b2f18ebcdfb5))
+
+### Refactor
+
+- Route initial snapshot through payload validation ([c18a8bd](https://github.com/rayboyd/phase4/commit/c18a8bdc0590f1d791c39b9eaad751f9a0baf5fb))
+- Resolve InputSource once instead of re-deriving calibration_mode ([682784a](https://github.com/rayboyd/phase4/commit/682784a6416540b111d97b4014ccb8df14a095c1))
+
 ## 0.0.4
 
 ### Bug Fixes
