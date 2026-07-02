@@ -28,6 +28,16 @@ use tokio::sync::watch;
 /// Safety buffer for the analyse ringbuf, headroom for analysis accumulation.
 const ANALYSE_BUFFER_MS: u32 = 500;
 
+/// The resolved input source for the audio pipeline: either a real hardware
+/// device or a synthetic calibration generator. Resolved once in `App::new`
+/// from `AppConfig`'s calibration fields, then matched on wherever behaviour
+/// previously branched on a `calibration_mode` bool re-derived from those
+/// same fields.
+enum InputSource {
+    Calibration,
+    Hardware(cpal::Device, cpal::SupportedStreamConfig),
+}
+
 /// Shared application state flags for cross-thread synchronisation.
 pub struct AppState {
     pub is_active: AtomicBool,
@@ -91,15 +101,21 @@ impl App {
 
         let mut input_device = Input::new();
         let calibration_mode = config.test_hz.is_some() || config.test_sweep.is_some();
-        let (hw_specs, device_handle) =
+        let (hw_specs, input_source) =
             Self::resolve_hardware(&config, calibration_mode, &mut input_device)?;
         validate_vocoder_sample_rate(config.vocoder_config.freq_high, hw_specs.sample_rate)?;
 
         // Validate that all requested channel indices are within the hardware's capacity.
-        // This check is skipped in calibration mode, where no real device is involved.
-        if !calibration_mode {
-            if let Some(indices) = &config.analyse_channels {
-                if let Some(&idx) = indices.iter().max() {
+        // This check does not apply in calibration mode, where no real device is involved.
+        match &input_source {
+            InputSource::Calibration => {}
+            InputSource::Hardware(..) => {
+                if let Some(&idx) = config
+                    .analyse_channels
+                    .as_deref()
+                    .map(<[u16]>::iter)
+                    .and_then(Iterator::max)
+                {
                     if idx >= hw_specs.channels {
                         anyhow::bail!(AppConfigError::ChannelIndexOutOfRange {
                             idx,
@@ -125,26 +141,28 @@ impl App {
 
         // Spawn Producers. Hardware or a Generator is spawned.
         let mut generator_thread = None;
-        if calibration_mode {
-            generator_thread = Some(Generator::spawn(
-                config.test_hz,
-                config.test_sweep,
-                hw_specs.sample_rate,
-                hw_specs.channels,
-                analyse_tx,
-                generator_state,
-            ));
-        } else {
-            let (device, stream_config) = device_handle.expect("device present in hardware mode");
-            input_device.start_stream(
-                &device,
-                &stream_config,
-                StreamSink {
-                    tx: analyse_tx,
-                    mode: analyse_mode,
-                },
-                &stream_state,
-            )?;
+        match input_source {
+            InputSource::Calibration => {
+                generator_thread = Some(Generator::spawn(
+                    config.test_hz,
+                    config.test_sweep,
+                    hw_specs.sample_rate,
+                    hw_specs.channels,
+                    analyse_tx,
+                    generator_state,
+                ));
+            }
+            InputSource::Hardware(device, stream_config) => {
+                input_device.start_stream(
+                    &device,
+                    &stream_config,
+                    StreamSink {
+                        tx: analyse_tx,
+                        mode: analyse_mode,
+                    },
+                    &stream_state,
+                )?;
+            }
         }
 
         // Spawn Worker Threads.
@@ -186,8 +204,8 @@ impl App {
         })
     }
 
-    /// Returns hardware specs and a device handle, or calibration-mode defaults
-    /// when no real device is needed.
+    /// Returns hardware specs and a resolved [`InputSource`], either calibration-mode
+    /// defaults or a real device handle.
     ///
     /// # Errors
     ///
@@ -201,14 +219,14 @@ impl App {
         config: &AppConfig,
         calibration_mode: bool,
         input: &mut Input,
-    ) -> Result<(Specs, Option<(cpal::Device, cpal::SupportedStreamConfig)>)> {
+    ) -> Result<(Specs, InputSource)> {
         if calibration_mode {
             return Ok((
                 Specs {
                     sample_rate: 44100,
                     channels: 2,
                 },
-                None,
+                InputSource::Calibration,
             ));
         }
 
@@ -218,7 +236,7 @@ impl App {
             .expect("device_name_match is required in hardware mode");
         let (device, stream_config, specs) = input.get_device(name_query)?;
 
-        Ok((specs, Some((device, stream_config))))
+        Ok((specs, InputSource::Hardware(device, stream_config)))
     }
 
     /// Hands control to the interactive controller, blocking until shutdown.
@@ -321,5 +339,18 @@ mod tests {
         drop(app);
 
         assert_eq!(exit_count.load(Ordering::Acquire), 1);
+    }
+
+    #[test]
+    fn resolve_hardware_in_calibration_mode_returns_defaults() {
+        let config = AppConfig::default();
+        let mut input = Input::new();
+
+        let (specs, input_source) = App::resolve_hardware(&config, true, &mut input)
+            .expect("resolve_hardware should succeed in calibration mode");
+
+        assert_eq!(specs.sample_rate, 44100);
+        assert_eq!(specs.channels, 2);
+        assert!(matches!(input_source, InputSource::Calibration));
     }
 }
