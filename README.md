@@ -66,7 +66,9 @@ See [docs/tutorials/osc.md](docs/tutorials/osc.md) for the full address referenc
 
 ## Configuration file
 
-Instead of passing flags on every invocation you can place a `config.yaml` file in the same directory as the binary. Phase4 reads it at startup and applies a three-tier priority rule. CLI flags override file values, file values override hardcoded defaults. Any key may be omitted, and absent keys inherit the default.
+Instead of passing flags on every invocation you can place a `config.yaml` file in the current working directory, that is, wherever the Phase4 process is launched from, not where the binary itself lives on disk. Phase4 reads it at startup and applies a three-tier priority rule. CLI flags override file values, file values override hardcoded defaults. Any key may be omitted, and absent keys inherit the default.
+
+If you embed Phase4 as a child process, set the child process working directory explicitly so `config.yaml` is found where you expect. Phase4 does not infer the location from the binary path.
 
 Copy the bundled example as a starting point.
 
