@@ -107,6 +107,27 @@ pub struct VocoderArgs {
     pub filter_q: Option<f32>,
 }
 
+/// Runtime controller selection.
+#[derive(clap::ValueEnum, Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ControllerMode {
+    /// Interactive terminal control (raw mode, keyboard driven). The default,
+    /// unchanged behaviour for running phase4 directly from a shell.
+    #[default]
+    Term,
+    /// Headless mode: block until stdin closes, no keyboard handling. Wrapper
+    /// processes should always pass this explicitly.
+    Headless,
+}
+
+/// Runtime controller behaviour.
+#[derive(clap::Args)]
+#[command(next_help_heading = "Runtime")]
+pub struct RuntimeArgs {
+    /// How phase4 waits for a shutdown signal.
+    #[arg(long, value_enum, default_value_t = ControllerMode::Term)]
+    pub controller_mode: ControllerMode,
+}
+
 #[derive(Parser)]
 #[command(
     author = "Ray Boyd <ray.boyd@pm.me>",
@@ -133,4 +154,7 @@ pub struct Args {
 
     #[command(flatten)]
     pub vocoder: VocoderArgs,
+
+    #[command(flatten)]
+    pub runtime: RuntimeArgs,
 }

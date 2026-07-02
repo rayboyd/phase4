@@ -181,7 +181,7 @@ impl App {
                 server_thread,
                 osc_sender_thread,
             ),
-            controller: Controller::new(controller_state),
+            controller: Controller::new(config.controller_mode, controller_state),
             shutdown_started: false,
         })
     }
@@ -280,6 +280,7 @@ impl Drop for App {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ControllerMode;
     use std::sync::{
         atomic::{AtomicUsize, Ordering},
         Arc,
@@ -305,7 +306,7 @@ mod tests {
             input_device: None,
             state: state.clone(),
             workers: WorkerThreads::new(generator_thread, None, None, None, None),
-            controller: Controller::new(state.clone()),
+            controller: Controller::new(ControllerMode::Term, state.clone()),
             shutdown_started: false,
         };
 

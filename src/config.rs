@@ -5,7 +5,7 @@
 //! whenever the application is not running in calibration mode.
 
 use crate::dsp::units::{Hertz, Milliseconds};
-use crate::Args;
+use crate::{Args, ControllerMode};
 use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
 use std::path::Path;
@@ -145,6 +145,9 @@ pub struct AppConfig {
 
     /// OSC UDP output target address. None disables OSC output.
     pub osc_addr: Option<SocketAddr>,
+
+    /// How phase4 waits for a shutdown signal.
+    pub controller_mode: ControllerMode,
 }
 
 impl Default for AppConfig {
@@ -160,6 +163,7 @@ impl Default for AppConfig {
             broadcast_rate: Some(DEFAULT_BROADCAST_RATE_HZ),
             analyse_channels: None,
             osc_addr: None,
+            controller_mode: ControllerMode::Term,
         }
     }
 }
@@ -348,6 +352,7 @@ fn resolve_config(args: &Args, file: FileConfig) -> Result<AppConfig, AppConfigE
         broadcast_rate: Some(broadcast_rate),
         analyse_channels: normalise_channel_selection(raw_channels.as_deref())?,
         osc_addr,
+        controller_mode: args.runtime.controller_mode,
     })
 }
 
@@ -474,6 +479,9 @@ mod tests {
             calibration: CalibrationArgs {
                 test_hz: None,
                 test_sweep: None,
+            },
+            runtime: crate::RuntimeArgs {
+                controller_mode: ControllerMode::Term,
             },
         }
     }
