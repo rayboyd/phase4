@@ -82,6 +82,57 @@ impl Callback for OriginPolicyCallback {
     }
 }
 
+/// Serialises `payload` to JSON, logging failures at most once per run of
+/// consecutive failures rather than on every call. `already_logged` tracks
+/// whether the current failure streak has already produced a log line, and
+/// is reset to `false` the next time serialisation succeeds.
+///
+/// Non-finite values (`NaN`, `Infinity`) are checked explicitly before
+/// calling `serde_json`, rather than relied upon to surface as an `Err`.
+/// `serde_json` (as pinned in this repo) silently encodes non-finite floats
+/// as JSON `null` instead of returning an error, so without this check a
+/// `NaN` bin value would broadcast to every client unnoticed rather than
+/// being caught here.
+///
+/// Returns `None` when the payload is rejected. The caller is expected to
+/// leave the previously broadcast value in place in that case, connected
+/// clients continue receiving the last valid frame rather than a gap or a
+/// silent `null`.
+fn serialise_display_payload(
+    payload: &DisplayPayload,
+    already_logged: &mut bool,
+) -> Option<Utf8Bytes> {
+    let has_non_finite = payload.channels.iter().any(|channel| {
+        !channel.peak.is_finite() || channel.bins.iter().any(|bin| !bin.is_finite())
+    });
+
+    if has_non_finite {
+        if !*already_logged {
+            log::error!(
+                "DisplayPayload contains a non-finite value (NaN or Infinity), refusing \
+                 to broadcast this frame. Further occurrences until the next valid frame \
+                 will not be logged individually. Clients continue to receive the last \
+                 valid frame."
+            );
+            *already_logged = true;
+        }
+        return None;
+    }
+
+    *already_logged = false;
+
+    match serde_json::to_string(payload) {
+        Ok(json) => Some(Utf8Bytes::from(json)),
+        Err(error) => {
+            // Retained as a defensive fallback for any other serialisation
+            // failure mode. Non-finite floats are caught above and never
+            // reach this call.
+            log::error!("Failed to serialise display payload: {error}");
+            None
+        }
+    }
+}
+
 pub struct Server {
     address: SocketAddr,
     no_browser_origin: bool,
@@ -168,6 +219,8 @@ impl Server {
         };
         let (serialised_tx, serialised_rx) = watch::channel(initial_serialised);
         join_set.spawn(async move {
+            let mut serialise_failure_logged = false;
+
             loop {
                 if display_rx.changed().await.is_err() {
                     break;
@@ -175,13 +228,11 @@ impl Server {
 
                 // Avoid a per-frame DisplayPayload clone, the serialised output still needs
                 // a fresh owned buffer per frame for fan-out to client tasks.
-                match serde_json::to_string(&*display_rx.borrow_and_update()) {
-                    Ok(json) => {
-                        serialised_tx.send_replace(Utf8Bytes::from(json));
-                    }
-                    Err(error) => {
-                        log::error!("Failed to serialise display payload: {error}");
-                    }
+                if let Some(json) = serialise_display_payload(
+                    &display_rx.borrow_and_update(),
+                    &mut serialise_failure_logged,
+                ) {
+                    serialised_tx.send_replace(json);
                 }
             }
         });
@@ -256,7 +307,7 @@ impl Server {
         };
 
         let Ok(mut ws_stream) = handshake_result else {
-            log::info!("WebSocket handshake failed: {addr}");
+            log::debug!("WebSocket handshake failed: {addr}");
             return;
         };
 
@@ -292,5 +343,56 @@ impl Server {
 
         // RFC 6455 close frame on graceful shutdown or upstream channel closure.
         ws_stream.close(None).await.ok();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn serialise_display_payload_rejects_non_finite_values_once_per_streak() {
+        testing_logger::setup();
+
+        let mut payload = DisplayPayload::new(1);
+        payload.channels[0].peak = f32::NAN;
+        let mut already_logged = false;
+
+        let first = serialise_display_payload(&payload, &mut already_logged);
+        let second = serialise_display_payload(&payload, &mut already_logged);
+
+        assert!(first.is_none(), "a non-finite payload should be rejected");
+        assert!(second.is_none(), "a non-finite payload should be rejected");
+
+        testing_logger::validate(|captured_logs| {
+            assert_eq!(
+                captured_logs.len(),
+                1,
+                "a second consecutive rejection should not log again"
+            );
+            assert_eq!(captured_logs[0].level, log::Level::Error);
+        });
+    }
+
+    #[test]
+    fn serialise_display_payload_logs_again_after_a_success() {
+        testing_logger::setup();
+
+        let mut failing = DisplayPayload::new(1);
+        failing.channels[0].peak = f32::NAN;
+        let healthy = DisplayPayload::new(1);
+        let mut already_logged = false;
+
+        serialise_display_payload(&failing, &mut already_logged);
+        serialise_display_payload(&healthy, &mut already_logged);
+        serialise_display_payload(&failing, &mut already_logged);
+
+        testing_logger::validate(|captured_logs| {
+            assert_eq!(
+                captured_logs.len(),
+                2,
+                "a fresh rejection after a valid frame should log again"
+            );
+        });
     }
 }
