@@ -11,6 +11,7 @@
 //! is used throughout the pipeline for buffer sizing.
 
 use crate::app::AppState;
+use crate::ListFormat;
 use anyhow::{Context, Result};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::SampleFormat;
@@ -34,6 +35,22 @@ impl Specs {
         // Without that, 192000_u32 * 16_u32 * 3_600_000_u32 would overflow u32::MAX (4,294,967,295).
         (self.sample_rate as usize * self.channels as usize * ms as usize) / 1000
     }
+}
+
+/// A single enumerated input device, serialised as one entry in the JSON
+/// array produced by `--list-format json`.
+///
+/// `sample_rate`, `channels`, and `sample_format` are `None` when the
+/// device's hardware configuration could not be queried, the text-mode
+/// equivalent is the "Configuration unavailable" warning line.
+#[derive(serde::Serialize)]
+struct DeviceInfo {
+    index: usize,
+    name: String,
+    sample_rate: Option<u32>,
+    channels: Option<u16>,
+    sample_format: Option<String>,
+    supported: bool,
 }
 
 /// Describes which channels to extract from the hardware interleaved stream.
@@ -137,12 +154,22 @@ impl Input {
         ringbuf::HeapRb::<f32>::new(capacity.next_power_of_two()).split()
     }
 
-    /// Queries the system for all available audio input devices.
+    /// Queries the system for all available audio input devices and prints them
+    /// in the requested format.
     ///
     /// # Errors
     ///
-    /// Returns an error if the host audio system cannot enumerate input devices.
-    pub fn list_devices() -> Result<()> {
+    /// Returns an error if the host audio system cannot enumerate input devices,
+    /// or if the JSON encoding of the device list fails.
+    pub fn list_devices(format: ListFormat) -> Result<()> {
+        match format {
+            ListFormat::Text => Self::list_devices_text(),
+            ListFormat::Json => Self::list_devices_json(),
+        }
+    }
+
+    /// Human-readable device listing via `log`, one line per device.
+    fn list_devices_text() -> Result<()> {
         let host = cpal::default_host();
         let devices = host
             .input_devices()
@@ -181,6 +208,47 @@ impl Input {
         if !devices_found {
             log::warn!("[*] No input devices detected. Check system permissions");
         }
+
+        Ok(())
+    }
+
+    /// Structured device listing as a single JSON array on stdout.
+    ///
+    /// Nothing else is written to stdout in this mode, `log` output continues to
+    /// go to stderr as normal, so a wrapper process can read stdout directly
+    /// without filtering out anything else.
+    fn list_devices_json() -> Result<()> {
+        let host = cpal::default_host();
+        let devices = host
+            .input_devices()
+            .context("Failed to query input devices")?;
+
+        let entries: Vec<DeviceInfo> = devices
+            .enumerate()
+            .map(|(index, device)| {
+                let name = device
+                    .description()
+                    .map_or_else(|_| "Unknown Device".to_string(), |d| d.name().to_string());
+
+                let config = device.default_input_config().ok();
+
+                DeviceInfo {
+                    index,
+                    name,
+                    sample_rate: config
+                        .as_ref()
+                        .map(cpal::SupportedStreamConfig::sample_rate),
+                    channels: config.as_ref().map(cpal::SupportedStreamConfig::channels),
+                    sample_format: config.as_ref().map(|c| format!("{:?}", c.sample_format())),
+                    supported: config
+                        .as_ref()
+                        .is_some_and(|c| c.sample_format() == SampleFormat::F32),
+                }
+            })
+            .collect();
+
+        let json = serde_json::to_string(&entries).context("Failed to serialise device list")?;
+        println!("{json}");
 
         Ok(())
     }
@@ -387,6 +455,50 @@ mod tests {
     fn samples_for_ms_multichannel() {
         check_samples_for_ms(96000, 8, 1, 768);
         check_samples_for_ms(48000, 6, 10, 2880);
+    }
+
+    #[test]
+    fn device_info_serialises_expected_shape() {
+        let entry = DeviceInfo {
+            index: 0,
+            name: "Focusrite 2i2".to_string(),
+            sample_rate: Some(48_000),
+            channels: Some(2),
+            sample_format: Some("F32".to_string()),
+            supported: true,
+        };
+
+        let json = serde_json::to_string(&entry).expect("DeviceInfo should serialise");
+        let parsed: serde_json::Value =
+            serde_json::from_str(&json).expect("output should be valid JSON");
+
+        assert_eq!(parsed["index"], 0);
+        assert_eq!(parsed["name"], "Focusrite 2i2");
+        assert_eq!(parsed["sample_rate"], 48_000);
+        assert_eq!(parsed["channels"], 2);
+        assert_eq!(parsed["sample_format"], "F32");
+        assert_eq!(parsed["supported"], true);
+    }
+
+    #[test]
+    fn device_info_serialises_unavailable_config_as_null() {
+        let entry = DeviceInfo {
+            index: 1,
+            name: "Unknown Device".to_string(),
+            sample_rate: None,
+            channels: None,
+            sample_format: None,
+            supported: false,
+        };
+
+        let json = serde_json::to_string(&entry).expect("DeviceInfo should serialise");
+        let parsed: serde_json::Value =
+            serde_json::from_str(&json).expect("output should be valid JSON");
+
+        assert_eq!(parsed["sample_rate"], serde_json::Value::Null);
+        assert_eq!(parsed["channels"], serde_json::Value::Null);
+        assert_eq!(parsed["sample_format"], serde_json::Value::Null);
+        assert_eq!(parsed["supported"], false);
     }
 
     // The .1 / .2 / .4 kHz rates do not divide evenly at 1 ms.

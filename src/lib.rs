@@ -29,6 +29,18 @@ pub struct CalibrationArgs {
     pub test_sweep: Option<f32>,
 }
 
+/// Output format for `--list`.
+#[derive(clap::ValueEnum, Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ListFormat {
+    /// Human-readable, one line per device. The default.
+    #[default]
+    Text,
+    /// A single JSON array on stdout, one object per device. Intended for a
+    /// wrapper process to parse programmatically, nothing else is written to
+    /// stdout in this mode.
+    Json,
+}
+
 /// Device selection and listing.
 #[derive(clap::Args)]
 #[command(next_help_heading = "Device")]
@@ -40,6 +52,10 @@ pub struct InputArgs {
     /// List available audio input devices and exit.
     #[arg(short, long)]
     pub list: bool,
+
+    /// Output format for `--list`.
+    #[arg(long, value_enum, default_value_t = ListFormat::Text)]
+    pub list_format: ListFormat,
 
     /// Hardware channel indices to forward to the analyser, comma-separated (e.g. 0,1).
     /// Omit to forward all channels.

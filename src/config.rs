@@ -460,6 +460,7 @@ mod tests {
             input: InputArgs {
                 device: device.map(str::to_string),
                 list: false,
+                list_format: crate::ListFormat::Text,
                 analyse_channels: None,
             },
             network: NetworkArgs {
