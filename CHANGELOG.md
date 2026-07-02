@@ -4,11 +4,15 @@ All notable changes to Phase4 will be documented in this file.
 
 ## Unreleased
 
-[b12fd5b](https://github.com/rayboyd/phase4/compare/b12fd5bd5a75d44e86ca2f22fa00e910de2d4483...77c1b52851ca263b1392f05bee2848fca1b18656)
-
 ### Bug Fixes
 
 - Restore terminal on panic before process abort ([71635f0](https://github.com/rayboyd/phase4/commit/71635f088eb5bd5c5448c5cfb6d6f9d492533c7f))
+- Reject non-finite DisplayPayload values and rate-limit log spam ([a12bc99](https://github.com/rayboyd/phase4/commit/a12bc99609d326afa300208016c8877cd8fcacb7))
+
+### Features
+
+- Add explicit --controller-mode flag and headless controller ([f79da47](https://github.com/rayboyd/phase4/commit/f79da47b90f136724457689bb89f6a220f0dc1ce))
+- Add JSON output format for --list ([4c696c7](https://github.com/rayboyd/phase4/commit/4c696c7dc966d79c4f12100b066e1fb1d299739a))
 
 ### Performance
 
