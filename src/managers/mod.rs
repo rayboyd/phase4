@@ -58,21 +58,14 @@ where
 /// fails and this surfaces the reason without panicking.
 pub(crate) fn log_priority_result(result: Result<(), thread_priority::Error>) {
     if let Err(e) = result {
-        if cfg!(target_os = "linux") {
-            log::warn!(
-                "Failed to set thread priority for '{}': {}. \
-                 On Linux, grant CAP_SYS_NICE to the binary or run under a \
-                 user with rtprio limits set.",
-                std::thread::current().name().unwrap_or("unknown"),
-                e,
-            );
+        let thread = std::thread::current();
+        let name = thread.name().unwrap_or("unknown");
+        let linux_hint = if cfg!(target_os = "linux") {
+            " On Linux, grant CAP_SYS_NICE to the binary or run under a user with rtprio limits set."
         } else {
-            log::warn!(
-                "Failed to set thread priority for '{}': {}",
-                std::thread::current().name().unwrap_or("unknown"),
-                e,
-            );
-        }
+            ""
+        };
+        log::warn!("Failed to set thread priority for '{name}': {e}.{linux_hint}");
     }
 }
 

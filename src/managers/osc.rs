@@ -70,6 +70,8 @@ impl OscSender {
                 packets,
                 scratch: Vec::new(),
                 state,
+                send_failure_logged: false,
+                encode_failure_logged: false,
             }
             .run()
             .await;
@@ -108,6 +110,8 @@ struct OscRuntime {
     packets: Vec<OscPacket>,
     scratch: Vec<u8>,
     state: Arc<AppState>,
+    send_failure_logged: bool,
+    encode_failure_logged: bool,
 }
 
 impl OscRuntime {
@@ -147,15 +151,34 @@ impl OscRuntime {
                 self.scratch.clear();
                 match rosc::encoder::encode_into(packet, &mut self.scratch) {
                     Ok(_) => {
-                        if let Err(e) = self.socket.send(&self.scratch) {
-                            if let OscPacket::Message(msg) = packet {
-                                log::warn!("OSC send failed for {}: {e}", msg.addr);
+                        self.encode_failure_logged = false;
+
+                        match self.socket.send(&self.scratch) {
+                            Ok(_) => self.send_failure_logged = false,
+                            Err(e) => {
+                                if !self.send_failure_logged {
+                                    if let OscPacket::Message(msg) = packet {
+                                        log::warn!(
+                                            "OSC send failed for {}: {e}. Further send failures until \
+                                             the next successful send will not be logged individually.",
+                                            msg.addr
+                                        );
+                                    }
+                                    self.send_failure_logged = true;
+                                }
                             }
                         }
                     }
                     Err(e) => {
-                        if let OscPacket::Message(msg) = packet {
-                            log::warn!("OSC encode failed for {}: {e}", msg.addr);
+                        if !self.encode_failure_logged {
+                            if let OscPacket::Message(msg) = packet {
+                                log::warn!(
+                                    "OSC encode failed for {}: {e}. Further encode failures until \
+                                     the next successful encode will not be logged individually.",
+                                    msg.addr
+                                );
+                            }
+                            self.encode_failure_logged = true;
                         }
                     }
                 }
