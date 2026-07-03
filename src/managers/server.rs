@@ -206,14 +206,12 @@ impl Server {
             .set_nonblocking(true)
             .context("Failed to set listener to non-blocking")?;
 
-        let addr = self.address;
         let no_browser_origin = self.no_browser_origin;
         let max_clients = self.max_clients;
         let handle = super::spawn_async_worker(
             "websocket-server",
             Self::run(
                 std_listener,
-                addr,
                 display_rx,
                 state,
                 no_browser_origin,
@@ -226,7 +224,6 @@ impl Server {
 
     async fn run(
         std_listener: std::net::TcpListener,
-        addr: SocketAddr,
         mut display_rx: watch::Receiver<DisplayPayload>,
         state: Arc<AppState>,
         no_browser_origin: bool,
@@ -236,7 +233,6 @@ impl Server {
         // which is always true here since we're inside block_on.
         let listener = tokio::net::TcpListener::from_std(std_listener)
             .expect("failed to convert std listener to tokio");
-        log::info!("WebSocket server listening on ws://{addr}");
 
         let shutdown_notify = Arc::new(Notify::new());
         let client_slots = Arc::new(Semaphore::new(max_clients));

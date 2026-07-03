@@ -28,6 +28,20 @@ use tokio::sync::watch;
 /// Safety buffer for the analyse ringbuf, headroom for analysis accumulation.
 const ANALYSE_BUFFER_MS: u32 = 500;
 
+/// Builds the calibration mode announcement for the given test signal
+/// configuration. Exactly one of `test_hz` or `test_sweep` is expected to
+/// be `Some` when this is called, calibration mode is only entered when
+/// at least one is set.
+fn calibration_announcement(test_hz: Option<f32>, test_sweep: Option<f32>) -> String {
+    if let Some(hz) = test_hz {
+        format!("Calibration mode: fixed tone at {hz} Hz")
+    } else if let Some(sweep) = test_sweep {
+        format!("Calibration mode: sweep at {sweep} Hz LFO rate")
+    } else {
+        "Calibration mode".to_string()
+    }
+}
+
 /// The resolved input source for the audio pipeline: either a real hardware
 /// device or a synthetic calibration generator. Resolved once in `App::new`
 /// from `AppConfig`'s calibration fields, then matched on wherever behaviour
@@ -143,6 +157,10 @@ impl App {
         let mut generator_thread = None;
         match input_source {
             InputSource::Calibration => {
+                log::info!(
+                    "{}",
+                    calibration_announcement(config.test_hz, config.test_sweep)
+                );
                 generator_thread = Some(Generator::spawn(
                     config.test_hz,
                     config.test_sweep,
@@ -180,11 +198,14 @@ impl App {
 
         let server = Server::new(config.addr, config.no_browser_origin, config.max_clients);
         let server_thread = Some(server.spawn(display_rx.clone(), server_state)?);
+        log::info!("WebSocket server listening on ws://{}", config.addr);
 
         // Spawn the OSC sender when a target address is configured.
         let osc_sender_thread = if let Some(addr) = config.osc_addr {
             let sender = OscSender::new(addr);
-            Some(sender.spawn(display_rx, display_channels, osc_state)?)
+            let thread = Some(sender.spawn(display_rx, display_channels, osc_state)?);
+            log::info!("OSC sender transmitting to udp://{addr}");
+            thread
         } else {
             None
         };
@@ -339,6 +360,22 @@ mod tests {
         drop(app);
 
         assert_eq!(exit_count.load(Ordering::Acquire), 1);
+    }
+
+    #[test]
+    fn calibration_announcement_describes_fixed_tone() {
+        assert_eq!(
+            calibration_announcement(Some(440.0), None),
+            "Calibration mode: fixed tone at 440 Hz"
+        );
+    }
+
+    #[test]
+    fn calibration_announcement_describes_sweep() {
+        assert_eq!(
+            calibration_announcement(None, Some(0.1)),
+            "Calibration mode: sweep at 0.1 Hz LFO rate"
+        );
     }
 
     #[test]

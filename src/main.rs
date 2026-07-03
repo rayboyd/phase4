@@ -19,6 +19,13 @@ fn log_line_ending(mode: ControllerMode) -> &'static str {
     }
 }
 
+/// Returns whether the startup banner should be shown for the given
+/// controller mode. Term mode has a human watching a terminal, headless
+/// mode is a wrapper process with no one to greet.
+fn should_show_banner(mode: ControllerMode) -> bool {
+    matches!(mode, ControllerMode::Term)
+}
+
 fn main() -> Result<()> {
     let args = Args::parse();
 
@@ -40,6 +47,10 @@ fn main() -> Result<()> {
         return Ok(());
     }
 
+    if should_show_banner(args.runtime.controller_mode) {
+        log::info!("Welcome to phase4.");
+    }
+
     let config = match AppConfig::try_from(&args) {
         Ok(c) => c,
         Err(e) => {
@@ -57,6 +68,16 @@ fn main() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn should_show_banner_is_true_in_term_mode() {
+        assert!(should_show_banner(ControllerMode::Term));
+    }
+
+    #[test]
+    fn should_show_banner_is_false_in_headless_mode() {
+        assert!(!should_show_banner(ControllerMode::Headless));
+    }
 
     #[test]
     fn log_line_ending_appends_carriage_return_in_term_mode() {

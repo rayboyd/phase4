@@ -71,7 +71,7 @@ impl TermController {
     pub fn run(&self) -> Result<()> {
         enable_raw_mode()?;
 
-        log::info!("'T' to toggle engine, Ctrl+C to exit");
+        log::info!("Ready. Press T to toggle engine, Ctrl+C to exit.");
 
         while self.state.keep_running.load(Ordering::Acquire) {
             if event::poll(Duration::from_millis(POLL_RATE_MS))? {

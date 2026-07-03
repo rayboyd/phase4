@@ -60,7 +60,6 @@ impl OscSender {
         let packets = Self::build_packets(channels);
         let target = self.target;
         let handle = super::spawn_async_worker("osc-sender", async move {
-            log::info!("OSC sender transmitting to udp://{target}");
             OscRuntime {
                 display_rx,
                 socket,
