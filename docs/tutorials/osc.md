@@ -41,9 +41,13 @@ All OSC message structures (addresses and argument slots) are built once before 
 
 The bin count is set at compile time. The default is 32 bins. See [compile.md](compile.md) for how to change it.
 
-## Resolume Integration
+## TouchDesigner Integration
 
-In Resolume Avenue or Arena, open the OSC input configuration and add a new OSC shortcut. Set the input address to match the Phase4 address pattern, for example `/phase4/ch/0/bin/0`, and map it to the target parameter. Resolume's OSC shortcut editor accepts literal address strings, so copy the address exactly as shown.
+Add an OSC In CHOP to your network and set its Network Port to match the port given in `--osc-addr`. Each `/phase4/ch/{channel}/bin/{bin}` message arrives as its own channel.
+
+OSC In CHOP does not unpack OSC bundles, individual messages are required, confirmed against a real report of OSC In CHOP receiving nothing when sent a bundle. Phase4 always sends one message per bin per channel rather than bundling them, so this needs no special handling on the TouchDesigner side.
+
+If you are receiving a large number of channels, OSC In CHOP has a Queued option with configurable target buffer sizes, useful for smoothing out bursts of incoming messages rather than dropping them under load.
 
 Phase4 fires and forgets each UDP packet. There is no connection handshake, acknowledgement, or backpressure. If the target is not running or unreachable, packets are silently dropped.
 
