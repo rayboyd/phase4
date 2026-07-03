@@ -7,6 +7,7 @@ All notable changes to Phase4 will be documented in this file.
 ### Bug Fixes
 
 - Omit carriage return from log lines in headless mode ([f26be8d](https://github.com/rayboyd/phase4/commit/f26be8d2b246935d88a18a3aacb9ae77122797a4))
+- Send unconnected so no-listener packets are silently dropped ([7301153](https://github.com/rayboyd/phase4/commit/7301153df75ee76e5948b5df1f55043a1320add6))
 
 ### Build
 
@@ -19,6 +20,8 @@ All notable changes to Phase4 will be documented in this file.
 ### Documentation
 
 - Correct config.yaml location to current working directory ([742dc6f](https://github.com/rayboyd/phase4/commit/742dc6f94d27bb7840fa3c35bb276febdf747dc2))
+- Replace Resolume example with TouchDesigner OSC In CHOP ([12bcbf0](https://github.com/rayboyd/phase4/commit/12bcbf0e0beba3395eca52ec8b56e343f288061c))
+- Replace Resolume integration section with TouchDesigner ([9d5f67c](https://github.com/rayboyd/phase4/commit/9d5f67cfc729e474bde4503195c1ce6cb453647b))
 
 ### Refactor
 
