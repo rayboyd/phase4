@@ -3,12 +3,12 @@
 //!
 //! Address scheme: `/phase4/ch/{channel}/bin/{bin}` with a single `f` (float)
 //! argument in the range 0.0..=1.0. The receiver maps these to its own
-//! parameters using its OSC shortcut editor (e.g. Resolume Avenue/Arena).
+//! parameters using its OSC shortcut editor (e.g. `TouchDesigner` OSC In CHOP).
 //!
 //! Message structures and addresses are pre-built once before the send loop.
 //! Each frame, only the float argument is mutated in place. The UDP socket is
-//! bound to an ephemeral local port and connected to the target address so each
-//! send is a plain `socket.send(&bytes)`. A reusable Vec<u8> scratch buffer is
+//! bound to an ephemeral local port and kept unconnected, so each send uses
+//! `socket.send_to(&bytes, target)`. A reusable Vec<u8> scratch buffer is
 //! cleared and reused for each frame's encoding, so the steady-state send loop
 //! performs no heap allocation.
 //!
@@ -42,7 +42,7 @@ impl OscSender {
     ///
     /// # Errors
     ///
-    /// Returns an error if the local UDP socket cannot be bound or connected.
+    /// Returns an error if the local UDP socket cannot be bound.
     ///
     /// # Panics
     ///
@@ -56,9 +56,6 @@ impl OscSender {
     ) -> Result<JoinHandle<()>> {
         let socket =
             UdpSocket::bind("0.0.0.0:0").context("Failed to bind UDP socket for OSC output")?;
-        socket
-            .connect(self.target)
-            .with_context(|| format!("Failed to connect OSC UDP socket to {}", self.target))?;
 
         let packets = Self::build_packets(channels);
         let target = self.target;
@@ -67,6 +64,7 @@ impl OscSender {
             OscRuntime {
                 display_rx,
                 socket,
+                target,
                 packets,
                 scratch: Vec::new(),
                 state,
@@ -101,12 +99,13 @@ impl OscSender {
 
 /// Runtime state for the OSC sender thread.
 ///
-/// Owns the watch receiver, connected UDP socket, pre-built packet table,
-/// reusable encode scratch buffer, and app state. The async run loop
-/// is a method on this struct.
+/// Owns the watch receiver, unconnected UDP socket, target address, pre-built
+/// packet table, reusable encode scratch buffer, and app state. The async run
+/// loop is a method on this struct.
 struct OscRuntime {
     display_rx: watch::Receiver<DisplayPayload>,
     socket: UdpSocket,
+    target: SocketAddr,
     packets: Vec<OscPacket>,
     scratch: Vec<u8>,
     state: Arc<AppState>,
@@ -153,7 +152,7 @@ impl OscRuntime {
                     Ok(_) => {
                         self.encode_failure_logged = false;
 
-                        match self.socket.send(&self.scratch) {
+                        match self.socket.send_to(&self.scratch, self.target) {
                             Ok(_) => self.send_failure_logged = false,
                             Err(e) => {
                                 if !self.send_failure_logged {
@@ -288,5 +287,24 @@ mod tests {
     fn udp_socket_bind_succeeds() {
         let socket = UdpSocket::bind("0.0.0.0:0");
         assert!(socket.is_ok(), "ephemeral UDP bind must succeed");
+    }
+
+    // send_to on an unconnected socket must not error locally, even when
+    // the destination has nothing listening. This is what makes packets
+    // silently dropped rather than surfaced as ECONNREFUSED, the documented
+    // fire-and-forget contract in docs/tutorials/osc.md. A connected UDP
+    // socket instead receives a delayed ICMP error on a later send call,
+    // which cannot be asserted deterministically in one synchronous test,
+    // so treat this as a smoke test for the intended code path rather than
+    // a full proof of the underlying OS behaviour.
+    #[test]
+    fn send_to_unconnected_socket_does_not_error_locally() {
+        let socket = UdpSocket::bind("0.0.0.0:0").expect("ephemeral UDP bind must succeed");
+        let closed_target: SocketAddr = "127.0.0.1:1".parse().expect("valid address");
+        let result = socket.send_to(b"test", closed_target);
+        assert!(
+            result.is_ok(),
+            "send_to must not error locally for an unconnected socket"
+        );
     }
 }
