@@ -1,7 +1,7 @@
 //! Integration tests for App initialisation in calibration mode.
 //!
 //! These tests exercise the full `App::new()` path without requiring real audio
-//! hardware. Calibration mode (via `test_hz`) replaces the hardware device with
+//! hardware. Calibration mode (via `ConfigInput::Calibration`) replaces the hardware device with
 //! a synthetic sine wave generator, making it safe to run in CI.
 //!
 //! Key things this covers end-to-end:
@@ -11,7 +11,7 @@
 //!   - `Drop` cleanly signals threads to stop when `app` goes out of scope
 
 use phase4::app::App;
-use phase4::config::AppConfig;
+use phase4::config::{AppConfig, ConfigInput, TestSignal};
 use std::net::SocketAddr;
 
 #[test]
@@ -22,7 +22,7 @@ fn app_new_returns_error_on_port_collision() {
 
     // Attempt to construct the App using the occupied port.
     let config = AppConfig {
-        test_hz: Some(440.0),
+        input: ConfigInput::Calibration(TestSignal::FixedTone(440.0)),
         addr: occupied_addr,
         ..AppConfig::default()
     };
@@ -42,7 +42,7 @@ fn app_new_returns_error_on_port_collision() {
 #[test]
 fn app_new_succeeds_in_calibration_mode() {
     let config = AppConfig {
-        test_hz: Some(440.0),
+        input: ConfigInput::Calibration(TestSignal::FixedTone(440.0)),
         // Port 0 asks the OS to assign a random free port, avoiding conflicts
         // with the real app (8889) or other tests running in parallel.
         addr: "127.0.0.1:0".parse::<SocketAddr>().unwrap(),
@@ -60,7 +60,7 @@ fn app_new_succeeds_in_calibration_mode() {
 #[test]
 fn app_new_succeeds_with_sweep() {
     let config = AppConfig {
-        test_sweep: Some(0.1), // 0.1 Hz LFO, 10 second sweep cycle
+        input: ConfigInput::Calibration(TestSignal::Sweep(0.1)), // 0.1 Hz LFO, 10 second sweep cycle
         addr: "127.0.0.1:0".parse::<SocketAddr>().unwrap(),
         ..AppConfig::default()
     };
@@ -82,7 +82,7 @@ async fn drop_joins_all_threads_within_deadline() {
         deadline,
         tokio::task::spawn_blocking(|| {
             let config = AppConfig {
-                test_hz: Some(440.0),
+                input: ConfigInput::Calibration(TestSignal::FixedTone(440.0)),
                 addr: "127.0.0.1:0".parse::<SocketAddr>().unwrap(),
                 ..AppConfig::default()
             };

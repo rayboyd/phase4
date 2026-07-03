@@ -4,13 +4,14 @@
 //! without audio hardware attached.
 //!
 //! Two signal modes are supported: a fixed-frequency tone controlled by
-//! `test_hz`, and a logarithmic sine sweep driven by a sine LFO at
-//! `test_sweep` Hz that scans from 20 Hz to just below the Nyquist frequency
+//! [`TestSignal::FixedTone`], and a logarithmic sine sweep driven by a sine LFO at
+//! [`TestSignal::Sweep`] Hz that scans from 20 Hz to just below the Nyquist frequency
 //! (0.45 * sample rate) to avoid aliasing artefacts at the sweep ceiling.
 //! Output level is fixed at `AMPLITUDE` (approximately -12 dBFS) to leave
 //! headroom for clipping in the downstream pipeline.
 
 use crate::app::AppState;
+use crate::config::TestSignal;
 use ringbuf::traits::Producer;
 use std::f32::consts::PI;
 use std::sync::atomic::Ordering;
@@ -33,8 +34,7 @@ fn fill_buffer(
     buffer: &mut [f32],
     mut phase: f32,
     mut lfo_phase: f32,
-    test_hz: Option<f32>,
-    test_sweep: Option<f32>,
+    signal: TestSignal,
     sample_rate: u32,
     channels: u16,
 ) -> (f32, f32) {
@@ -43,15 +43,16 @@ fn fill_buffer(
 
     for i in (0..chunk_size).step_by(channels as usize) {
         // Calculate the current frequency.
-        let current_freq = if let Some(lfo_rate) = test_sweep {
-            // A sine wave LFO that oscillates between 0.0 and 1.0.
-            let lfo_val = (lfo_phase * 2.0 * PI).sin() * 0.5 + 0.5;
-            lfo_phase = (lfo_phase + lfo_rate / sample_rate as f32) % 1.0;
+        let current_freq = match signal {
+            TestSignal::Sweep(lfo_rate) => {
+                // A sine wave LFO that oscillates between 0.0 and 1.0.
+                let lfo_val = (lfo_phase * 2.0 * PI).sin() * 0.5 + 0.5;
+                lfo_phase = (lfo_phase + lfo_rate / sample_rate as f32) % 1.0;
 
-            // Logarithmic sweep from 20 Hz up to just below Nyquist.
-            20.0 * (sweep_ceiling / 20.0f32).powf(lfo_val)
-        } else {
-            test_hz.expect("calibration mode requires test_hz or test_sweep")
+                // Logarithmic sweep from 20 Hz up to just below Nyquist.
+                20.0 * (sweep_ceiling / 20.0f32).powf(lfo_val)
+            }
+            TestSignal::FixedTone(hz) => hz,
         };
 
         // Advance the primary audio sine wave.
@@ -75,8 +76,7 @@ impl Generator {
     ///
     /// Panics if the OS thread cannot be spawned.
     pub fn spawn<P>(
-        test_hz: Option<f32>,
-        test_sweep: Option<f32>,
+        signal: TestSignal,
         sample_rate: u32,
         channels: u16,
         mut analyse_tx: P,
@@ -97,15 +97,8 @@ impl Generator {
                 let mut deadline = Instant::now() + chunk_duration;
 
                 while state.keep_running.load(Ordering::Acquire) {
-                    (phase, lfo_phase) = fill_buffer(
-                        &mut buffer,
-                        phase,
-                        lfo_phase,
-                        test_hz,
-                        test_sweep,
-                        sample_rate,
-                        channels,
-                    );
+                    (phase, lfo_phase) =
+                        fill_buffer(&mut buffer, phase, lfo_phase, signal, sample_rate, channels);
 
                     // Intentionally lossy. This is just a test signal.
                     let _ = analyse_tx.push_slice(&buffer);
@@ -151,8 +144,7 @@ mod tests {
                 &mut buffer,
                 phase,
                 lfo_phase,
-                Some(test_hz),
-                None,
+                TestSignal::FixedTone(test_hz),
                 sample_rate,
                 channels,
             );
@@ -206,8 +198,7 @@ mod tests {
                 &mut buffer,
                 phase,
                 lfo_phase,
-                Some(test_hz),
-                None,
+                TestSignal::FixedTone(test_hz),
                 sample_rate,
                 channels,
             );
@@ -259,8 +250,7 @@ mod tests {
                 &mut buffer,
                 phase,
                 lfo_phase,
-                None,
-                Some(lfo_rate),
+                TestSignal::Sweep(lfo_rate),
                 sample_rate,
                 channels,
             );

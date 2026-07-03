@@ -1,8 +1,8 @@
 //! [`AppConfig`] holds the validated settings passed to [`crate::app::App::new`].
 //! It is produced by [`TryFrom<&Args>`][AppConfig#impl-TryFrom<&Args>-for-AppConfig],
 //! which resolves CLI arguments, optional `config.yaml` file settings, and hardcoded
-//! defaults in that order of priority, then enforces that a device name is present
-//! whenever the application is not running in calibration mode.
+//! defaults in that order of priority, then resolves a single input intent for
+//! either calibration mode or hardware mode.
 
 use crate::dsp::units::{Hertz, Milliseconds};
 use crate::{Args, ControllerMode};
@@ -14,6 +14,29 @@ use thiserror::Error;
 pub const DEFAULT_ADDR_PATTERN: &str = "127.0.0.1:8889";
 pub const DEFAULT_MAX_CLIENTS: usize = 8;
 const DEFAULT_BROADCAST_RATE_HZ: f32 = 30.0;
+/// Default calibration tone frequency in Hz (concert pitch A4). Used only by
+/// `AppConfig::default()`, which `resolve_config` always overwrites.
+pub const DEFAULT_TEST_HZ: f32 = 440.0;
+
+/// The synthetic calibration signal, a simple sine wave in one of two modes.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum TestSignal {
+    /// Fixed tone at the given frequency in Hz.
+    FixedTone(f32),
+    /// Logarithmic frequency sweep driven by a sine LFO at the given rate in Hz.
+    Sweep(f32),
+}
+
+/// The resolved input intent, built exactly once in `resolve_config`. Replaces
+/// the loose `device_name_match`, `test_hz`, and `test_sweep` fields so that
+/// hardware mode without a device name is unrepresentable.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ConfigInput {
+    /// Synthetic calibration signal, no hardware involved.
+    Calibration(TestSignal),
+    /// Hardware device resolved by name match (exact first, then substring).
+    Device(String),
+}
 
 fn default_bind_addr() -> SocketAddr {
     DEFAULT_ADDR_PATTERN
@@ -117,14 +140,8 @@ pub struct AppConfig {
     /// Maximum number of concurrent WebSocket clients.
     pub max_clients: usize,
 
-    /// Device name query for audio device resolution. None in calibration mode.
-    pub device_name_match: Option<String>,
-
-    /// A synthetic sine wave at the given frequency (e.g. 440.0).
-    pub test_hz: Option<f32>,
-
-    /// The value is the LFO rate in Hz (e.g. 0.1 for 10s).
-    pub test_sweep: Option<f32>,
+    /// The resolved input source intent, calibration signal or hardware device.
+    pub input: ConfigInput,
 
     /// Vocoder filter bank configuration.
     pub vocoder_config: VocoderConfig,
@@ -155,9 +172,7 @@ impl Default for AppConfig {
         Self {
             addr: default_bind_addr(),
             max_clients: DEFAULT_MAX_CLIENTS,
-            device_name_match: None,
-            test_hz: None,
-            test_sweep: None,
+            input: ConfigInput::Calibration(TestSignal::FixedTone(DEFAULT_TEST_HZ)),
             vocoder_config: VocoderConfig::default(),
             no_browser_origin: false,
             broadcast_rate: Some(DEFAULT_BROADCAST_RATE_HZ),
@@ -312,13 +327,14 @@ fn resolve_config(args: &Args, file: FileConfig) -> Result<AppConfig, AppConfigE
         .or(file.vocoder.filter_q)
         .unwrap_or(voc_def.filter_q);
 
-    // Device requirement
-    let in_calibration =
-        args.calibration.test_hz.is_some() || args.calibration.test_sweep.is_some();
-    let device_name_match = if in_calibration {
-        raw_device
+    // Input resolution. Calibration flags take priority over a device name,
+    // and clap guarantees at most one calibration flag is set.
+    let input = if let Some(lfo_rate) = args.calibration.test_sweep {
+        ConfigInput::Calibration(TestSignal::Sweep(lfo_rate))
+    } else if let Some(hz) = args.calibration.test_hz {
+        ConfigInput::Calibration(TestSignal::FixedTone(hz))
     } else {
-        Some(raw_device.ok_or(AppConfigError::MissingDevice)?)
+        ConfigInput::Device(raw_device.ok_or(AppConfigError::MissingDevice)?)
     };
 
     // Validation
@@ -338,9 +354,7 @@ fn resolve_config(args: &Args, file: FileConfig) -> Result<AppConfig, AppConfigE
     Ok(AppConfig {
         addr,
         max_clients,
-        device_name_match,
-        test_hz: args.calibration.test_hz,
-        test_sweep: args.calibration.test_sweep,
+        input,
         vocoder_config: VocoderConfig {
             attack_ms: Milliseconds(attack_ms),
             release_ms: Milliseconds(release_ms),
@@ -501,7 +515,10 @@ mod tests {
     fn try_from_passes_device_index() {
         let args = args_with_device(Some("Focusrite 2i2"));
         let config = AppConfig::try_from(&args).unwrap();
-        assert_eq!(config.device_name_match.as_deref(), Some("Focusrite 2i2"));
+        assert!(matches!(
+            config.input,
+            ConfigInput::Device(ref name) if name == "Focusrite 2i2"
+        ));
     }
 
     // In calibration mode no device is required.
@@ -510,8 +527,23 @@ mod tests {
         let mut args = args_with_device(None);
         args.calibration.test_hz = Some(440.0);
         let config = AppConfig::try_from(&args).unwrap();
-        assert_eq!(config.device_name_match, None);
-        assert_eq!(config.test_hz, Some(440.0));
+        assert_eq!(
+            config.input,
+            ConfigInput::Calibration(TestSignal::FixedTone(440.0))
+        );
+    }
+
+    #[test]
+    fn try_from_resolves_test_sweep_to_calibration_input() {
+        let mut args = args_with_device(None);
+        args.calibration.test_sweep = Some(0.1);
+
+        let config = AppConfig::try_from(&args).unwrap();
+
+        assert_eq!(
+            config.input,
+            ConfigInput::Calibration(TestSignal::Sweep(0.1))
+        );
     }
 
     // The default addr matches the declared constants.
@@ -889,8 +921,7 @@ mod tests {
     // File config device_name_match is used when CLI device is absent.
     #[test]
     fn file_config_device_overrides_none_when_cli_absent() {
-        let mut args = args_with_device(None);
-        args.calibration.test_hz = Some(440.0); // calibration mode to skip MissingDevice error
+        let args = args_with_device(None);
 
         let file = FileConfig {
             audio: FileAudioConfig {
@@ -901,7 +932,10 @@ mod tests {
         };
 
         let config = resolve_config(&args, file).unwrap();
-        assert_eq!(config.device_name_match.as_deref(), Some("Focusrite 2i2"));
+        assert!(matches!(
+            config.input,
+            ConfigInput::Device(ref name) if name == "Focusrite 2i2"
+        ));
     }
 
     // An invalid file config value (zero max_clients) is rejected by validation

@@ -12,7 +12,9 @@
 //! grace period to exit, which prevents one stalled worker from hanging the
 //! main thread indefinitely.
 
-use crate::config::{validate_vocoder_sample_rate, AppConfig, AppConfigError};
+use crate::config::{
+    validate_vocoder_sample_rate, AppConfig, AppConfigError, ConfigInput, TestSignal,
+};
 use crate::controller::Controller;
 use crate::dsp::{vocoder::VOCODER_BANDS, DisplayPayload, RawPayload};
 use crate::managers::audio::{ChannelMode, StreamSink};
@@ -28,27 +30,19 @@ use tokio::sync::watch;
 /// Safety buffer for the analyse ringbuf, headroom for analysis accumulation.
 const ANALYSE_BUFFER_MS: u32 = 500;
 
-/// Builds the calibration mode announcement for the given test signal
-/// configuration. Exactly one of `test_hz` or `test_sweep` is expected to
-/// be `Some` when this is called, calibration mode is only entered when
-/// at least one is set.
-fn calibration_announcement(test_hz: Option<f32>, test_sweep: Option<f32>) -> String {
-    if let Some(hz) = test_hz {
-        format!("Calibration mode: fixed tone at {hz} Hz")
-    } else if let Some(sweep) = test_sweep {
-        format!("Calibration mode: sweep at {sweep} Hz LFO rate")
-    } else {
-        "Calibration mode".to_string()
+/// Builds the calibration mode announcement for the given test signal.
+fn calibration_announcement(signal: TestSignal) -> String {
+    match signal {
+        TestSignal::FixedTone(hz) => format!("Calibration mode: fixed tone at {hz} Hz"),
+        TestSignal::Sweep(rate) => format!("Calibration mode: sweep at {rate} Hz LFO rate"),
     }
 }
 
 /// The resolved input source for the audio pipeline: either a real hardware
 /// device or a synthetic calibration generator. Resolved once in `App::new`
-/// from `AppConfig`'s calibration fields, then matched on wherever behaviour
-/// previously branched on a `calibration_mode` bool re-derived from those
-/// same fields.
+/// from `AppConfig::input`.
 enum InputSource {
-    Calibration,
+    Calibration(TestSignal),
     Hardware(cpal::Device, cpal::SupportedStreamConfig),
 }
 
@@ -114,15 +108,13 @@ impl App {
         let controller_state = Arc::clone(&state);
 
         let mut input_device = Input::new();
-        let calibration_mode = config.test_hz.is_some() || config.test_sweep.is_some();
-        let (hw_specs, input_source) =
-            Self::resolve_hardware(&config, calibration_mode, &mut input_device)?;
+        let (hw_specs, input_source) = Self::resolve_hardware(&config, &mut input_device)?;
         validate_vocoder_sample_rate(config.vocoder_config.freq_high, hw_specs.sample_rate)?;
 
         // Validate that all requested channel indices are within the hardware's capacity.
         // This check does not apply in calibration mode, where no real device is involved.
         match &input_source {
-            InputSource::Calibration => {}
+            InputSource::Calibration(_) => {}
             InputSource::Hardware(..) => {
                 if let Some(&idx) = config
                     .analyse_channels
@@ -156,14 +148,10 @@ impl App {
         // Spawn Producers. Hardware or a Generator is spawned.
         let mut generator_thread = None;
         match input_source {
-            InputSource::Calibration => {
-                log::info!(
-                    "{}",
-                    calibration_announcement(config.test_hz, config.test_sweep)
-                );
+            InputSource::Calibration(signal) => {
+                log::info!("{}", calibration_announcement(signal));
                 generator_thread = Some(Generator::spawn(
-                    config.test_hz,
-                    config.test_sweep,
+                    signal,
                     hw_specs.sample_rate,
                     hw_specs.channels,
                     analyse_tx,
@@ -231,33 +219,20 @@ impl App {
     /// # Errors
     ///
     /// Returns an error if the device cannot be resolved or queried.
-    ///
-    /// # Panics
-    ///
-    /// Panics if `device_name_match` is `None` when not in calibration mode.
-    /// This is guarded by `AppConfig::TryFrom`, so it should never occur in practice.
-    fn resolve_hardware(
-        config: &AppConfig,
-        calibration_mode: bool,
-        input: &mut Input,
-    ) -> Result<(Specs, InputSource)> {
-        if calibration_mode {
-            return Ok((
+    fn resolve_hardware(config: &AppConfig, input: &mut Input) -> Result<(Specs, InputSource)> {
+        match &config.input {
+            ConfigInput::Calibration(signal) => Ok((
                 Specs {
                     sample_rate: 44100,
                     channels: 2,
                 },
-                InputSource::Calibration,
-            ));
+                InputSource::Calibration(*signal),
+            )),
+            ConfigInput::Device(name_query) => {
+                let (device, stream_config, specs) = input.get_device(name_query)?;
+                Ok((specs, InputSource::Hardware(device, stream_config)))
+            }
         }
-
-        let name_query = config
-            .device_name_match
-            .as_deref()
-            .expect("device_name_match is required in hardware mode");
-        let (device, stream_config, specs) = input.get_device(name_query)?;
-
-        Ok((specs, InputSource::Hardware(device, stream_config)))
     }
 
     /// Hands control to the interactive controller, blocking until shutdown.
@@ -319,6 +294,7 @@ impl Drop for App {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::{ConfigInput, TestSignal};
     use crate::ControllerMode;
     use std::sync::{
         atomic::{AtomicUsize, Ordering},
@@ -365,7 +341,7 @@ mod tests {
     #[test]
     fn calibration_announcement_describes_fixed_tone() {
         assert_eq!(
-            calibration_announcement(Some(440.0), None),
+            calibration_announcement(TestSignal::FixedTone(440.0)),
             "Calibration mode: fixed tone at 440 Hz"
         );
     }
@@ -373,21 +349,27 @@ mod tests {
     #[test]
     fn calibration_announcement_describes_sweep() {
         assert_eq!(
-            calibration_announcement(None, Some(0.1)),
+            calibration_announcement(TestSignal::Sweep(0.1)),
             "Calibration mode: sweep at 0.1 Hz LFO rate"
         );
     }
 
     #[test]
     fn resolve_hardware_in_calibration_mode_returns_defaults() {
-        let config = AppConfig::default();
+        let config = AppConfig {
+            input: ConfigInput::Calibration(TestSignal::FixedTone(440.0)),
+            ..AppConfig::default()
+        };
         let mut input = Input::new();
 
-        let (specs, input_source) = App::resolve_hardware(&config, true, &mut input)
+        let (specs, input_source) = App::resolve_hardware(&config, &mut input)
             .expect("resolve_hardware should succeed in calibration mode");
 
         assert_eq!(specs.sample_rate, 44100);
         assert_eq!(specs.channels, 2);
-        assert!(matches!(input_source, InputSource::Calibration));
+        assert!(matches!(
+            input_source,
+            InputSource::Calibration(TestSignal::FixedTone(hz)) if (hz - 440.0).abs() < f32::EPSILON
+        ));
     }
 }
