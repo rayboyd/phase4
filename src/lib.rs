@@ -25,7 +25,7 @@ pub struct CalibrationArgs {
     pub test_hz: Option<f32>,
 
     /// Run a logarithmic sine wave sweep. The value is the LFO rate in Hz (e.g. 0.1 for 10s).
-    #[arg(long)]
+    #[arg(long, conflicts_with = "test_hz")]
     pub test_sweep: Option<f32>,
 }
 
@@ -173,4 +173,18 @@ pub struct Args {
 
     #[command(flatten)]
     pub runtime: RuntimeArgs,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_hz_and_test_sweep_conflict() {
+        let result = Args::try_parse_from(["phase4", "--test-hz", "440", "--test-sweep", "0.1"]);
+        assert!(
+            result.is_err(),
+            "passing both calibration flags must be a CLI error"
+        );
+    }
 }
