@@ -46,6 +46,8 @@ Press `T` to toggle the engines active state.
 > [INFO] WebSocket server listening on ws://127.0.0.1:8889
 ```
 
+No audio hardware to hand, calibration mode drives the full pipeline with a synthetic sine wave. See [docs/tutorials/calibration.md](docs/tutorials/calibration.md).
+
 ### Connect
 
 Phase4 streams real-time audio analysis data as a JSON broadcast. Any tool capable of opening a standard WebSocket connection (including browsers, Node.js, Python, or creative coding environments like TouchDesigner) can consume this stream. Point your WebSocket client to `ws://127.0.0.1:8889` to start receiving the data.
