@@ -31,7 +31,7 @@ pub use server::Server;
 ///
 /// Centralises the runtime-per-worker pattern used by the mapper, server, and
 /// OSC sender. Fallible setup that must happen before the thread starts (TCP
-/// bind, UDP connect) stays in the caller, this only covers the uniform part.
+/// bind, UDP bind) stays in the caller, this only covers the uniform part.
 ///
 /// # Panics
 ///

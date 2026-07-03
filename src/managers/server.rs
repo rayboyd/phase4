@@ -133,9 +133,11 @@ fn serialise_display_payload(
     }
 }
 
-/// Literal fallback used when even `DisplayPayload::default()` cannot be
-/// serialised. Kept as a named constant so the wire contract shape
-/// (`{"channels":[]}`, no bare `{}`) is documented in one place.
+/// Fallback seed for the initial WebSocket snapshot. Kept as a named constant
+/// so the wire contract shape (a `channels` array, never a bare `{}`) is
+/// documented in one place. The test
+/// `empty_display_payload_serialises_to_channels_array` pins this constant
+/// to the wire format that `DisplayPayload::default()` produces.
 const EMPTY_DISPLAY_PAYLOAD_JSON: &str = r#"{"channels":[]}"#;
 
 /// Produces the seed value for the serialised watch channel from the initial
@@ -146,10 +148,11 @@ const EMPTY_DISPLAY_PAYLOAD_JSON: &str = r#"{"channels":[]}"#;
 /// rejected initial payload counts towards the same once-per-streak logging
 /// streak as subsequent frames rather than always logging at startup.
 ///
-/// Falls back to a serialised, empty [`DisplayPayload`] when the initial
-/// payload is rejected. This keeps the fallback shaped like every other
-/// frame (a `channels` array, empty rather than absent) instead of the bare
-/// `{}` the wire contract never otherwise emits.
+/// Falls back to [`EMPTY_DISPLAY_PAYLOAD_JSON`] when the initial payload is
+/// rejected. The test `empty_display_payload_serialises_to_channels_array`
+/// pins that constant to the wire format that `DisplayPayload::default()`
+/// produces, ensuring the fallback remains shaped like every other frame (a
+/// `channels` array, empty rather than absent).
 fn initial_serialised_snapshot(payload: &DisplayPayload, already_logged: &mut bool) -> Utf8Bytes {
     if let Some(json) = serialise_display_payload(payload, already_logged) {
         return json;
@@ -157,13 +160,7 @@ fn initial_serialised_snapshot(payload: &DisplayPayload, already_logged: &mut bo
 
     log::error!("Falling back to an empty display payload for the initial WebSocket snapshot");
 
-    match serde_json::to_string(&DisplayPayload::default()) {
-        Ok(json) => Utf8Bytes::from(json),
-        Err(error) => {
-            log::error!("Failed to serialise the empty fallback display payload: {error}");
-            Utf8Bytes::from(EMPTY_DISPLAY_PAYLOAD_JSON.to_owned())
-        }
-    }
+    Utf8Bytes::from(EMPTY_DISPLAY_PAYLOAD_JSON.to_owned())
 }
 
 pub struct Server {
