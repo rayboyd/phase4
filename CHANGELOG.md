@@ -2,7 +2,7 @@
 
 All notable changes to Phase4 will be documented in this file.
 
-## Unreleased
+## 0.0.6
 
 ### Bug Fixes
 

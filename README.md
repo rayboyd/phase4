@@ -39,11 +39,13 @@ Launch Phase4 using your device name (e.g., Duet 3).
 ./phase4 --device "Duet 3"
 ```
 
-Press `T` to toggle the engines active state.
+Press `T` to toggle the engine's active state.
 
 ```
-> [INFO] 'T' to toggle engine, Ctrl+C to exit
+> [INFO] Welcome to phase4.
+> [INFO] Audio device resolved (exact match): Duet 3
 > [INFO] WebSocket server listening on ws://127.0.0.1:8889
+> [INFO] Ready. Press T to toggle engine, Ctrl+C to exit.
 ```
 
 No audio hardware to hand, calibration mode drives the full pipeline with a synthetic sine wave. See [docs/tutorials/calibration.md](docs/tutorials/calibration.md).
