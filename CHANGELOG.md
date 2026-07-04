@@ -7,14 +7,15 @@ All notable changes to Phase4 will be documented in this file.
 ### Bug Fixes
 
 - Log startup notes synchronously instead of racing worker threads ([0470097](https://github.com/rayboyd/phase4/commit/04700972bfe5b54a3474e1f91d8b517f0a2802b9))
-- Remove startup log line superseded by synchronous logging for WS in app.rs ([1fc8a54](https://github.com/rayboyd/phase4/commit/1fc8a5475037dc6ea814271bedf403454e7d4ef3))
-- Remove startup log line superseded by synchronous logging for OSC in app.rs ([320b539](https://github.com/rayboyd/phase4/commit/320b539f43f88d7cbe64bb6f6e4efdcb638f3fc1))
+- Remove startup log line superseded by synchronous logging in app.rs ([1fc8a54](https://github.com/rayboyd/phase4/commit/1fc8a5475037dc6ea814271bedf403454e7d4ef3))
+- Remove startup log line superseded by synchronous logging in app.rs ([320b539](https://github.com/rayboyd/phase4/commit/320b539f43f88d7cbe64bb6f6e4efdcb638f3fc1))
 - Reword ready line to close out the startup sequence ([037b53d](https://github.com/rayboyd/phase4/commit/037b53d9a4447decb9664e373429ac542379919d))
 
 ### Documentation
 
 - Correct spawn_async_worker fallible setup example to UDP bind ([ad110df](https://github.com/rayboyd/phase4/commit/ad110df258084575f2a8a31cc5864327019eed76))
 - Add calibration mode tutorial and flag exclusivity notes ([0d32a5f](https://github.com/rayboyd/phase4/commit/0d32a5f5efb9082feb850ea5fa36ac2ca31774f2))
+- Update serve output to match the startup sequence ([6276545](https://github.com/rayboyd/phase4/commit/62765459409d09238ae80c7952dc62287f93791e))
 
 ### Features
 
