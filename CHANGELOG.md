@@ -7,8 +7,8 @@ All notable changes to Phase4 will be documented in this file.
 ### Bug Fixes
 
 - Log startup notes synchronously instead of racing worker threads ([0470097](https://github.com/rayboyd/phase4/commit/04700972bfe5b54a3474e1f91d8b517f0a2802b9))
-- Remove startup log line superseded by synchronous logging in app.rs ([1fc8a54](https://github.com/rayboyd/phase4/commit/1fc8a5475037dc6ea814271bedf403454e7d4ef3))
-- Remove startup log line superseded by synchronous logging in app.rs ([320b539](https://github.com/rayboyd/phase4/commit/320b539f43f88d7cbe64bb6f6e4efdcb638f3fc1))
+- Remove startup log line superseded by synchronous logging for WS in app.rs ([1fc8a54](https://github.com/rayboyd/phase4/commit/1fc8a5475037dc6ea814271bedf403454e7d4ef3))
+- Remove startup log line superseded by synchronous logging for OSC in app.rs ([320b539](https://github.com/rayboyd/phase4/commit/320b539f43f88d7cbe64bb6f6e4efdcb638f3fc1))
 - Reword ready line to close out the startup sequence ([037b53d](https://github.com/rayboyd/phase4/commit/037b53d9a4447decb9664e373429ac542379919d))
 
 ### Documentation
