@@ -44,6 +44,18 @@ const HANDSHAKE_TIMEOUT_MS: u64 = 1_000;
 /// before the server thread exits.
 const CLIENT_SHUTDOWN_TIMEOUT_MS: u64 = 500;
 
+/// Number of `serialised_rx` handles the server retains for itself. The
+/// accept loop holds exactly one receiver, which it clones for each new
+/// client, so a receiver count at or below this value means no clients
+/// are connected.
+const RETAINED_SERIALISED_RECEIVERS: usize = 1;
+
+/// Returns whether the serialised watch channel has any client receivers
+/// beyond the handle the server retains for cloning.
+fn has_connected_clients(receiver_count: usize) -> bool {
+    receiver_count > RETAINED_SERIALISED_RECEIVERS
+}
+
 fn reject_browser_origin(origin: &str) -> ErrorResponse {
     Response::builder()
         .status(403)
@@ -235,7 +247,8 @@ impl Server {
         let client_slots = Arc::new(Semaphore::new(max_clients));
         let mut join_set: JoinSet<()> = JoinSet::new();
 
-        // One task owns JSON serialisation and fan-out to connected clients.
+        // One task owns JSON serialisation and fan-out to connected clients,
+        // skipping serialisation while no clients are connected.
         // The failure-logged flag is shared with the frame loop below, so a
         // rejected initial payload and a rejected first frame count as one
         // logging streak rather than two.
@@ -247,6 +260,15 @@ impl Server {
             loop {
                 if display_rx.changed().await.is_err() {
                     break;
+                }
+
+                if !has_connected_clients(serialised_tx.receiver_count()) {
+                    // Mark the frame consumed and skip the encode, nobody is
+                    // listening. The next client to connect receives the last
+                    // serialised frame as its handshake snapshot, and a fresh
+                    // frame replaces it within one broadcast interval.
+                    let _ = display_rx.borrow_and_update();
+                    continue;
                 }
 
                 // Avoid a per-frame DisplayPayload clone, the serialised output still needs
@@ -372,6 +394,16 @@ impl Server {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn has_connected_clients_is_false_for_the_retained_receiver_alone() {
+        assert!(!has_connected_clients(RETAINED_SERIALISED_RECEIVERS));
+    }
+
+    #[test]
+    fn has_connected_clients_is_true_above_the_retained_count() {
+        assert!(has_connected_clients(RETAINED_SERIALISED_RECEIVERS + 1));
+    }
 
     #[test]
     fn serialise_display_payload_rejects_non_finite_values_once_per_streak() {
