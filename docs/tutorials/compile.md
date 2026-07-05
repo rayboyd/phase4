@@ -18,7 +18,10 @@ Higher bin counts increase spectral detail but also CPU cost and data payload, a
 
 | Feature            | Bands | Notes                              |
 | :----------------- | :---- | :--------------------------------- |
-| `display-bins-32`  | 32    | Default. Lowest CPU.               |
+| `display-bins-4`   | 4     | Lowest CPU.                        |
+| `display-bins-8`   | 8     |                                    |
+| `display-bins-16`  | 16    |                                    |
+| `display-bins-32`  | 32    | Default.                           |
 | `display-bins-64`  | 64    |                                    |
 | `display-bins-128` | 128   |                                    |
 | `display-bins-256` | 256   | Most spectral detail. Highest CPU. |

@@ -88,7 +88,13 @@ fn git_stdout<const N: usize>(args: [&str; N]) -> Option<String> {
 /// with hyphens normalised to underscores and names uppercased. Falls back to
 /// `"64"` when no feature env var is set, which matches the default feature.
 fn resolve_display_bins() -> &'static str {
-    if env::var("CARGO_FEATURE_DISPLAY_BINS_32").is_ok() {
+    if env::var("CARGO_FEATURE_DISPLAY_BINS_4").is_ok() {
+        "4"
+    } else if env::var("CARGO_FEATURE_DISPLAY_BINS_8").is_ok() {
+        "8"
+    } else if env::var("CARGO_FEATURE_DISPLAY_BINS_16").is_ok() {
+        "16"
+    } else if env::var("CARGO_FEATURE_DISPLAY_BINS_32").is_ok() {
         "32"
     } else if env::var("CARGO_FEATURE_DISPLAY_BINS_128").is_ok() {
         "128"

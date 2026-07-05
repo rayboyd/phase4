@@ -9,7 +9,8 @@
 //!    serialised to JSON for WebSocket broadcast.
 //!
 //! [`DISPLAY_BINS`] is set at compile time via a Cargo feature flag
-//! (`display-bins-32`, `display-bins-64`, `display-bins-128`, or
+//! (`display-bins-4`, `display-bins-8`, `display-bins-16`,
+//! `display-bins-32`, `display-bins-64`, `display-bins-128`, or
 //! `display-bins-256`). The mapper handles both downsampling and upsampling.
 //! The vocoder's bin count must be an integer multiple of [`DISPLAY_BINS`],
 //! or [`DISPLAY_BINS`] must be an integer multiple of the vocoder's bin count.
@@ -19,6 +20,12 @@ use serde::{ser::SerializeStruct, Serialize, Serializer};
 
 /// Display resolution (number of analysis bins) sent to frontend clients.
 /// Selected at compile time via the `display-bins-*` feature flags.
+#[cfg(feature = "display-bins-4")]
+pub const DISPLAY_BINS: usize = 4;
+#[cfg(feature = "display-bins-8")]
+pub const DISPLAY_BINS: usize = 8;
+#[cfg(feature = "display-bins-16")]
+pub const DISPLAY_BINS: usize = 16;
 #[cfg(feature = "display-bins-32")]
 pub const DISPLAY_BINS: usize = 32;
 #[cfg(feature = "display-bins-64")]
@@ -29,6 +36,9 @@ pub const DISPLAY_BINS: usize = 128;
 pub const DISPLAY_BINS: usize = 256;
 
 #[cfg(not(any(
+    feature = "display-bins-4",
+    feature = "display-bins-8",
+    feature = "display-bins-16",
     feature = "display-bins-32",
     feature = "display-bins-64",
     feature = "display-bins-128",
@@ -36,10 +46,26 @@ pub const DISPLAY_BINS: usize = 256;
 )))]
 compile_error!(
     "exactly one display-bins feature must be enabled: \
-     display-bins-32, display-bins-64, display-bins-128, or display-bins-256"
+     display-bins-4, display-bins-8, display-bins-16, display-bins-32, \
+     display-bins-64, display-bins-128, or display-bins-256"
 );
 
 #[cfg(any(
+    all(feature = "display-bins-4", feature = "display-bins-8"),
+    all(feature = "display-bins-4", feature = "display-bins-16"),
+    all(feature = "display-bins-4", feature = "display-bins-32"),
+    all(feature = "display-bins-4", feature = "display-bins-64"),
+    all(feature = "display-bins-4", feature = "display-bins-128"),
+    all(feature = "display-bins-4", feature = "display-bins-256"),
+    all(feature = "display-bins-8", feature = "display-bins-16"),
+    all(feature = "display-bins-8", feature = "display-bins-32"),
+    all(feature = "display-bins-8", feature = "display-bins-64"),
+    all(feature = "display-bins-8", feature = "display-bins-128"),
+    all(feature = "display-bins-8", feature = "display-bins-256"),
+    all(feature = "display-bins-16", feature = "display-bins-32"),
+    all(feature = "display-bins-16", feature = "display-bins-64"),
+    all(feature = "display-bins-16", feature = "display-bins-128"),
+    all(feature = "display-bins-16", feature = "display-bins-256"),
     all(feature = "display-bins-32", feature = "display-bins-64"),
     all(feature = "display-bins-32", feature = "display-bins-128"),
     all(feature = "display-bins-32", feature = "display-bins-256"),
@@ -49,7 +75,8 @@ compile_error!(
 ))]
 compile_error!(
     "display-bins features are mutually exclusive; enable exactly one of: \
-     display-bins-32, display-bins-64, display-bins-128, or display-bins-256"
+    display-bins-4, display-bins-8, display-bins-16, display-bins-32, \
+    display-bins-64, display-bins-128, or display-bins-256"
 );
 
 // Validate that the vocoder bin count is compatible with the chosen display
