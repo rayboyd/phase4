@@ -17,21 +17,23 @@ design must extend without churn.
 Both transports become opt-in. The resolved configuration carries a non-empty
 collection of per-transport descriptors, built exactly once in `resolve_config`.
 
-    /// One configured output transport, carrying everything that
-    /// transport needs.
-    pub enum OutputConfig {
-        WebSocket {
-            addr: SocketAddr,
-            max_clients: usize,
-            no_browser_origin: bool,
-        },
-        Osc {
-            addr: SocketAddr,
-        },
-    }
+```rust
+/// One configured output transport, carrying everything that
+/// transport needs.
+pub enum OutputConfig {
+    WebSocket {
+        addr: SocketAddr,
+        max_clients: usize,
+        no_browser_origin: bool,
+    },
+    Osc {
+        addr: SocketAddr,
+    },
+}
 
-    /// The resolved output set, non-empty by construction.
-    pub struct ConfigOutputs(Vec<OutputConfig>);
+/// The resolved output set, non-empty by construction.
+pub struct ConfigOutputs(Vec<OutputConfig>);
+```
 
 The constructor rejects an empty collection with a new
 `AppConfigError::NoOutputConfigured`, reported at startup with a non-zero exit,
