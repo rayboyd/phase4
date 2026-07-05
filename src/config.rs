@@ -289,7 +289,12 @@ fn resolve_config(args: &Args, file: FileConfig) -> Result<AppConfig, AppConfigE
     let osc_addr = args.network.osc_addr.or(file.network.osc_addr);
 
     // Audio
-    let raw_device = args.input.device.clone().or(file.audio.device_name_match);
+    let raw_device = args
+        .input
+        .device
+        .clone()
+        .or(file.audio.device_name_match)
+        .filter(|name| !name.trim().is_empty());
     let raw_channels = args
         .input
         .analyse_channels
@@ -975,5 +980,28 @@ mod tests {
 
         let config = resolve_config(&args, file).unwrap();
         assert!(config.no_browser_origin);
+    }
+
+    // An empty device string is rejected, not treated as a valid query.
+    #[test]
+    fn try_from_rejects_empty_device_string() {
+        let args = args_with_device(Some(""));
+        let result = AppConfig::try_from(&args);
+        assert!(matches!(result, Err(AppConfigError::MissingDevice)));
+    }
+
+    // An empty device_name_match from the file layer is rejected identically.
+    #[test]
+    fn file_config_rejects_empty_device_string() {
+        let args = args_with_device(None);
+        let file = FileConfig {
+            audio: FileAudioConfig {
+                device_name_match: Some(String::new()),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let result = resolve_config(&args, file);
+        assert!(matches!(result, Err(AppConfigError::MissingDevice)));
     }
 }
