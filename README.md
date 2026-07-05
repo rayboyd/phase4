@@ -68,6 +68,8 @@ Each frequency bin is sent as a separate OSC message with address `/phase4/ch/{c
 
 See [docs/tutorials/osc.md](docs/tutorials/osc.md) for the full address reference and integration notes.
 
+Embedding Phase4 in your own application is documented in [docs/tutorials/wrapper.md](docs/tutorials/wrapper.md).
+
 ## Configuration file
 
 Instead of passing flags on every invocation you can place a `config.yaml` file in the current working directory, that is, wherever the Phase4 process is launched from, not where the binary itself lives on disk. Phase4 reads it at startup and applies a three-tier priority rule. CLI flags override file values, file values override hardcoded defaults. Any key may be omitted, and absent keys inherit the default.
