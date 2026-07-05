@@ -267,11 +267,18 @@ impl Input {
     /// # Errors
     ///
     /// Returns an error if input devices cannot be enumerated, hardware configuration
-    /// cannot be queried, or if no device matches `name_query`.
+    /// cannot be queried, if no device matches `name_query`, or if `name_query` is empty
+    /// or whitespace-only.
     pub fn get_device(
         &self,
         name_query: &str,
     ) -> Result<(cpal::Device, cpal::SupportedStreamConfig, Specs)> {
+        if name_query.trim().is_empty() {
+            anyhow::bail!(
+                "Device query must not be empty. Run with --list to see available devices."
+            );
+        }
+
         let host = cpal::default_host();
         let query_lower = name_query.to_lowercase();
         let mut fuzzy_candidate: Option<cpal::Device> = None;
@@ -661,6 +668,16 @@ mod tests {
         assert!(!dropped_sel);
         assert_eq!(drain(c_all), Vec::<f32>::new());
         assert_eq!(drain(c_sel), Vec::<f32>::new());
+    }
+
+    #[test]
+    fn get_device_rejects_empty_query() {
+        let input = Input::new();
+        let result = input.get_device("");
+        assert!(
+            result.is_err(),
+            "an empty device query must not match anything"
+        );
     }
 
     #[test]
