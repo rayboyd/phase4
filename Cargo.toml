@@ -7,6 +7,9 @@ rust-version = "1.87"
 
 [features]
 default = ["display-bins-32"]
+display-bins-4 = []
+display-bins-8 = []
+display-bins-16 = []
 display-bins-32 = []
 display-bins-64 = []
 display-bins-128 = []

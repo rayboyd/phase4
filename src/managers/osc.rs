@@ -203,7 +203,8 @@ mod tests {
 
         // Check a specific index mapping.
         let ch_0_bin_0_idx = 0;
-        let ch_1_bin_5_idx = DISPLAY_BINS + 5;
+        let sampled_bin = usize::min(5, DISPLAY_BINS - 1);
+        let ch_1_sampled_bin_idx = DISPLAY_BINS + sampled_bin;
 
         if let OscPacket::Message(msg) = &packets[ch_0_bin_0_idx] {
             assert_eq!(msg.addr, "/phase4/ch/0/bin/0");
@@ -213,12 +214,12 @@ mod tests {
             panic!("packet at [{ch_0_bin_0_idx}] must be an OscMessage");
         }
 
-        if let OscPacket::Message(msg) = &packets[ch_1_bin_5_idx] {
-            assert_eq!(msg.addr, "/phase4/ch/1/bin/5");
+        if let OscPacket::Message(msg) = &packets[ch_1_sampled_bin_idx] {
+            assert_eq!(msg.addr, format!("/phase4/ch/1/bin/{sampled_bin}"));
             assert_eq!(msg.args.len(), 1);
             assert!(matches!(msg.args[0], OscType::Float(_)));
         } else {
-            panic!("packet at [{ch_1_bin_5_idx}] must be an OscMessage");
+            panic!("packet at [{ch_1_sampled_bin_idx}] must be an OscMessage");
         }
     }
 
