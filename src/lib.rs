@@ -79,7 +79,7 @@ pub struct NetworkArgs {
     #[arg(long)]
     pub max_clients: Option<usize>,
 
-    /// Target WebSocket broadcast rate in Hz, e.g. 30 or 60 (default: 30).
+    /// Target WebSocket broadcast rate in Hz, e.g. 30 or 60 (default: 60).
     #[arg(long)]
     pub broadcast_rate: Option<f32>,
 
@@ -107,23 +107,23 @@ pub struct NetworkArgs {
 #[derive(clap::Args)]
 #[command(next_help_heading = "Vocoder")]
 pub struct VocoderArgs {
-    /// Vocoder envelope attack time constant in milliseconds. Smaller is faster (default: 30).
+    /// Vocoder envelope attack time constant in milliseconds. Smaller is faster (default: 24).
     #[arg(long = "vocoder-attack-ms")]
     pub attack_ms: Option<f32>,
 
-    /// Vocoder envelope release time constant in milliseconds. Smaller is faster (default: 60).
+    /// Vocoder envelope release time constant in milliseconds. Smaller is faster (default: 96).
     #[arg(long = "vocoder-release-ms")]
     pub release_ms: Option<f32>,
 
-    /// Vocoder lowest band centre frequency in Hz (default: 40).
+    /// Vocoder lowest band centre frequency in Hz (default: 60).
     #[arg(long = "vocoder-freq-low")]
     pub freq_low: Option<f32>,
 
-    /// Vocoder highest band centre frequency in Hz (default: 18000).
+    /// Vocoder highest band centre frequency in Hz (default: 6000).
     #[arg(long = "vocoder-freq-high")]
     pub freq_high: Option<f32>,
 
-    /// Vocoder bandpass filter Q factor. Higher is narrower (default: 2).
+    /// Vocoder bandpass filter Q factor. Higher is narrower (default: 8).
     #[arg(long = "vocoder-filter-q")]
     pub filter_q: Option<f32>,
 }

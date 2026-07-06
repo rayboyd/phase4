@@ -87,7 +87,7 @@ Edit only the sections you need. For example, to pin a device and raise the broa
 ```yaml
 network:
   ws_addr: "127.0.0.1:8889"
-  broadcast_rate: 60.0
+  broadcast_rate: 90.0
 
 audio:
   device_name_match: "Duet 3"

@@ -12,7 +12,7 @@ use std::path::Path;
 use thiserror::Error;
 
 pub const DEFAULT_MAX_CLIENTS: usize = 8;
-const DEFAULT_BROADCAST_RATE_HZ: f32 = 30.0;
+const DEFAULT_BROADCAST_RATE_HZ: f32 = 60.0;
 /// Default calibration tone frequency in Hz (concert pitch A4). Used only by
 /// `AppConfig::default()`, which `resolve_config` always overwrites.
 pub const DEFAULT_TEST_HZ: f32 = 440.0;
@@ -98,11 +98,11 @@ pub struct VocoderConfig {
 impl Default for VocoderConfig {
     fn default() -> Self {
         Self {
-            attack_ms: Milliseconds(30.0),
-            release_ms: Milliseconds(60.0),
-            freq_low: Hertz(40.0),
-            freq_high: Hertz(18_000.0),
-            filter_q: 2.0,
+            attack_ms: Milliseconds(24.0),
+            release_ms: Milliseconds(96.0),
+            freq_low: Hertz(60.0),
+            freq_high: Hertz(6_000.0),
+            filter_q: 8.0,
         }
     }
 }
@@ -549,11 +549,11 @@ mod tests {
                 osc_addr: None,
             },
             vocoder: crate::VocoderArgs {
-                attack_ms: Some(30.0),
-                release_ms: Some(60.0),
-                freq_low: Some(40.0),
-                freq_high: Some(18_000.0),
-                filter_q: Some(2.0),
+                attack_ms: Some(24.0),
+                release_ms: Some(96.0),
+                freq_low: Some(60.0),
+                freq_high: Some(6_000.0),
+                filter_q: Some(8.0),
             },
             calibration: CalibrationArgs {
                 test_hz: None,
@@ -642,11 +642,11 @@ mod tests {
     #[allow(clippy::float_cmp)]
     fn vocoder_config_default_values() {
         let config = VocoderConfig::default();
-        assert_eq!(config.attack_ms, Milliseconds(30.0));
-        assert_eq!(config.release_ms, Milliseconds(60.0));
-        assert_eq!(config.freq_low, Hertz(40.0));
-        assert_eq!(config.freq_high, Hertz(18_000.0));
-        assert_eq!(config.filter_q, 2.0);
+        assert_eq!(config.attack_ms, Milliseconds(24.0));
+        assert_eq!(config.release_ms, Milliseconds(96.0));
+        assert_eq!(config.freq_low, Hertz(60.0));
+        assert_eq!(config.freq_high, Hertz(6_000.0));
+        assert_eq!(config.filter_q, 8.0);
     }
 
     // Custom vocoder CLI args are forwarded into VocoderConfig.
@@ -763,19 +763,19 @@ mod tests {
     #[allow(clippy::float_cmp)]
     fn try_from_forwards_broadcast_rate() {
         let mut args = args_with_device(Some("test"));
-        args.network.broadcast_rate = Some(60.0);
+        args.network.broadcast_rate = Some(45.0);
 
         let config = AppConfig::try_from(&args).unwrap();
 
-        assert_eq!(config.broadcast_rate, Some(60.0));
+        assert_eq!(config.broadcast_rate, Some(45.0));
     }
 
-    // The default config uses a 30 Hz broadcast rate.
+    // The default config uses a 60 Hz broadcast rate.
     #[test]
     #[allow(clippy::float_cmp)]
     fn default_config_has_default_broadcast_rate() {
         let config = AppConfig::default();
-        assert_eq!(config.broadcast_rate, Some(30.0));
+        assert_eq!(config.broadcast_rate, Some(60.0));
     }
 
     // A valid max client count is forwarded into the config.
