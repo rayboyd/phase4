@@ -11,8 +11,20 @@
 //!   - `Drop` cleanly signals threads to stop when `app` goes out of scope
 
 use phase4::app::App;
-use phase4::config::{AppConfig, ConfigInput, TestSignal};
+use phase4::config::DEFAULT_MAX_CLIENTS;
+use phase4::config::{AppConfig, ConfigInput, ConfigOutputs, OutputConfig, TestSignal};
 use std::net::SocketAddr;
+
+/// Builds a single-entry `ConfigOutputs` with a WebSocket transport listening
+/// on `addr`, for tests that only care about exercising `App::new`.
+fn ws_outputs(addr: SocketAddr) -> ConfigOutputs {
+    ConfigOutputs::new(vec![OutputConfig::WebSocket {
+        addr,
+        max_clients: DEFAULT_MAX_CLIENTS,
+        no_browser_origin: false,
+    }])
+    .expect("a single-element Vec is non-empty")
+}
 
 #[test]
 fn app_new_returns_error_on_port_collision() {
@@ -23,7 +35,7 @@ fn app_new_returns_error_on_port_collision() {
     // Attempt to construct the App using the occupied port.
     let config = AppConfig {
         input: ConfigInput::Calibration(TestSignal::FixedTone(440.0)),
-        addr: occupied_addr,
+        outputs: ws_outputs(occupied_addr),
         ..AppConfig::default()
     };
 
@@ -44,8 +56,8 @@ fn app_new_succeeds_in_calibration_mode() {
     let config = AppConfig {
         input: ConfigInput::Calibration(TestSignal::FixedTone(440.0)),
         // Port 0 asks the OS to assign a random free port, avoiding conflicts
-        // with the real app (8889) or other tests running in parallel.
-        addr: "127.0.0.1:0".parse::<SocketAddr>().unwrap(),
+        // with the real app or other tests running in parallel.
+        outputs: ws_outputs("127.0.0.1:0".parse::<SocketAddr>().unwrap()),
         ..AppConfig::default()
     };
 
@@ -61,7 +73,7 @@ fn app_new_succeeds_in_calibration_mode() {
 fn app_new_succeeds_with_sweep() {
     let config = AppConfig {
         input: ConfigInput::Calibration(TestSignal::Sweep(0.1)), // 0.1 Hz LFO, 10 second sweep cycle
-        addr: "127.0.0.1:0".parse::<SocketAddr>().unwrap(),
+        outputs: ws_outputs("127.0.0.1:0".parse::<SocketAddr>().unwrap()),
         ..AppConfig::default()
     };
 
@@ -83,7 +95,7 @@ async fn drop_joins_all_threads_within_deadline() {
         tokio::task::spawn_blocking(|| {
             let config = AppConfig {
                 input: ConfigInput::Calibration(TestSignal::FixedTone(440.0)),
-                addr: "127.0.0.1:0".parse::<SocketAddr>().unwrap(),
+                outputs: ws_outputs("127.0.0.1:0".parse::<SocketAddr>().unwrap()),
                 ..AppConfig::default()
             };
 

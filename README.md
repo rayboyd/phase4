@@ -33,10 +33,10 @@ If a device is not supported, you'll see **No hardware support (32-bit required)
 
 ### Serve
 
-Launch Phase4 using your device name (e.g., Duet 3).
+Launch Phase4 using your device name (e.g., Duet 3) and a WebSocket listen address.
 
 ```sh
-./phase4 --device "Duet 3"
+./phase4 --device "Duet 3" --ws-addr 127.0.0.1:8889
 ```
 
 Press `T` to toggle the engine's active state.
@@ -58,10 +58,10 @@ If Phase4 is broadcasting, check this [CodePen example](https://codepen.io/raybo
 
 ### OSC
 
-Phase4 can send real-time analysis data as OSC float messages over UDP. Pass `--osc-addr` with a `host:port` target to enable it alongside the WebSocket broadcast.
+Phase4 can send real-time analysis data as OSC float messages over UDP. Pass `--osc-addr` with a `host:port` target to enable it, either alongside `--ws-addr` or on its own.
 
 ```sh
-./phase4 --device "Duet 3" --osc-addr 127.0.0.1:7000
+./phase4 --device "Duet 3" --ws-addr 127.0.0.1:8889 --osc-addr 127.0.0.1:7000
 ```
 
 Each frequency bin is sent as a separate OSC message with address `/phase4/ch/{channel}/bin/{bin}` and a single `f` argument in the range `0.0` to `1.0`. Map these addresses to parameters using your software's OSC shortcut editor.
@@ -86,6 +86,7 @@ Edit only the sections you need. For example, to pin a device and raise the broa
 
 ```yaml
 network:
+  ws_addr: "127.0.0.1:8889"
   broadcast_rate: 60.0
 
 audio:

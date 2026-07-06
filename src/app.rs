@@ -13,13 +13,14 @@
 //! main thread indefinitely.
 
 use crate::config::{
-    validate_vocoder_sample_rate, AppConfig, AppConfigError, ConfigInput, TestSignal,
+    validate_vocoder_sample_rate, AppConfig, AppConfigError, ConfigInput, ConfigOutputs,
+    OutputConfig, TestSignal,
 };
 use crate::controller::Controller;
 use crate::dsp::{vocoder::VOCODER_BANDS, DisplayPayload, RawPayload};
 use crate::managers::audio::{ChannelMode, StreamSink};
 use crate::managers::{Generator, Input, Mapper, OscSender, Processor, Server, Specs};
-use crate::worker::WorkerThreads;
+use crate::worker::{OutputWorker, WorkerThreads};
 use anyhow::Result;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
@@ -92,7 +93,8 @@ impl App {
     /// # Errors
     ///
     /// Returns an error if the audio device cannot be opened, the input stream
-    /// cannot be started, or the WebSocket server cannot bind to its address.
+    /// cannot be started, or a configured output transport cannot bind to its
+    /// address.
     ///
     /// # Panics
     ///
@@ -102,8 +104,6 @@ impl App {
         let stream_state = Arc::clone(&state);
         let analyser_state = Arc::clone(&state);
         let mapper_state = Arc::clone(&state);
-        let server_state = Arc::clone(&state);
-        let osc_state = Arc::clone(&state);
         let generator_state = Arc::clone(&state);
         let controller_state = Arc::clone(&state);
 
@@ -184,19 +184,12 @@ impl App {
             config.broadcast_rate,
         ));
 
-        let server = Server::new(config.addr, config.no_browser_origin, config.max_clients);
-        let server_thread = Some(server.spawn(display_rx.clone(), server_state)?);
-        log::info!("WebSocket server listening on ws://{}", config.addr);
-
-        // Spawn the OSC sender when a target address is configured.
-        let osc_sender_thread = if let Some(addr) = config.osc_addr {
-            let sender = OscSender::new(addr);
-            let thread = Some(sender.spawn(display_rx, display_channels, osc_state)?);
-            log::info!("OSC sender transmitting to udp://{addr}");
-            thread
-        } else {
-            None
-        };
+        // Spawn one worker per configured output transport. Each descriptor in
+        // config.outputs matches to exactly one spawn arm in spawn_outputs,
+        // adding a new transport means adding one variant and one arm there,
+        // nothing else changes.
+        let output_threads =
+            Self::spawn_outputs(&config.outputs, &display_rx, display_channels, &state)?;
 
         Ok(Self {
             input_device: Some(input_device),
@@ -205,12 +198,51 @@ impl App {
                 generator_thread,
                 analyser_thread,
                 mapper_thread,
-                server_thread,
-                osc_sender_thread,
+                output_threads,
             ),
             controller: Controller::new(config.controller_mode, controller_state),
             shutdown_started: false,
         })
+    }
+
+    /// Spawns one worker thread per configured output transport, matching each
+    /// [`OutputConfig`] descriptor to its spawn call.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if a transport fails to bind (WebSocket listener) or
+    /// fails to acquire its local socket (OSC sender).
+    fn spawn_outputs(
+        outputs: &ConfigOutputs,
+        display_rx: &watch::Receiver<DisplayPayload>,
+        display_channels: usize,
+        state: &Arc<AppState>,
+    ) -> Result<Vec<(OutputWorker, std::thread::JoinHandle<()>)>> {
+        let mut output_threads = Vec::new();
+
+        for output in outputs.iter() {
+            match output {
+                OutputConfig::WebSocket {
+                    addr,
+                    max_clients,
+                    no_browser_origin,
+                } => {
+                    let server = Server::new(*addr, *no_browser_origin, *max_clients);
+                    let handle = server.spawn(display_rx.clone(), Arc::clone(state))?;
+                    log::info!("WebSocket server listening on ws://{addr}");
+                    output_threads.push((OutputWorker::WebSocket, handle));
+                }
+                OutputConfig::Osc { addr } => {
+                    let sender = OscSender::new(*addr);
+                    let handle =
+                        sender.spawn(display_rx.clone(), display_channels, Arc::clone(state))?;
+                    log::info!("OSC sender transmitting to udp://{addr}");
+                    output_threads.push((OutputWorker::Osc, handle));
+                }
+            }
+        }
+
+        Ok(output_threads)
     }
 
     /// Returns hardware specs and a resolved [`InputSource`], either calibration-mode
@@ -320,7 +352,7 @@ mod tests {
         let mut app = App {
             input_device: None,
             state: state.clone(),
-            workers: WorkerThreads::new(generator_thread, None, None, None, None),
+            workers: WorkerThreads::new(generator_thread, None, None, Vec::new()),
             controller: Controller::new(ControllerMode::Term, state.clone()),
             shutdown_started: false,
         };
@@ -331,7 +363,8 @@ mod tests {
         assert!(app.shutdown_started);
         assert!(!state.keep_running.load(Ordering::Acquire));
         assert_eq!(exit_count.load(Ordering::Acquire), 1);
-        assert!(app.workers.0.iter().all(Option::is_none));
+        assert!(app.workers.pipeline.iter().all(Option::is_none));
+        assert!(app.workers.outputs.is_empty());
 
         drop(app);
 

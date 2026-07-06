@@ -65,13 +65,15 @@ pub struct InputArgs {
     pub analyse_channels: Option<Vec<u16>>,
 }
 
-/// WebSocket server and broadcast settings.
+/// Output transport settings. Both transports are opt-in, omitting an
+/// address disables that transport entirely.
 #[derive(clap::Args)]
 #[command(next_help_heading = "Network")]
 pub struct NetworkArgs {
-    /// WebSocket server bind address (default: 127.0.0.1:8889).
-    #[arg(short, long)]
-    pub addr: Option<SocketAddr>,
+    /// WebSocket JSON listen address (e.g. 127.0.0.1:8889). Phase4 binds this
+    /// address and clients connect in. Omit to disable the WebSocket output.
+    #[arg(long)]
+    pub ws_addr: Option<SocketAddr>,
 
     /// Maximum number of concurrent WebSocket clients (default: 8).
     #[arg(long)]
@@ -90,7 +92,8 @@ pub struct NetworkArgs {
     #[arg(long)]
     pub no_browser_origin: bool,
 
-    /// OSC UDP output target address (e.g. 127.0.0.1:7000). Omit to disable OSC output.
+    /// OSC UDP target address (e.g. 127.0.0.1:7000). Phase4 sends to this
+    /// address, it does not listen. Omit to disable the OSC output.
     ///
     /// When set, phase4 emits one OSC float message per bin per channel each broadcast
     /// frame to the given address.

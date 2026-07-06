@@ -27,7 +27,9 @@ flowchart TD
 		C -->|yes| D[List input devices and exit]
 		C -->|no| E2[Load config.yaml if present]
 		E2 --> E[Build AppConfig: CLI overrides file, file overrides defaults]
-		E --> F{Calibration mode?}
+		E --> E3{At least one of --ws-addr, --osc-addr configured?}
+		E3 -->|no| E4[Exit: NoOutputConfigured, non-zero]
+		E3 -->|yes| F{Calibration mode?}
 		F -->|yes| G[Use synthetic specs 44.1kHz, 2ch]
 		F -->|no| H[Resolve input device and native specs]
 		G --> I[Create analyse ring buffer]
@@ -39,8 +41,10 @@ flowchart TD
 		L --> N[Spawn analyser thread]
 		M --> N
 		N --> O[Spawn mapper thread]
-		O --> P[Spawn WebSocket server thread]
-		P --> Q{--osc-addr flag?}
+		O --> P{--ws-addr configured?}
+		P -->|yes| P2[Spawn WebSocket server thread]
+		P -->|no| Q
+		P2 --> Q{--osc-addr configured?}
 		Q -->|yes| Q2[Spawn OSC sender thread]
 		Q -->|no| R[Run controller loop until shutdown]
 		Q2 --> R

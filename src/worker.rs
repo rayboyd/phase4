@@ -1,12 +1,16 @@
 //! Worker thread ownership and coordinated shutdown for the audio pipeline.
 //!
-//! [`WorkerThreads`] owns the [`JoinHandle`] for each pipeline stage. Shutdown
-//! is driven by [`WorkerThreads::shutdown`], which iterates every [`ShutdownWorker`]
-//! variant in order and waits a bounded time for each one before detaching.
+//! [`WorkerThreads`] owns the [`JoinHandle`] for each pipeline stage plus a
+//! dynamic list of output transport workers (WebSocket server, OSC sender,
+//! and any future transport). Shutdown is driven by [`WorkerThreads::shutdown`],
+//! which joins the fixed pipeline stages in order, then the output workers in
+//! the order they were spawned, waiting a bounded time for each one before
+//! detaching.
 //!
-//! Adding a new worker requires only extending [`ShutdownWorker`] with a new variant
-//! and updating its three `match` arms. The shutdown loop and [`WorkerThreads`] array
-//! size update automatically via [`ShutdownWorker::COUNT`] and [`ShutdownWorker::ALL`].
+//! Adding a new output transport requires only extending [`OutputWorker`] with
+//! a new variant, giving it a [`WorkerSpec`] in [`OutputWorker::spec`], and
+//! pushing its handle onto the `outputs` list passed to [`WorkerThreads::new`].
+//! Nothing about the shutdown loop or [`WorkerThreads`] itself needs to change.
 
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
@@ -39,116 +43,142 @@ enum JoinOutcome {
     Panicked,
 }
 
-/// Identifies a named worker thread and carries its shutdown timeout.
+/// A worker thread's display name, shutdown grace period, and success log line.
+/// Shared between the fixed pipeline stages and the dynamic output transports
+/// so both are joined through the same code path.
 #[derive(Debug, Clone, Copy)]
-enum ShutdownWorker {
+struct WorkerSpec {
+    name: &'static str,
+    success_message: &'static str,
+    timeout_ms: u64,
+}
+
+impl WorkerSpec {
+    fn timeout(self) -> Duration {
+        Duration::from_millis(self.timeout_ms)
+    }
+}
+
+/// The fixed audio pipeline stages, present in every run regardless of which
+/// output transports are configured.
+#[derive(Debug, Clone, Copy)]
+enum PipelineWorker {
     Generator = 0,
     Analyser = 1,
     Mapper = 2,
-    Server = 3,
-    OscSender = 4,
 }
 
-impl ShutdownWorker {
-    /// Total number of variants. Keeps [`WorkerThreads`] array size in sync.
-    const COUNT: usize = 5;
+impl PipelineWorker {
+    /// Total number of variants. Keeps the `WorkerThreads` pipeline array size in sync.
+    const COUNT: usize = 3;
 
     /// Ordered list of all variants, used by the shutdown loop.
-    const ALL: [Self; Self::COUNT] = [
-        Self::Generator,
-        Self::Analyser,
-        Self::Mapper,
-        Self::Server,
-        Self::OscSender,
-    ];
+    const ALL: [Self; Self::COUNT] = [Self::Generator, Self::Analyser, Self::Mapper];
 
-    fn name(self) -> &'static str {
+    fn spec(self) -> WorkerSpec {
         match self {
-            Self::Generator => "generator",
-            Self::Analyser => "analyser",
-            Self::Mapper => "mapper",
-            Self::Server => "server",
-            Self::OscSender => "osc-sender",
+            Self::Generator => WorkerSpec {
+                name: "generator",
+                success_message: "- Generator shutdown complete",
+                timeout_ms: GENERATOR_SHUTDOWN_TIMEOUT_MS,
+            },
+            Self::Analyser => WorkerSpec {
+                name: "analyser",
+                success_message: "- Analyser shutdown complete",
+                timeout_ms: ANALYSER_SHUTDOWN_TIMEOUT_MS,
+            },
+            Self::Mapper => WorkerSpec {
+                name: "mapper",
+                success_message: "- Mapper shutdown complete",
+                timeout_ms: MAPPER_SHUTDOWN_TIMEOUT_MS,
+            },
         }
-    }
-
-    fn success_message(self) -> &'static str {
-        match self {
-            Self::Generator => "- Generator shutdown complete",
-            Self::Analyser => "- Analyser shutdown complete",
-            Self::Mapper => "- Mapper shutdown complete",
-            Self::Server => "- Server shutdown complete",
-            Self::OscSender => "- OSC sender shutdown complete",
-        }
-    }
-
-    fn timeout_ms(self) -> u64 {
-        match self {
-            Self::Generator => GENERATOR_SHUTDOWN_TIMEOUT_MS,
-            Self::Analyser => ANALYSER_SHUTDOWN_TIMEOUT_MS,
-            Self::Mapper => MAPPER_SHUTDOWN_TIMEOUT_MS,
-            Self::Server => SERVER_SHUTDOWN_TIMEOUT_MS,
-            Self::OscSender => OSC_SENDER_SHUTDOWN_TIMEOUT_MS,
-        }
-    }
-
-    fn timeout(self) -> Duration {
-        Duration::from_millis(self.timeout_ms())
     }
 }
 
-/// Owns the [`JoinHandle`] for each pipeline stage, indexed by [`ShutdownWorker`] discriminant.
+/// Identifies which output transport an entry in `WorkerThreads::outputs`
+/// belongs to. One variant per [`crate::config::OutputConfig`] variant.
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum OutputWorker {
+    WebSocket,
+    Osc,
+}
+
+impl OutputWorker {
+    fn spec(self) -> WorkerSpec {
+        match self {
+            Self::WebSocket => WorkerSpec {
+                name: "websocket-server",
+                success_message: "- WebSocket server shutdown complete",
+                timeout_ms: SERVER_SHUTDOWN_TIMEOUT_MS,
+            },
+            Self::Osc => WorkerSpec {
+                name: "osc-sender",
+                success_message: "- OSC sender shutdown complete",
+                timeout_ms: OSC_SENDER_SHUTDOWN_TIMEOUT_MS,
+            },
+        }
+    }
+}
+
+/// Owns the [`JoinHandle`] for each fixed pipeline stage, plus one handle per
+/// configured output transport worker.
 #[derive(Default)]
-pub(crate) struct WorkerThreads(pub(crate) [Option<JoinHandle<()>>; ShutdownWorker::COUNT]);
+pub(crate) struct WorkerThreads {
+    pub(crate) pipeline: [Option<JoinHandle<()>>; PipelineWorker::COUNT],
+    pub(crate) outputs: Vec<(OutputWorker, JoinHandle<()>)>,
+}
 
 impl WorkerThreads {
-    /// Constructs a `WorkerThreads` from individual optional handles.
+    /// Constructs a `WorkerThreads` from the fixed pipeline handles and a list
+    /// of output transport handles, one entry per spawned output.
     ///
-    /// Any handle that is `None` is simply skipped during shutdown.
+    /// Any pipeline handle that is `None` is simply skipped during shutdown.
     pub(crate) fn new(
         generator: Option<JoinHandle<()>>,
         analyser: Option<JoinHandle<()>>,
         mapper: Option<JoinHandle<()>>,
-        server: Option<JoinHandle<()>>,
-        osc_sender: Option<JoinHandle<()>>,
+        outputs: Vec<(OutputWorker, JoinHandle<()>)>,
     ) -> Self {
-        let mut handles = [None, None, None, None, None];
-        handles[ShutdownWorker::Generator as usize] = generator;
-        handles[ShutdownWorker::Analyser as usize] = analyser;
-        handles[ShutdownWorker::Mapper as usize] = mapper;
-        handles[ShutdownWorker::Server as usize] = server;
-        handles[ShutdownWorker::OscSender as usize] = osc_sender;
-        Self(handles)
+        let mut pipeline = [None, None, None];
+        pipeline[PipelineWorker::Generator as usize] = generator;
+        pipeline[PipelineWorker::Analyser as usize] = analyser;
+        pipeline[PipelineWorker::Mapper as usize] = mapper;
+        Self { pipeline, outputs }
     }
 
-    /// Signals all workers to stop by iterating [`ShutdownWorker::ALL`] and waiting
-    /// a bounded time for each one. Workers that do not stop within their grace period
-    /// are detached rather than blocking the main thread indefinitely.
+    /// Signals all workers to stop by joining the fixed pipeline stages first,
+    /// then every output transport worker, waiting a bounded time for each one.
+    /// Workers that do not stop within their grace period are detached rather
+    /// than blocking the main thread indefinitely.
     pub(crate) fn shutdown(&mut self) {
-        for worker in ShutdownWorker::ALL {
-            Self::shutdown_worker(worker, &mut self.0[worker as usize]);
+        for worker in PipelineWorker::ALL {
+            let Some(handle) = self.pipeline[worker as usize].take() else {
+                continue;
+            };
+            Self::join_and_log(worker.spec(), handle);
+        }
+
+        for (worker, handle) in self.outputs.drain(..) {
+            Self::join_and_log(worker.spec(), handle);
         }
     }
 
-    fn shutdown_worker(worker: ShutdownWorker, handle: &mut Option<JoinHandle<()>>) {
-        let Some(handle) = handle.take() else {
-            return;
-        };
-
-        if Self::join_with_timeout(worker, handle) == JoinOutcome::Joined {
-            log::info!("{}", worker.success_message());
+    fn join_and_log(spec: WorkerSpec, handle: JoinHandle<()>) {
+        if Self::join_with_timeout(spec, handle) == JoinOutcome::Joined {
+            log::info!("{}", spec.success_message);
         }
     }
 
-    fn join_with_timeout(worker: ShutdownWorker, handle: JoinHandle<()>) -> JoinOutcome {
-        let deadline = Instant::now() + worker.timeout();
+    fn join_with_timeout(spec: WorkerSpec, handle: JoinHandle<()>) -> JoinOutcome {
+        let deadline = Instant::now() + spec.timeout();
 
         loop {
             if handle.is_finished() {
                 return if let Ok(()) = handle.join() {
                     JoinOutcome::Joined
                 } else {
-                    log::error!("Worker thread '{}' panicked during shutdown", worker.name());
+                    log::error!("Worker thread '{}' panicked during shutdown", spec.name);
                     JoinOutcome::Panicked
                 };
             }
@@ -157,8 +187,8 @@ impl WorkerThreads {
             if now >= deadline {
                 log::error!(
                     "Worker thread '{}' did not stop within {} ms, detaching",
-                    worker.name(),
-                    worker.timeout_ms()
+                    spec.name,
+                    spec.timeout_ms
                 );
                 return JoinOutcome::TimedOut;
             }
@@ -182,7 +212,7 @@ mod tests {
         let handle = thread::spawn(|| {});
 
         assert_eq!(
-            WorkerThreads::join_with_timeout(ShutdownWorker::Generator, handle),
+            WorkerThreads::join_with_timeout(PipelineWorker::Generator.spec(), handle),
             JoinOutcome::Joined
         );
     }
@@ -192,7 +222,7 @@ mod tests {
         let handle = thread::spawn(|| panic!("boom"));
 
         assert_eq!(
-            WorkerThreads::join_with_timeout(ShutdownWorker::Analyser, handle),
+            WorkerThreads::join_with_timeout(PipelineWorker::Analyser.spec(), handle),
             JoinOutcome::Panicked
         );
     }
@@ -211,7 +241,7 @@ mod tests {
         });
 
         assert_eq!(
-            WorkerThreads::join_with_timeout(ShutdownWorker::Generator, handle),
+            WorkerThreads::join_with_timeout(PipelineWorker::Generator.spec(), handle),
             JoinOutcome::TimedOut
         );
 

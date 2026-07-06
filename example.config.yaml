@@ -7,25 +7,31 @@
 # Default values are shown in each comment.
 
 network:
-  # WebSocket server bind address. Loopback-only.
-  # default: 127.0.0.1:8889
-  addr: "127.0.0.1:8889"
+  # WebSocket JSON listen address. Phase4 binds this address and clients
+  # connect in. Loopback-only. Omit to disable the WebSocket output.
+  # A commonly used value is 127.0.0.1:8889.
+  # default: (disabled)
+  # ws_addr: "127.0.0.1:8889"
 
-  # Maximum number of concurrent WebSocket clients.
+  # Maximum number of concurrent WebSocket clients. Only meaningful when
+  # ws_addr is set.
   # default: 8
   max_clients: 8
 
-  # Target broadcast rate sent to WebSocket clients, in Hz.
+  # Target broadcast rate sent to WebSocket clients, in Hz. Only meaningful
+  # when ws_addr is set.
   # default: 30.0
   broadcast_rate: 30.0
 
-  # Reject WebSocket clients that send a browser Origin header.
+  # Reject WebSocket clients that send a browser Origin header. Only
+  # meaningful when ws_addr is set.
   # Only browsers are required by the Fetch spec to send Origin, so enabling
   # this blocks browser connections while allowing native clients.
   # default: false
   no_browser_origin: false
 
-  # OSC UDP output target address. Omit to disable OSC output.
+  # OSC UDP target address. Phase4 sends to this address, it does not listen.
+  # Omit to disable the OSC output.
   # Emits one float message per bin per channel each broadcast frame.
   # Addresses follow the scheme /phase4/ch/{n}/bin/{n} with a float in 0.0..=1.0.
   # default: (disabled)

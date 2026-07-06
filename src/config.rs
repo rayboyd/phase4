@@ -11,7 +11,6 @@ use std::net::SocketAddr;
 use std::path::Path;
 use thiserror::Error;
 
-pub const DEFAULT_ADDR_PATTERN: &str = "127.0.0.1:8889";
 pub const DEFAULT_MAX_CLIENTS: usize = 8;
 const DEFAULT_BROADCAST_RATE_HZ: f32 = 30.0;
 /// Default calibration tone frequency in Hz (concert pitch A4). Used only by
@@ -38,10 +37,53 @@ pub enum ConfigInput {
     Device(String),
 }
 
-fn default_bind_addr() -> SocketAddr {
-    DEFAULT_ADDR_PATTERN
-        .parse()
-        .expect("DEFAULT_ADDR_PATTERN is a valid socket address")
+/// One configured output transport, carrying everything that transport needs
+/// to spawn. Built exactly once in `resolve_config` from the merged CLI and
+/// file configuration.
+#[derive(Debug, Clone, PartialEq)]
+pub enum OutputConfig {
+    /// WebSocket JSON broadcast. `addr` is a listen address, phase4 binds it
+    /// and clients connect in.
+    WebSocket {
+        addr: SocketAddr,
+        max_clients: usize,
+        no_browser_origin: bool,
+    },
+    /// OSC UDP messages. `addr` is a target address, phase4 sends to it.
+    Osc { addr: SocketAddr },
+}
+
+/// The resolved output set, non-empty by construction. Phase4 is a consumer
+/// tool, so an output exists only because the user named it, either
+/// `--ws-addr` or `--osc-addr` (or their `config.yaml` equivalents).
+///
+/// Duplicate variants (e.g. two `WebSocket` entries) are representable and
+/// not rejected here. The only consumer is the spawn loop in `App::new`,
+/// which iterates the collection anyway and would simply spawn both.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ConfigOutputs(Vec<OutputConfig>);
+
+impl ConfigOutputs {
+    /// Builds a `ConfigOutputs` from the given descriptors, rejecting an
+    /// empty collection.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AppConfigError::NoOutputConfigured`] if `outputs` is empty.
+    pub fn new(outputs: Vec<OutputConfig>) -> Result<Self, AppConfigError> {
+        if outputs.is_empty() {
+            return Err(AppConfigError::NoOutputConfigured);
+        }
+        Ok(Self(outputs))
+    }
+}
+
+impl std::ops::Deref for ConfigOutputs {
+    type Target = [OutputConfig];
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -69,6 +111,11 @@ impl Default for VocoderConfig {
 pub enum AppConfigError {
     #[error("To start the app, run with: --device <ID>")]
     MissingDevice,
+
+    #[error(
+        "To start the app, configure at least one output: --ws-addr <ADDR> or --osc-addr <ADDR>"
+    )]
+    NoOutputConfigured,
 
     #[error("WebSocket server bind address must be loopback, got {0}")]
     NonLoopbackBindAddress(SocketAddr),
@@ -134,20 +181,14 @@ pub enum AppConfigError {
 
 #[derive(Debug)]
 pub struct AppConfig {
-    /// WebSocket server bind address.
-    pub addr: SocketAddr,
-
-    /// Maximum number of concurrent WebSocket clients.
-    pub max_clients: usize,
+    /// The resolved, non-empty set of output transports.
+    pub outputs: ConfigOutputs,
 
     /// The resolved input source intent, calibration signal or hardware device.
     pub input: ConfigInput,
 
     /// Vocoder filter bank configuration.
     pub vocoder_config: VocoderConfig,
-
-    /// When true, reject WebSocket clients that send a browser Origin header.
-    pub no_browser_origin: bool,
 
     /// Target WebSocket broadcast rate in Hz. None means no throttle (unlimited rate).
     ///
@@ -160,9 +201,6 @@ pub struct AppConfig {
     /// None means forward all channels.
     pub analyse_channels: Option<Box<[u16]>>,
 
-    /// OSC UDP output target address. None disables OSC output.
-    pub osc_addr: Option<SocketAddr>,
-
     /// How phase4 waits for a shutdown signal.
     pub controller_mode: ControllerMode,
 }
@@ -170,14 +208,20 @@ pub struct AppConfig {
 impl Default for AppConfig {
     fn default() -> Self {
         Self {
-            addr: default_bind_addr(),
-            max_clients: DEFAULT_MAX_CLIENTS,
+            // A loopback address with an OS-assigned port. There is no hardcoded
+            // application default address any more, WebSocket output is opt-in,
+            // so this exists only to give the `Default` trait a valid, constructible
+            // value for tests that spread `..AppConfig::default()`.
+            outputs: ConfigOutputs::new(vec![OutputConfig::WebSocket {
+                addr: SocketAddr::from(([127, 0, 0, 1], 0)),
+                max_clients: DEFAULT_MAX_CLIENTS,
+                no_browser_origin: false,
+            }])
+            .expect("a single-element Vec is non-empty"),
             input: ConfigInput::Calibration(TestSignal::FixedTone(DEFAULT_TEST_HZ)),
             vocoder_config: VocoderConfig::default(),
-            no_browser_origin: false,
             broadcast_rate: Some(DEFAULT_BROADCAST_RATE_HZ),
             analyse_channels: None,
-            osc_addr: None,
             controller_mode: ControllerMode::Term,
         }
     }
@@ -189,7 +233,7 @@ impl Default for AppConfig {
 /// back to the hardcoded application defaults.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct FileNetworkConfig {
-    pub addr: Option<SocketAddr>,
+    pub ws_addr: Option<SocketAddr>,
     pub max_clients: Option<usize>,
     pub broadcast_rate: Option<f32>,
     pub no_browser_origin: Option<bool>,
@@ -256,21 +300,17 @@ fn load_file_config() -> Result<Option<FileConfig>, AppConfigError> {
 /// result.  Separated from `TryFrom` so tests can inject a `FileConfig`
 /// without touching the filesystem.
 fn resolve_config(args: &Args, file: FileConfig) -> Result<AppConfig, AppConfigError> {
-    let app_def = AppConfig::default();
-    let voc_def = app_def.vocoder_config;
+    let voc_def = VocoderConfig::default();
 
-    // Network
-    let addr = args
-        .network
-        .addr
-        .or(file.network.addr)
-        .unwrap_or(app_def.addr);
+    // Network. Both transports are opt-in, an address arrives only from the
+    // CLI or the file layer, there is no hardcoded fallback address.
+    let ws_addr = args.network.ws_addr.or(file.network.ws_addr);
 
     let max_clients = args
         .network
         .max_clients
         .or(file.network.max_clients)
-        .unwrap_or(app_def.max_clients);
+        .unwrap_or(DEFAULT_MAX_CLIENTS);
 
     let broadcast_rate = args
         .network
@@ -281,9 +321,7 @@ fn resolve_config(args: &Args, file: FileConfig) -> Result<AppConfig, AppConfigE
     let no_browser_origin = if args.network.no_browser_origin {
         true
     } else {
-        file.network
-            .no_browser_origin
-            .unwrap_or(app_def.no_browser_origin)
+        file.network.no_browser_origin.unwrap_or(false)
     };
 
     let osc_addr = args.network.osc_addr.or(file.network.osc_addr);
@@ -343,7 +381,6 @@ fn resolve_config(args: &Args, file: FileConfig) -> Result<AppConfig, AppConfigE
     };
 
     // Validation
-    validate_bind_addr(addr)?;
     validate_vocoder_fields(attack_ms, release_ms, freq_low, freq_high, filter_q)?;
 
     if !is_strictly_positive(broadcast_rate) {
@@ -352,13 +389,31 @@ fn resolve_config(args: &Args, file: FileConfig) -> Result<AppConfig, AppConfigE
         });
     }
 
-    if max_clients == 0 {
-        return Err(AppConfigError::InvalidMaxClients);
+    // Build the output set. Each transport's settings are validated only when
+    // that transport is actually configured, an unused --max-clients or
+    // --no-browser-origin flag is meaningless without --ws-addr.
+    let mut outputs = Vec::new();
+
+    if let Some(addr) = ws_addr {
+        validate_bind_addr(addr)?;
+
+        if max_clients == 0 {
+            return Err(AppConfigError::InvalidMaxClients);
+        }
+
+        outputs.push(OutputConfig::WebSocket {
+            addr,
+            max_clients,
+            no_browser_origin,
+        });
+    }
+
+    if let Some(addr) = osc_addr {
+        outputs.push(OutputConfig::Osc { addr });
     }
 
     Ok(AppConfig {
-        addr,
-        max_clients,
+        outputs: ConfigOutputs::new(outputs)?,
         input,
         vocoder_config: VocoderConfig {
             attack_ms: Milliseconds(attack_ms),
@@ -367,10 +422,8 @@ fn resolve_config(args: &Args, file: FileConfig) -> Result<AppConfig, AppConfigE
             freq_high: Hertz(freq_high),
             filter_q,
         },
-        no_browser_origin,
         broadcast_rate: Some(broadcast_rate),
         analyse_channels: normalise_channel_selection(raw_channels.as_deref())?,
-        osc_addr,
         controller_mode: args.runtime.controller_mode,
     })
 }
@@ -474,6 +527,12 @@ mod tests {
     use super::*;
     use crate::{CalibrationArgs, InputArgs, NetworkArgs};
 
+    /// A fixed loopback address used across tests that need a valid
+    /// `--ws-addr` value but do not bind a real socket.
+    fn test_ws_addr() -> SocketAddr {
+        "127.0.0.1:9000".parse().expect("valid socket address")
+    }
+
     fn args_with_device(device: Option<&str>) -> Args {
         Args {
             input: InputArgs {
@@ -483,7 +542,7 @@ mod tests {
                 analyse_channels: None,
             },
             network: NetworkArgs {
-                addr: Some(default_bind_addr()),
+                ws_addr: Some(test_ws_addr()),
                 max_clients: Some(DEFAULT_MAX_CLIENTS),
                 broadcast_rate: Some(DEFAULT_BROADCAST_RATE_HZ),
                 no_browser_origin: false,
@@ -504,6 +563,22 @@ mod tests {
                 controller_mode: ControllerMode::Term,
             },
         }
+    }
+
+    /// Finds the single `WebSocket` output in a resolved config's output set.
+    fn websocket_output(config: &AppConfig) -> (SocketAddr, usize, bool) {
+        config
+            .outputs
+            .iter()
+            .find_map(|output| match output {
+                OutputConfig::WebSocket {
+                    addr,
+                    max_clients,
+                    no_browser_origin,
+                } => Some((*addr, *max_clients, *no_browser_origin)),
+                OutputConfig::Osc { .. } => None,
+            })
+            .expect("test config should configure a WebSocket output")
     }
 
     // AppConfig::try_from returns an error when no device is supplied and
@@ -551,12 +626,14 @@ mod tests {
         );
     }
 
-    // The default addr matches the declared constants.
+    // The default output set is a single WebSocket transport matching the
+    // declared constants.
     #[test]
     fn default_config_matches_constants() {
         let config = AppConfig::default();
-        assert_eq!(config.addr, default_bind_addr());
-        assert_eq!(config.max_clients, DEFAULT_MAX_CLIENTS);
+        let (_addr, max_clients, no_browser_origin) = websocket_output(&config);
+        assert_eq!(max_clients, DEFAULT_MAX_CLIENTS);
+        assert!(!no_browser_origin);
         assert_eq!(config.vocoder_config, VocoderConfig::default());
     }
 
@@ -671,7 +748,7 @@ mod tests {
     #[test]
     fn try_from_rejects_non_loopback_bind_address() {
         let mut args = args_with_device(Some("test"));
-        args.network.addr = Some("0.0.0.0:8889".parse().unwrap());
+        args.network.ws_addr = Some("0.0.0.0:8889".parse().unwrap());
 
         let result = AppConfig::try_from(&args);
 
@@ -708,8 +785,9 @@ mod tests {
         args.network.max_clients = Some(16);
 
         let config = AppConfig::try_from(&args).unwrap();
+        let (_addr, max_clients, _no_browser_origin) = websocket_output(&config);
 
-        assert_eq!(config.max_clients, 16);
+        assert_eq!(max_clients, 16);
     }
 
     // Zero is not a valid client limit.
@@ -901,7 +979,8 @@ mod tests {
         };
 
         let config = resolve_config(&args, file).unwrap();
-        assert_eq!(config.max_clients, 4);
+        let (_addr, max_clients, _no_browser_origin) = websocket_output(&config);
+        assert_eq!(max_clients, 4);
     }
 
     // File config vocoder attack_ms is respected when CLI is absent.
@@ -979,7 +1058,8 @@ mod tests {
         };
 
         let config = resolve_config(&args, file).unwrap();
-        assert!(config.no_browser_origin);
+        let (_addr, _max_clients, no_browser_origin) = websocket_output(&config);
+        assert!(no_browser_origin);
     }
 
     // An empty device string is rejected, not treated as a valid query.
@@ -1003,5 +1083,62 @@ mod tests {
         };
         let result = resolve_config(&args, file);
         assert!(matches!(result, Err(AppConfigError::MissingDevice)));
+    }
+
+    // --- Output transport resolution ---
+
+    // Neither transport configured is a startup error, not a silent no-op.
+    #[test]
+    fn try_from_rejects_when_no_output_configured() {
+        let mut args = args_with_device(Some("test"));
+        args.network.ws_addr = None;
+        args.network.osc_addr = None;
+
+        let result = AppConfig::try_from(&args);
+
+        assert!(
+            matches!(result, Err(AppConfigError::NoOutputConfigured)),
+            "configuring no output should be rejected"
+        );
+    }
+
+    // OSC alone is a valid output set, WebSocket is no longer mandatory.
+    #[test]
+    fn try_from_builds_osc_only_output_when_ws_addr_absent() {
+        let mut args = args_with_device(Some("test"));
+        args.network.ws_addr = None;
+        args.network.osc_addr = Some("127.0.0.1:7000".parse().unwrap());
+
+        let config = AppConfig::try_from(&args).unwrap();
+
+        assert_eq!(config.outputs.len(), 1);
+        assert!(matches!(config.outputs[0], OutputConfig::Osc { .. }));
+    }
+
+    // Both transports may be configured together.
+    #[test]
+    fn try_from_builds_both_outputs_when_both_addrs_present() {
+        let mut args = args_with_device(Some("test"));
+        args.network.osc_addr = Some("127.0.0.1:7000".parse().unwrap());
+
+        let config = AppConfig::try_from(&args).unwrap();
+
+        assert_eq!(config.outputs.len(), 2);
+        assert!(config
+            .outputs
+            .iter()
+            .any(|o| matches!(o, OutputConfig::WebSocket { .. })));
+        assert!(config
+            .outputs
+            .iter()
+            .any(|o| matches!(o, OutputConfig::Osc { .. })));
+    }
+
+    // The constructor is the single place emptiness is rejected, independent
+    // of the CLI/file merge that normally calls it.
+    #[test]
+    fn config_outputs_new_rejects_empty_collection() {
+        let result = ConfigOutputs::new(Vec::new());
+        assert!(matches!(result, Err(AppConfigError::NoOutputConfigured)));
     }
 }
