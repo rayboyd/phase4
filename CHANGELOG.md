@@ -2,6 +2,26 @@
 
 All notable changes to Phase4 will be documented in this file.
 
+## Unreleased
+
+### Bug Fixes
+
+- Reject empty device name instead of fuzzy-matching the first device ([8c2334b](https://github.com/rayboyd/phase4/commit/8c2334bd99a70d1c33d09b82563c0a728bee6c4d))
+
+### Documentation
+
+- Record the output transport design decision ([47840b7](https://github.com/rayboyd/phase4/commit/47840b7b02b4ef006626f204f22f8931bc4413ea))
+- Add embedding guide for wrapper processes ([fd7d7c2](https://github.com/rayboyd/phase4/commit/fd7d7c2470be007b9c3de0750865191886b24422))
+
+### Features
+
+- Add display-bins-4, display-bins-8, and display-bins-16 feature flags ([e0722c9](https://github.com/rayboyd/phase4/commit/e0722c9cbf22cd6610149f19c7919eb0f02f7b9a))
+- Make WebSocket and OSC output transports opt-in ([af5ac95](https://github.com/rayboyd/phase4/commit/af5ac9502b52142062a8c11264749528f81dfb30))
+
+### Performance
+
+- Skip payload serialisation while no clients are connected ([9c67d73](https://github.com/rayboyd/phase4/commit/9c67d73ce180ab03c6dcf4825fce2bb60931dd6a))
+
 ## 0.0.6
 
 ### Bug Fixes
