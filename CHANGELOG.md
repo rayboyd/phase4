@@ -2,7 +2,7 @@
 
 All notable changes to Phase4 will be documented in this file.
 
-## Unreleased
+## 0.0.7
 
 ### Bug Fixes
 
@@ -10,8 +10,8 @@ All notable changes to Phase4 will be documented in this file.
 
 ### Documentation
 
-- Record the output transport design decision ([47840b7](https://github.com/rayboyd/phase4/commit/47840b7b02b4ef006626f204f22f8931bc4413ea))
 - Add embedding guide for wrapper processes ([fd7d7c2](https://github.com/rayboyd/phase4/commit/fd7d7c2470be007b9c3de0750865191886b24422))
+- Describe the reachable case in the ConfigOutputs comment ([f9c2a04](https://github.com/rayboyd/phase4/commit/f9c2a04f5de9c87287225d39aba1336c8ac694f0))
 
 ### Features
 
@@ -21,6 +21,10 @@ All notable changes to Phase4 will be documented in this file.
 ### Performance
 
 - Skip payload serialisation while no clients are connected ([9c67d73](https://github.com/rayboyd/phase4/commit/9c67d73ce180ab03c6dcf4825fce2bb60931dd6a))
+
+### Testing
+
+- Add integration coverage for the OSC sender's UDP send path ([1280333](https://github.com/rayboyd/phase4/commit/1280333df7d77e7dda32a038cd9f49fc79796c66))
 
 ## 0.0.6
 
