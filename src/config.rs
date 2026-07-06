@@ -55,11 +55,12 @@ pub enum OutputConfig {
 
 /// The resolved output set, non-empty by construction. Phase4 is a consumer
 /// tool, so an output exists only because the user named it, either
-/// `--ws-addr` or `--osc-addr` (or their `config.yaml` equivalents).
+/// `--ws-addr` or `--osc-addr` (or their `config.yaml` equivalents), and
+/// both may be configured together.
 ///
-/// Duplicate variants (e.g. two `WebSocket` entries) are representable and
-/// not rejected here. The only consumer is the spawn loop in `App::new`,
-/// which iterates the collection anyway and would simply spawn both.
+/// The spawn loop in `App::new` iterates the collection and spawns one
+/// worker per entry, so a `WebSocket` entry and an `Osc` entry both present
+/// results in both transports running side by side.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ConfigOutputs(Vec<OutputConfig>);
 
