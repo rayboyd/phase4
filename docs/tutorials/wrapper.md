@@ -57,12 +57,14 @@ wrappers should leave the pipe connected and unread rather than closing it.
 
 ## Readiness and data
 
-The WebSocket listener is bound eagerly during startup, before the headless
-controller begins waiting on stdin, and startup failures (port in use, unknown
-device, invalid configuration) exit with a non-zero code and an error line on
-stderr. The robust readiness check is therefore to poll a WebSocket connection
-to the configured address after spawning, retrying briefly until it accepts,
-rather than watching stderr for a particular line.
+WebSocket output is opt-in, pass `--ws-addr` (or set `network.ws_addr` in
+`config.yaml`) so the wrapper has an address to connect to. The listener is
+bound eagerly during startup, before the headless controller begins waiting on
+stdin, and startup failures (port in use, unknown device, invalid
+configuration, no output transport configured) exit with a non-zero code and
+an error line on stderr. The robust readiness check is therefore to poll a
+WebSocket connection to the configured address after spawning, retrying
+briefly until it accepts, rather than watching stderr for a particular line.
 
 On connect, phase4 immediately sends the current snapshot, so a client renders
 without waiting for the next frame. Each message is a JSON object of the form
@@ -81,7 +83,8 @@ reason available in the captured log lines.
 ## Minimal pseudocode
 
     child = spawn("phase4",
-                  args: ["--device", "Duet 3", "--controller-mode", "headless"],
+                  args: ["--device", "Duet 3", "--ws-addr", "127.0.0.1:8889",
+                         "--controller-mode", "headless"],
                   cwd: config_dir,
                   stdin: pipe, stdout: pipe, stderr: pipe)
 

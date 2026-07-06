@@ -6,17 +6,17 @@ Phase4 streams real-time audio analysis data as a JSON broadcast. Any tool capab
 
 ## Connection Details
 
-- **Default Address:** `ws://127.0.0.1:8889`
+- **Default Address:** none, pass `--ws-addr 127.0.0.1:8889` (or set `network.ws_addr` in `config.yaml`) to enable the WebSocket output.
 - **Protocol:** Standard WebSocket
 - **Format:** JSON (UTF-8)
 
 > Note: If you run Phase4 with the `--no-browser-origin` flag, standard browser-based connections will be rejected.
 
-Both the bind address and the `no_browser_origin` behaviour can be set persistently in `config.yaml` to avoid passing flags on every invocation.
+The listen address and the `no_browser_origin` behaviour can be set persistently in `config.yaml` to avoid passing flags on every invocation.
 
 ```yaml
 network:
-  addr: "127.0.0.1:8889"
+  ws_addr: "127.0.0.1:8889"
   no_browser_origin: false
 ```
 
