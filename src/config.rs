@@ -120,7 +120,7 @@ impl Default for VocoderConfig {
 
 #[derive(Error, Debug)]
 pub enum AppConfigError {
-    #[error("To start the app, run with: --device <ID>")]
+    #[error("To start the app, run with: --audio-device <ID>")]
     MissingDevice,
 
     #[error(
@@ -347,13 +347,13 @@ fn resolve_config(args: &Args, file: FileConfig) -> Result<AppConfig, AppConfigE
     // Audio
     let raw_device = args
         .input
-        .device
+        .audio_device
         .clone()
         .or(file.audio.device_name_match)
         .filter(|name| !name.trim().is_empty());
     let raw_channels = args
         .input
-        .analyse_channels
+        .audio_analyse_channels
         .clone()
         .or(file.audio.analyse_channels);
 
@@ -473,7 +473,7 @@ fn is_strictly_positive(value: f32) -> bool {
 }
 
 fn resolve_midi_input(args: &Args) -> Result<Option<ConfigMidiInput>, AppConfigError> {
-    if let Some(bpm) = args.midi.midi_test_bpm {
+    if let Some(bpm) = args.calibration.test_midi_clock {
         if !bpm.is_finite() || bpm <= 0.0 {
             return Err(AppConfigError::InvalidMidiTempo { value: bpm });
         }
@@ -573,10 +573,10 @@ mod tests {
     fn args_with_device(device: Option<&str>) -> Args {
         Args {
             input: InputArgs {
-                device: device.map(str::to_string),
-                list: false,
-                list_format: crate::ListFormat::Text,
-                analyse_channels: None,
+                audio_device: device.map(str::to_string),
+                audio_list: false,
+                audio_list_format: crate::ListFormat::Text,
+                audio_analyse_channels: None,
             },
             network: NetworkArgs {
                 ws_addr: Some(test_ws_addr()),
@@ -595,10 +595,10 @@ mod tests {
             calibration: CalibrationArgs {
                 test_hz: None,
                 test_sweep: None,
+                test_midi_clock: None,
             },
             midi: MidiArgs {
                 midi_device: None,
-                midi_test_bpm: None,
                 midi_list: false,
                 midi_list_format: crate::ListFormat::Text,
             },
@@ -672,7 +672,7 @@ mod tests {
     #[test]
     fn try_from_resolves_midi_test_clock() {
         let mut args = args_with_device(Some("test"));
-        args.midi.midi_test_bpm = Some(120.0);
+        args.calibration.test_midi_clock = Some(120.0);
         let config = AppConfig::try_from(&args).unwrap();
         assert_eq!(config.midi_input, Some(ConfigMidiInput::TestClock(120.0)));
     }
@@ -709,7 +709,7 @@ mod tests {
     #[test]
     fn try_from_rejects_non_positive_midi_tempo() {
         let mut args = args_with_device(Some("test"));
-        args.midi.midi_test_bpm = Some(0.0);
+        args.calibration.test_midi_clock = Some(0.0);
         let result = AppConfig::try_from(&args);
         assert!(matches!(result, Err(AppConfigError::InvalidMidiTempo { value }) if value == 0.0));
     }
@@ -938,7 +938,7 @@ mod tests {
     #[test]
     fn try_from_rejects_empty_channel_selection() {
         let mut args = args_with_device(Some("test"));
-        args.input.analyse_channels = Some(vec![]);
+        args.input.audio_analyse_channels = Some(vec![]);
 
         let result = AppConfig::try_from(&args);
 
@@ -952,7 +952,7 @@ mod tests {
     #[test]
     fn try_from_normalises_channel_selection() {
         let mut args = args_with_device(Some("test"));
-        args.input.analyse_channels = Some(vec![3, 1, 1, 0]);
+        args.input.audio_analyse_channels = Some(vec![3, 1, 1, 0]);
 
         let config = AppConfig::try_from(&args).unwrap();
 

@@ -29,6 +29,11 @@ pub struct CalibrationArgs {
     /// for a 10 second cycle). Mutually exclusive with --test-hz.
     #[arg(long, conflicts_with = "test_hz")]
     pub test_sweep: Option<f32>,
+
+    /// Run against a synthetic MIDI clock at the given tempo (e.g. 120.0)
+    /// instead of a real device. Mutually exclusive with --midi-device.
+    #[arg(long, conflicts_with = "midi_device")]
+    pub test_midi_clock: Option<f32>,
 }
 
 /// MIDI input configuration.
@@ -37,14 +42,9 @@ pub struct CalibrationArgs {
 pub struct MidiArgs {
     /// Connect to a real MIDI input device matching this name (exact match
     /// first, then case-insensitive substring). Mutually exclusive with
-    /// --midi-test-bpm.
+    /// --test-midi-clock.
     #[arg(long)]
     pub midi_device: Option<String>,
-
-    /// Run against a synthetic MIDI clock at the given tempo (e.g. 120.0)
-    /// instead of a real device. Mutually exclusive with --midi-device.
-    #[arg(long, conflicts_with = "midi_device")]
-    pub midi_test_bpm: Option<f32>,
 
     /// List available MIDI input devices and exit.
     #[arg(long)]
@@ -55,7 +55,8 @@ pub struct MidiArgs {
     pub midi_list_format: ListFormat,
 }
 
-/// Output format for `--list`.
+/// Output format for device listing commands (`--audio-list-format`,
+/// `--midi-list-format`).
 #[derive(clap::ValueEnum, Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum ListFormat {
     /// Human-readable, one line per device. The default.
@@ -72,21 +73,21 @@ pub enum ListFormat {
 #[command(next_help_heading = "Device")]
 pub struct InputArgs {
     /// Input device name or partial name (exact match first, then substring).
-    #[arg(short, long)]
-    pub device: Option<String>,
+    #[arg(short = 'd', long = "audio-device")]
+    pub audio_device: Option<String>,
 
     /// List available audio input devices and exit.
-    #[arg(short, long)]
-    pub list: bool,
+    #[arg(short = 'l', long = "audio-list")]
+    pub audio_list: bool,
 
-    /// Output format for `--list`.
-    #[arg(long, value_enum, default_value_t = ListFormat::Text)]
-    pub list_format: ListFormat,
+    /// Output format for `--audio-list`.
+    #[arg(long = "audio-list-format", value_enum, default_value_t = ListFormat::Text)]
+    pub audio_list_format: ListFormat,
 
     /// Hardware channel indices to forward to the analyser, comma-separated (e.g. 0,1).
     /// Omit to forward all channels.
-    #[arg(long, value_delimiter = ',')]
-    pub analyse_channels: Option<Vec<u16>>,
+    #[arg(long = "audio-analyse-channels", value_delimiter = ',')]
+    pub audio_analyse_channels: Option<Vec<u16>>,
 }
 
 /// Output transport settings. Both transports are opt-in, omitting an
@@ -221,14 +222,14 @@ mod tests {
     }
 
     #[test]
-    fn midi_device_and_test_bpm_conflict() {
+    fn midi_device_and_test_midi_clock_conflict() {
         let result = Args::try_parse_from([
             "phase4",
-            "--device",
+            "--audio-device",
             "x",
             "--midi-device",
             "Loopback",
-            "--midi-test-bpm",
+            "--test-midi-clock",
             "120.0",
         ]);
         assert!(

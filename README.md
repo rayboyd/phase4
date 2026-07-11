@@ -24,10 +24,10 @@ Pre-built binaries for macOS and Linux are on the [releases page](https://github
 List available input devices to find your device index and confirm 32-bit Float support.
 
 ```sh
-./phase4 --list
+./phase4 --audio-list
 ```
 
-Core Audio, the macOS audio subsystem, works internally with 32-bit Float and typically presents devices (including the built-in microphone) as F32 to applications. So running `./phase4 --list` on a MacBook will almost certainly show the built-in mic as F32-capable.
+Core Audio, the macOS audio subsystem, works internally with 32-bit Float and typically presents devices (including the built-in microphone) as F32 to applications. So running `./phase4 --audio-list` on a MacBook will almost certainly show the built-in mic as F32-capable.
 
 If a device is not supported, you'll see **No hardware support (32-bit required)** in the terminal output.
 
@@ -36,7 +36,7 @@ If a device is not supported, you'll see **No hardware support (32-bit required)
 Launch Phase4 using your device name (e.g., Duet 3) and a WebSocket listen address.
 
 ```sh
-./phase4 --device "Duet 3" --ws-addr 127.0.0.1:8889
+./phase4 --audio-device "Duet 3" --ws-addr 127.0.0.1:8889
 ```
 
 Press `T` to toggle the engine's active state.
@@ -61,7 +61,7 @@ If Phase4 is broadcasting, check this [CodePen example](https://codepen.io/raybo
 Phase4 can send real-time analysis data as OSC float messages over UDP. Pass `--osc-addr` with a `host:port` target to enable it, either alongside `--ws-addr` or on its own.
 
 ```sh
-./phase4 --device "Duet 3" --ws-addr 127.0.0.1:8889 --osc-addr 127.0.0.1:7000
+./phase4 --audio-device "Duet 3" --ws-addr 127.0.0.1:8889 --osc-addr 127.0.0.1:7000
 ```
 
 Each frequency bin is sent as a separate OSC message with address `/phase4/ch/{channel}/bin/{bin}` and a single `f` argument in the range `0.0` to `1.0`. Map these addresses to parameters using your software's OSC shortcut editor.
@@ -75,14 +75,14 @@ Phase4 can also attach MIDI transport and clock data to the existing WebSocket p
 Use one of the following flags.
 
 ```sh
-./phase4 --device "Duet 3" --ws-addr 127.0.0.1:8889 --midi-device "Loopback"
+./phase4 --audio-device "Duet 3" --ws-addr 127.0.0.1:8889 --midi-device "Loopback"
 ```
 
 ```sh
-./phase4 --device "Duet 3" --ws-addr 127.0.0.1:8889 --midi-test-bpm 120.0
+./phase4 --audio-device "Duet 3" --ws-addr 127.0.0.1:8889 --test-midi-clock 120.0
 ```
 
-`--midi-device` and `--midi-test-bpm` are mutually exclusive.
+`--midi-device` and `--test-midi-clock` are mutually exclusive.
 
 When MIDI input is configured, each display frame may include a top-level `midi` key:
 

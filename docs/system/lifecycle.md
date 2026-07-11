@@ -23,7 +23,7 @@
 }}%%
 flowchart TD
 		A[main] --> B[Parse CLI args]
-		B --> C{--list?}
+		B --> C{--audio-list?}
 		C -->|yes| D[List input devices and exit]
 		C -->|no| C2{--midi-list?}
 		C2 -->|yes| D2[List MIDI input devices and exit]
