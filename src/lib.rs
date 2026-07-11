@@ -40,9 +40,8 @@ pub struct CalibrationArgs {
 #[derive(clap::Args, Debug, Clone)]
 #[command(next_help_heading = "Midi")]
 pub struct MidiArgs {
-    /// Connect to a real MIDI input device matching this name (exact match
-    /// first, then case-insensitive substring). Mutually exclusive with
-    /// --test-midi-clock.
+    /// Connect to a real MIDI input device matching this name (exact match first,
+    /// then substring). Mutually exclusive with --test-midi-clock.
     #[arg(long)]
     pub midi_device: Option<String>,
 
@@ -119,11 +118,6 @@ pub struct NetworkArgs {
 
     /// OSC UDP target address (e.g. 127.0.0.1:7000). Phase4 sends to this
     /// address, it does not listen. Omit to disable the OSC output.
-    ///
-    /// When set, phase4 emits one OSC float message per bin per channel each broadcast
-    /// frame to the given address.
-    /// Addresses follow the scheme /phase4/ch/{n}/bin/{n} with a float argument in 0.0..=1.0.
-    /// Map these to your VJ software parameters using its OSC shortcut editor.
     #[arg(long)]
     pub osc_addr: Option<SocketAddr>,
 }
