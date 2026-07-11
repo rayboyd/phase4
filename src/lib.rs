@@ -33,6 +33,7 @@ pub struct CalibrationArgs {
 
 /// MIDI input configuration.
 #[derive(clap::Args, Debug, Clone)]
+#[command(next_help_heading = "Midi")]
 pub struct MidiArgs {
     /// Connect to a real MIDI input device matching this name (exact match
     /// first, then case-insensitive substring). Mutually exclusive with
@@ -44,6 +45,14 @@ pub struct MidiArgs {
     /// instead of a real device. Mutually exclusive with --midi-device.
     #[arg(long, conflicts_with = "midi_device")]
     pub midi_test_bpm: Option<f32>,
+
+    /// List available MIDI input devices and exit.
+    #[arg(long)]
+    pub midi_list: bool,
+
+    /// Output format for `--midi-list`.
+    #[arg(long, value_enum, default_value_t = ListFormat::Text)]
+    pub midi_list_format: ListFormat,
 }
 
 /// Output format for `--list`.

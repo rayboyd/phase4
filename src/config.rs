@@ -599,6 +599,8 @@ mod tests {
             midi: MidiArgs {
                 midi_device: None,
                 midi_test_bpm: None,
+                midi_list: false,
+                midi_list_format: crate::ListFormat::Text,
             },
             runtime: crate::RuntimeArgs {
                 controller_mode: ControllerMode::Term,

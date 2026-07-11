@@ -3,6 +3,7 @@ use clap::Parser;
 use phase4::app::App;
 use phase4::config::AppConfig;
 use phase4::managers::audio::Input;
+use phase4::managers::MidiListener;
 use phase4::{Args, ControllerMode};
 use std::io::Write;
 
@@ -44,6 +45,11 @@ fn main() -> Result<()> {
 
     if args.input.list {
         Input::list_devices(args.input.list_format)?;
+        return Ok(());
+    }
+
+    if args.midi.midi_list {
+        MidiListener::list_devices(args.midi.midi_list_format)?;
         return Ok(());
     }
 

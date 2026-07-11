@@ -25,7 +25,9 @@ flowchart TD
 		A[main] --> B[Parse CLI args]
 		B --> C{--list?}
 		C -->|yes| D[List input devices and exit]
-		C -->|no| E2[Load config.yaml if present]
+		C -->|no| C2{--midi-list?}
+		C2 -->|yes| D2[List MIDI input devices and exit]
+		C2 -->|no| E2[Load config.yaml if present]
 		E2 --> E[Build AppConfig: CLI overrides file, file overrides defaults]
 		E --> E3{At least one of --ws-addr, --osc-addr configured?}
 		E3 -->|no| E4[Exit: NoOutputConfigured, non-zero]

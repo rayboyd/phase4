@@ -13,11 +13,20 @@
 
 use crate::app::{AppState, MIDI_TRANSPORT_CONTINUE, MIDI_TRANSPORT_START, MIDI_TRANSPORT_STOP};
 use crate::config::ConfigMidiInput;
+use crate::ListFormat;
+use anyhow::{Context, Result};
+use serde::Serialize;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 use thread_priority::{set_current_thread_priority, ThreadPriority, ThreadPriorityValue};
+
+#[derive(Debug, Serialize)]
+struct MidiDeviceInfo {
+    index: usize,
+    name: String,
+}
 
 /// MIDI listener thread priority, same crate, same 0-99 cross-platform scale
 /// as the analyser priority. Deliberately lower.
@@ -54,6 +63,61 @@ fn record_byte(byte: u8, state: &AppState) {
 pub struct MidiListener;
 
 impl MidiListener {
+    /// Queries the system for all available MIDI input devices and prints
+    /// them in the requested format.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if MIDI input cannot be initialised, or if JSON
+    /// encoding of the device list fails.
+    pub fn list_devices(format: ListFormat) -> Result<()> {
+        match format {
+            ListFormat::Text => Self::list_devices_text(),
+            ListFormat::Json => Self::list_devices_json(),
+        }
+    }
+
+    fn list_devices_text() -> Result<()> {
+        let midi_in = midir::MidiInput::new("phase4").context("Failed to initialise MIDI input")?;
+        let ports = midi_in.ports();
+
+        if ports.is_empty() {
+            log::warn!("[*] No MIDI input devices detected.");
+            return Ok(());
+        }
+
+        for (index, port) in ports.iter().enumerate() {
+            let name = midi_in
+                .port_name(port)
+                .unwrap_or_else(|_| "Unknown Device".to_string());
+            log::info!("[{index}] {name}");
+        }
+
+        Ok(())
+    }
+
+    fn list_devices_json() -> Result<()> {
+        let midi_in = midir::MidiInput::new("phase4").context("Failed to initialise MIDI input")?;
+        let ports = midi_in.ports();
+
+        let entries: Vec<MidiDeviceInfo> = ports
+            .iter()
+            .enumerate()
+            .map(|(index, port)| MidiDeviceInfo {
+                index,
+                name: midi_in
+                    .port_name(port)
+                    .unwrap_or_else(|_| "Unknown Device".to_string()),
+            })
+            .collect();
+
+        let json =
+            serde_json::to_string(&entries).context("Failed to serialise MIDI device list")?;
+        println!("{json}");
+
+        Ok(())
+    }
+
     /// Spawns the MIDI listener on a dedicated OS thread.
     ///
     /// # Panics
