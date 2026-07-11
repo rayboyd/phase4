@@ -46,8 +46,11 @@ flowchart TD
 		P -->|no| Q
 		P2 --> Q{--osc-addr configured?}
 		Q -->|yes| Q2[Spawn OSC sender thread]
-		Q -->|no| R[Run controller loop until shutdown]
-		Q2 --> R
+		Q -->|no| Q3
+		Q2 --> Q3{MIDI input configured?}
+		Q3 -->|yes| Q4[Spawn MIDI listener thread]
+		Q3 -->|no| R[Run controller loop until shutdown]
+		Q4 --> R
 		R --> S[Shutdown: drop input, signal keep_running=false, join workers with timeouts]
 ```
 
@@ -85,6 +88,8 @@ flowchart LR
 		C2 -->|watch send_replace RawPayload| E[(RawPayload watch)]
 		E --> F[Mapper thread]
 		F -->|map bins plus broadcast-rate gate| G[(DisplayPayload watch)]
+		N1[MIDI listener thread] -->|raw bytes to atomics| N2[(AppState MIDI atomics)]
+		N2 -->|read and clear on broadcast cycles| F
 		G --> H[WebSocket server]
 		H -->|serialise once per frame in dedicated task| H2[(Server JSON watch)]
 		H2 --> I[Clients: browser or native]
@@ -136,6 +141,7 @@ sequenceDiagram
 		participant Gen as Generator
 		participant An as Analyser
 		participant Map as Mapper
+		participant Midi as MidiListener
 		participant Srv as Server
 		participant Osc as OscSender
 
@@ -145,6 +151,7 @@ sequenceDiagram
 		Main->>Gen: join with 250ms timeout
 		Main->>An: join with 1000ms timeout
 		Main->>Map: join with 1000ms timeout
+		Main->>Midi: join with 250ms timeout
 		Main->>Srv: join with 1500ms timeout
 		Main->>Osc: join with 1500ms timeout
 

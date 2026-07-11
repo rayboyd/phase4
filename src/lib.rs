@@ -31,6 +31,21 @@ pub struct CalibrationArgs {
     pub test_sweep: Option<f32>,
 }
 
+/// MIDI input configuration.
+#[derive(clap::Args, Debug, Clone)]
+pub struct MidiArgs {
+    /// Connect to a real MIDI input device matching this name (exact match
+    /// first, then case-insensitive substring). Mutually exclusive with
+    /// --midi-test-bpm.
+    #[arg(long)]
+    pub midi_device: Option<String>,
+
+    /// Run against a synthetic MIDI clock at the given tempo (e.g. 120.0)
+    /// instead of a real device. Mutually exclusive with --midi-device.
+    #[arg(long, conflicts_with = "midi_device")]
+    pub midi_test_bpm: Option<f32>,
+}
+
 /// Output format for `--list`.
 #[derive(clap::ValueEnum, Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum ListFormat {
@@ -168,6 +183,9 @@ pub struct Args {
     pub calibration: CalibrationArgs,
 
     #[command(flatten)]
+    pub midi: MidiArgs,
+
+    #[command(flatten)]
     pub input: InputArgs,
 
     #[command(flatten)]
@@ -190,6 +208,23 @@ mod tests {
         assert!(
             result.is_err(),
             "passing both calibration flags must be a CLI error"
+        );
+    }
+
+    #[test]
+    fn midi_device_and_test_bpm_conflict() {
+        let result = Args::try_parse_from([
+            "phase4",
+            "--device",
+            "x",
+            "--midi-device",
+            "Loopback",
+            "--midi-test-bpm",
+            "120.0",
+        ]);
+        assert!(
+            result.is_err(),
+            "both MIDI input flags together must be a CLI error"
         );
     }
 }

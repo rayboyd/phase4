@@ -68,6 +68,40 @@ Each frequency bin is sent as a separate OSC message with address `/phase4/ch/{c
 
 See [docs/tutorials/osc.md](docs/tutorials/osc.md) for the full address reference and integration notes.
 
+### MIDI transport and clock
+
+Phase4 can also attach MIDI transport and clock data to the existing WebSocket payload stream, using either a real MIDI input device or a synthetic test clock.
+
+Use one of the following flags.
+
+```sh
+./phase4 --device "Duet 3" --ws-addr 127.0.0.1:8889 --midi-device "Loopback"
+```
+
+```sh
+./phase4 --device "Duet 3" --ws-addr 127.0.0.1:8889 --midi-test-bpm 120.0
+```
+
+`--midi-device` and `--midi-test-bpm` are mutually exclusive.
+
+When MIDI input is configured, each display frame may include a top-level `midi` key:
+
+```json
+{
+  "channels": [{ "peak": 0.38, "bins": [0.0, 0.1, 0.2, 0.3] }],
+  "midi": {
+    "transport": "start",
+    "clock_ticks": 24
+  }
+}
+```
+
+`transport` is one of `start`, `stop`, or `continue`, and is omitted when no transport event happened since the previous broadcast frame. `clock_ticks` is the raw count of incoming MIDI clock bytes (`0xF8`) observed since the previous broadcast frame.
+
+When MIDI input is not configured, the `midi` key is absent, so clients that only read `channels` are unaffected.
+
+OSC forwarding of MIDI transport and clock is not implemented yet.
+
 Embedding Phase4 in your own application is documented in [docs/tutorials/wrapper.md](docs/tutorials/wrapper.md).
 
 ## Configuration file

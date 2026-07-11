@@ -37,6 +37,16 @@ pub enum ConfigInput {
     Device(String),
 }
 
+/// The resolved MIDI input intent, independent of the audio `ConfigInput`, both
+/// may be active at once.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ConfigMidiInput {
+    /// Synthetic test clock at the given tempo, in beats per minute.
+    TestClock(f32),
+    /// Real MIDI input device resolved by name.
+    Device(String),
+}
+
 /// One configured output transport, carrying everything that transport needs
 /// to spawn. Built exactly once in `resolve_config` from the merged CLI and
 /// file configuration.
@@ -147,6 +157,9 @@ pub enum AppConfigError {
     #[error("Invalid broadcast rate: must be a finite value greater than 0 Hz, got {value}")]
     InvalidBroadcastRate { value: f32 },
 
+    #[error("Invalid MIDI test tempo: must be a finite value greater than 0 bpm, got {value}")]
+    InvalidMidiTempo { value: f32 },
+
     #[error("Invalid max clients: must be greater than 0")]
     InvalidMaxClients,
 
@@ -188,6 +201,9 @@ pub struct AppConfig {
     /// The resolved input source intent, calibration signal or hardware device.
     pub input: ConfigInput,
 
+    /// The resolved MIDI input intent for transport and clock forwarding.
+    pub midi_input: Option<ConfigMidiInput>,
+
     /// Vocoder filter bank configuration.
     pub vocoder_config: VocoderConfig,
 
@@ -220,6 +236,7 @@ impl Default for AppConfig {
             }])
             .expect("a single-element Vec is non-empty"),
             input: ConfigInput::Calibration(TestSignal::FixedTone(DEFAULT_TEST_HZ)),
+            midi_input: None,
             vocoder_config: VocoderConfig::default(),
             broadcast_rate: Some(DEFAULT_BROADCAST_RATE_HZ),
             analyse_channels: None,
@@ -381,6 +398,8 @@ fn resolve_config(args: &Args, file: FileConfig) -> Result<AppConfig, AppConfigE
         ConfigInput::Device(raw_device.ok_or(AppConfigError::MissingDevice)?)
     };
 
+    let midi_input = resolve_midi_input(args)?;
+
     // Validation
     validate_vocoder_fields(attack_ms, release_ms, freq_low, freq_high, filter_q)?;
 
@@ -416,6 +435,7 @@ fn resolve_config(args: &Args, file: FileConfig) -> Result<AppConfig, AppConfigE
     Ok(AppConfig {
         outputs: ConfigOutputs::new(outputs)?,
         input,
+        midi_input,
         vocoder_config: VocoderConfig {
             attack_ms: Milliseconds(attack_ms),
             release_ms: Milliseconds(release_ms),
@@ -450,6 +470,22 @@ fn normalise_channel_selection(
 
 fn is_strictly_positive(value: f32) -> bool {
     value.is_finite() && value > 0.0
+}
+
+fn resolve_midi_input(args: &Args) -> Result<Option<ConfigMidiInput>, AppConfigError> {
+    if let Some(bpm) = args.midi.midi_test_bpm {
+        if !bpm.is_finite() || bpm <= 0.0 {
+            return Err(AppConfigError::InvalidMidiTempo { value: bpm });
+        }
+        return Ok(Some(ConfigMidiInput::TestClock(bpm)));
+    }
+
+    Ok(args
+        .midi
+        .midi_device
+        .clone()
+        .filter(|name| !name.trim().is_empty())
+        .map(ConfigMidiInput::Device))
 }
 
 fn validate_bind_addr(addr: SocketAddr) -> Result<(), AppConfigError> {
@@ -526,7 +562,7 @@ pub(crate) fn validate_vocoder_sample_rate(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{CalibrationArgs, InputArgs, NetworkArgs};
+    use crate::{CalibrationArgs, InputArgs, MidiArgs, NetworkArgs};
 
     /// A fixed loopback address used across tests that need a valid
     /// `--ws-addr` value but do not bind a real socket.
@@ -559,6 +595,10 @@ mod tests {
             calibration: CalibrationArgs {
                 test_hz: None,
                 test_sweep: None,
+            },
+            midi: MidiArgs {
+                midi_device: None,
+                midi_test_bpm: None,
             },
             runtime: crate::RuntimeArgs {
                 controller_mode: ControllerMode::Term,
@@ -625,6 +665,51 @@ mod tests {
             config.input,
             ConfigInput::Calibration(TestSignal::Sweep(0.1))
         );
+    }
+
+    #[test]
+    fn try_from_resolves_midi_test_clock() {
+        let mut args = args_with_device(Some("test"));
+        args.midi.midi_test_bpm = Some(120.0);
+        let config = AppConfig::try_from(&args).unwrap();
+        assert_eq!(config.midi_input, Some(ConfigMidiInput::TestClock(120.0)));
+    }
+
+    #[test]
+    fn try_from_resolves_midi_device() {
+        let mut args = args_with_device(Some("test"));
+        args.midi.midi_device = Some("Loopback".to_string());
+        let config = AppConfig::try_from(&args).unwrap();
+        assert_eq!(
+            config.midi_input,
+            Some(ConfigMidiInput::Device("Loopback".to_string()))
+        );
+    }
+
+    #[test]
+    fn try_from_rejects_empty_midi_device_string() {
+        let mut args = args_with_device(Some("test"));
+        args.midi.midi_device = Some(String::new());
+        let config = AppConfig::try_from(&args).unwrap();
+        assert_eq!(
+            config.midi_input, None,
+            "an empty device name should resolve to no MIDI input, not an empty-string device"
+        );
+    }
+
+    #[test]
+    fn try_from_leaves_midi_input_none_when_absent() {
+        let args = args_with_device(Some("test"));
+        let config = AppConfig::try_from(&args).unwrap();
+        assert_eq!(config.midi_input, None);
+    }
+
+    #[test]
+    fn try_from_rejects_non_positive_midi_tempo() {
+        let mut args = args_with_device(Some("test"));
+        args.midi.midi_test_bpm = Some(0.0);
+        let result = AppConfig::try_from(&args);
+        assert!(matches!(result, Err(AppConfigError::InvalidMidiTempo { value }) if value == 0.0));
     }
 
     // The default output set is a single WebSocket transport matching the

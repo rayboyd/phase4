@@ -62,7 +62,7 @@ async fn unlimited_rate_forwards_every_frame() {
     let (display_tx, mut display_rx) = display_channel(channels);
     let state = Arc::new(AppState::new());
 
-    let handle = Mapper::spawn(raw_rx, display_tx, channels, state.clone(), None);
+    let handle = Mapper::spawn(raw_rx, display_tx, channels, state.clone(), None, false);
 
     // Allow the mapper thread to start and block on raw_rx.changed().
     sleep(Duration::from_millis(50)).await;
@@ -99,7 +99,14 @@ async fn first_frame_is_broadcast_immediately() {
 
     // A very low rate (2 Hz, 500 ms interval) to prove the first frame does
     // not wait for the interval to elapse.
-    let handle = Mapper::spawn(raw_rx, display_tx, channels, state.clone(), Some(2.0));
+    let handle = Mapper::spawn(
+        raw_rx,
+        display_tx,
+        channels,
+        state.clone(),
+        Some(2.0),
+        false,
+    );
 
     sleep(Duration::from_millis(50)).await;
     send_frame(&raw_tx, channels, 0.42);
@@ -129,7 +136,14 @@ async fn throttle_suppresses_intermediate_frames() {
     let state = Arc::new(AppState::new());
 
     // 5 Hz means one broadcast per 200 ms.
-    let handle = Mapper::spawn(raw_rx, display_tx, channels, state.clone(), Some(5.0));
+    let handle = Mapper::spawn(
+        raw_rx,
+        display_tx,
+        channels,
+        state.clone(),
+        Some(5.0),
+        false,
+    );
 
     sleep(Duration::from_millis(50)).await;
 
@@ -153,6 +167,47 @@ async fn throttle_suppresses_intermediate_frames() {
     assert!(
         updates < total_frames,
         "throttle should suppress intermediate frames: got {updates} updates from {total_frames} frames"
+    );
+
+    state.keep_running.store(false, Ordering::Release);
+    drop(raw_tx);
+    tokio::task::spawn_blocking(move || handle.join().expect("mapper thread panicked"))
+        .await
+        .expect("join task failed");
+}
+
+#[tokio::test]
+async fn midi_snapshot_is_not_consumed_on_a_throttled_cycle() {
+    let channels = 1usize;
+    let (raw_tx, raw_rx) = watch::channel(RawPayload::new(channels, VOCODER_BANDS));
+    let (display_tx, mut display_rx) = display_channel(channels);
+    let state = Arc::new(AppState::new());
+
+    state.midi_clock_ticks.store(5, Ordering::Release);
+
+    // A low rate (2 Hz) so the second frame is throttled.
+    let handle = Mapper::spawn(raw_rx, display_tx, channels, state.clone(), Some(2.0), true);
+
+    sleep(Duration::from_millis(50)).await;
+    send_frame(&raw_tx, channels, 0.1);
+    let first = display_rx.changed().await;
+    assert!(first.is_ok());
+    let first_payload = display_rx.borrow_and_update().clone();
+    assert_eq!(
+        first_payload.midi.as_ref().map(|m| m.clock_ticks),
+        Some(5),
+        "the first frame should carry the ticks recorded before it"
+    );
+
+    // A second, rapid frame lands inside the throttle window and must not be
+    // broadcast, so the ticks recorded here must survive to the next frame
+    // that actually sends, not be silently cleared here.
+    state.midi_clock_ticks.store(2, Ordering::Release);
+    send_frame(&raw_tx, channels, 0.2);
+    let throttled = tokio::time::timeout(Duration::from_millis(100), display_rx.changed()).await;
+    assert!(
+        throttled.is_err(),
+        "second frame should be throttled, not broadcast"
     );
 
     state.keep_running.store(false, Ordering::Release);
