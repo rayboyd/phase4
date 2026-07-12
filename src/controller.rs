@@ -210,7 +210,7 @@ impl HeadlessController {
 ///
 /// Called from the installed panic hook before the process aborts. Terminal
 /// restoration is best effort, since `disable_raw_mode` can itself fail if the
-/// terminal is already gone, and that failure is deliberately swallowed here.
+/// terminal is already gone; that failure is ignored.
 fn handle_panic(message: &str) {
     let _ = disable_raw_mode();
     log::error!("{message}");

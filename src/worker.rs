@@ -146,7 +146,7 @@ impl WorkerThreads {
     /// Constructs a `WorkerThreads` from the fixed pipeline handles and a list
     /// of output transport handles, one entry per spawned output.
     ///
-    /// Any pipeline handle that is `None` is simply skipped during shutdown.
+    /// Any pipeline handle that is `None` is skipped during shutdown.
     pub(crate) fn new(
         generator: Option<JoinHandle<()>>,
         analyser: Option<JoinHandle<()>>,
