@@ -114,6 +114,7 @@ impl App {
     /// # Panics
     ///
     /// Panics if worker thread startup fails internally.
+    #[allow(clippy::too_many_lines)]
     pub fn new(config: AppConfig) -> Result<Self> {
         let state = Arc::new(AppState::new());
         let stream_state = Arc::clone(&state);
@@ -121,7 +122,7 @@ impl App {
         let mapper_state = Arc::clone(&state);
         let generator_state = Arc::clone(&state);
         let controller_state = Arc::clone(&state);
-
+        let midi_enabled = config.midi_input.is_some();
         let mut input_device = Input::new();
         let (hw_specs, input_source) = Self::resolve_hardware(&config, &mut input_device)?;
         validate_vocoder_sample_rate(config.vocoder_config.freq_high, hw_specs.sample_rate)?;
@@ -197,15 +198,20 @@ impl App {
             display_channels,
             mapper_state,
             config.broadcast_rate,
-            config.midi_input.is_some(),
+            midi_enabled,
         ));
 
         // Spawn one worker per configured output transport. Each descriptor in
         // config.outputs matches to exactly one spawn arm in spawn_outputs,
         // adding a new transport means adding one variant and one arm there,
         // nothing else changes.
-        let output_threads =
-            Self::spawn_outputs(&config.outputs, &display_rx, display_channels, &state)?;
+        let output_threads = Self::spawn_outputs(
+            &config.outputs,
+            &display_rx,
+            display_channels,
+            &state,
+            midi_enabled,
+        )?;
 
         let midi_thread = match &config.midi_input {
             Some(ConfigMidiInput::TestClock(bpm)) => {
@@ -229,11 +235,7 @@ impl App {
                 midi_thread,
                 output_threads,
             ),
-            controller: Controller::new(
-                config.controller_mode,
-                controller_state,
-                config.midi_input.is_some(),
-            ),
+            controller: Controller::new(config.controller_mode, controller_state, midi_enabled),
             shutdown_started: false,
         })
     }
@@ -250,6 +252,7 @@ impl App {
         display_rx: &watch::Receiver<DisplayPayload>,
         display_channels: usize,
         state: &Arc<AppState>,
+        midi_enabled: bool,
     ) -> Result<Vec<(OutputWorker, std::thread::JoinHandle<()>)>> {
         let mut output_threads = Vec::new();
 
@@ -267,8 +270,12 @@ impl App {
                 }
                 OutputConfig::Osc { addr } => {
                     let sender = OscSender::new(*addr);
-                    let handle =
-                        sender.spawn(display_rx.clone(), display_channels, Arc::clone(state))?;
+                    let handle = sender.spawn(
+                        display_rx.clone(),
+                        display_channels,
+                        Arc::clone(state),
+                        midi_enabled,
+                    )?;
                     log::info!("OSC sender transmitting to udp://{addr}");
                     output_threads.push((OutputWorker::Osc, handle));
                 }
