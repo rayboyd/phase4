@@ -20,7 +20,7 @@ use crate::controller::Controller;
 use crate::dsp::{vocoder::VOCODER_BANDS, DisplayPayload, RawPayload};
 use crate::managers::audio::{ChannelMode, StreamSink};
 use crate::managers::{
-    Generator, Input, Mapper, MidiListener, OscSender, Processor, Server, Specs,
+    Generator, Input, Mapper, MidiInputSource, MidiListener, OscSender, Processor, Server, Specs,
     MIDI_TRANSPORT_NONE,
 };
 use crate::worker::{OutputWorker, WorkerThreads};
@@ -121,47 +121,29 @@ impl App {
         let mapper_state = Arc::clone(&state);
         let generator_state = Arc::clone(&state);
         let controller_state = Arc::clone(&state);
-        let midi_enabled = config.midi_input.is_some();
         let mut input_device = Input::new();
-        let (hw_specs, input_source) = Self::resolve_hardware(&config, &mut input_device)?;
+
+        // Declare: resolve everything the function needs.
+        let (hw_specs, input_source) = Self::resolve_audio_hardware(&config, &mut input_device)?;
+        let midi_source = Self::resolve_midi_hardware(&config)?;
+        let midi_enabled = midi_source.is_some();
+
+        // Validate. Must happen before ChannelMode::resolve below, which
+        // takes config.analyse_channels by value.
         validate_vocoder_sample_rate(config.vocoder_config.freq_high, hw_specs.sample_rate)?;
+        Self::validate_audio_hardware(&config, hw_specs, &input_source)?;
 
-        // Validate that all requested channel indices are within the hardware's capacity.
-        // This check does not apply in calibration mode, where no real device is involved.
-        match &input_source {
-            InputSource::Calibration(_) => {}
-            InputSource::Hardware(..) => {
-                if let Some(&idx) = config
-                    .analyse_channels
-                    .as_deref()
-                    .map(<[u16]>::iter)
-                    .and_then(Iterator::max)
-                {
-                    if idx >= hw_specs.channels {
-                        anyhow::bail!(AppConfigError::ChannelIndexOutOfRange {
-                            idx,
-                            channels: hw_specs.channels,
-                        });
-                    }
-                }
-            }
-        }
-
-        // Specs & Channel Modes.
         let mut analyser_specs = hw_specs;
-
         let analyse_mode = ChannelMode::resolve(config.analyse_channels, &mut analyser_specs);
 
-        // Allocate Inter-thread Channels (Ringbufs & Watch).
         let (analyse_tx, analyse_rx) =
             Input::create_audio_buffer_pair(analyser_specs, ANALYSE_BUFFER_MS);
-
         let display_channels = analyser_specs.channels as usize;
         let (raw_tx, raw_rx) = watch::channel(RawPayload::new(display_channels, VOCODER_BANDS));
         let (display_tx, display_rx) = watch::channel(DisplayPayload::new(display_channels));
 
-        // Spawn Producers. Hardware or a Generator is spawned.
-        let generator_thread = Self::spawn_input(
+        // Threads.
+        let generator_thread = Self::spawn_audio_input(
             input_source,
             hw_specs,
             analyse_mode,
@@ -171,7 +153,6 @@ impl App {
             &mut input_device,
         )?;
 
-        // Spawn Worker Threads.
         let analyser = Processor::new(config.vocoder_config);
         let analyser_thread =
             Some(analyser.spawn(analyse_rx, raw_tx, analyser_specs, analyser_state));
@@ -185,20 +166,11 @@ impl App {
             midi_enabled,
         ));
 
-        // Resolved before spawn_outputs so a bad --midi-device fails before
-        // the WebSocket server binds, mirroring resolve_hardware's early
-        // failure for a bad --audio-device.
-        let midi_thread = match &config.midi_input {
-            Some(ConfigMidiInput::TestClock(bpm)) => {
-                log::info!("Calibration mode: MIDI test clock at {bpm} bpm");
-                Some(MidiListener::spawn(
-                    ConfigMidiInput::TestClock(*bpm),
-                    state.clone(),
-                )?)
-            }
-            Some(input) => Some(MidiListener::spawn(input.clone(), state.clone())?),
-            None => None,
-        };
+        // Resolved in the declare phase above, so a bad --midi-device fails
+        // before any thread spawns, matching resolve_audio_hardware's early
+        // failure for a bad --audio-device. Spawned here, alongside every
+        // other thread this function starts.
+        let midi_thread = midi_source.map(|source| Self::spawn_midi_input(source, state.clone()));
 
         // Spawn one worker per configured output transport. Each descriptor in
         // config.outputs matches to exactly one spawn arm in spawn_outputs,
@@ -211,6 +183,8 @@ impl App {
             &state,
             midi_enabled,
         )?;
+
+        // Return.
 
         Ok(Self {
             input_device: Some(input_device),
@@ -272,6 +246,40 @@ impl App {
         Ok(output_threads)
     }
 
+    /// Validates that all requested channel indices are within the
+    /// hardware's capacity. Does not apply in calibration mode, where no
+    /// real device is involved.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if a requested channel index is at or beyond the
+    /// resolved hardware's channel count.
+    fn validate_audio_hardware(
+        config: &AppConfig,
+        hw_specs: Specs,
+        input_source: &InputSource,
+    ) -> Result<()> {
+        match input_source {
+            InputSource::Calibration(_) => Ok(()),
+            InputSource::Hardware(..) => {
+                if let Some(&idx) = config
+                    .analyse_channels
+                    .as_deref()
+                    .map(<[u16]>::iter)
+                    .and_then(Iterator::max)
+                {
+                    if idx >= hw_specs.channels {
+                        anyhow::bail!(AppConfigError::ChannelIndexOutOfRange {
+                            idx,
+                            channels: hw_specs.channels,
+                        });
+                    }
+                }
+                Ok(())
+            }
+        }
+    }
+
     /// Spawns the audio producer side of the pipeline: either a synthetic
     /// [`Generator`] thread in calibration mode, or a real hardware input
     /// stream started in place on `input_device`.
@@ -279,7 +287,7 @@ impl App {
     /// # Errors
     ///
     /// Returns an error if the hardware input stream cannot be started.
-    fn spawn_input(
+    fn spawn_audio_input(
         input_source: InputSource,
         hw_specs: Specs,
         analyse_mode: ChannelMode,
@@ -320,7 +328,10 @@ impl App {
     /// # Errors
     ///
     /// Returns an error if the device cannot be resolved or queried.
-    fn resolve_hardware(config: &AppConfig, input: &mut Input) -> Result<(Specs, InputSource)> {
+    fn resolve_audio_hardware(
+        config: &AppConfig,
+        input: &mut Input,
+    ) -> Result<(Specs, InputSource)> {
         match &config.input {
             ConfigInput::Calibration(signal) => Ok((
                 Specs {
@@ -334,6 +345,39 @@ impl App {
                 Ok((specs, InputSource::Hardware(device, stream_config)))
             }
         }
+    }
+
+    /// Returns a resolved MIDI input source, if MIDI input is configured.
+    /// Mirrors `resolve_audio_hardware`: a missing device is reported
+    /// here, before any thread is spawned, rather than discovered later
+    /// inside a running thread.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if a configured MIDI device does not match any
+    /// available port.
+    fn resolve_midi_hardware(config: &AppConfig) -> Result<Option<MidiInputSource>> {
+        match &config.midi_input {
+            None => Ok(None),
+            Some(ConfigMidiInput::TestClock(bpm)) => Ok(Some(MidiInputSource::TestClock(*bpm))),
+            Some(ConfigMidiInput::Device(name)) => {
+                let (midi_in, port, port_name) = crate::managers::midi::resolve_midi_device(name)?;
+                Ok(Some(MidiInputSource::Hardware(midi_in, port, port_name)))
+            }
+        }
+    }
+
+    /// Spawns the MIDI listener thread for an already-resolved source,
+    /// announcing calibration mode synchronously first, matching
+    /// `spawn_audio_input`'s calibration announcement.
+    fn spawn_midi_input(
+        source: MidiInputSource,
+        state: Arc<AppState>,
+    ) -> std::thread::JoinHandle<()> {
+        if let MidiInputSource::TestClock(bpm) = &source {
+            log::info!("Calibration mode: MIDI test clock at {bpm} bpm");
+        }
+        MidiListener::spawn(source, state)
     }
 
     /// Hands control to the interactive controller, blocking until shutdown.
@@ -457,15 +501,15 @@ mod tests {
     }
 
     #[test]
-    fn resolve_hardware_in_calibration_mode_returns_defaults() {
+    fn resolve_audio_hardware_in_calibration_mode_returns_defaults() {
         let config = AppConfig {
             input: ConfigInput::Calibration(TestSignal::FixedTone(440.0)),
             ..AppConfig::default()
         };
         let mut input = Input::new();
 
-        let (specs, input_source) = App::resolve_hardware(&config, &mut input)
-            .expect("resolve_hardware should succeed in calibration mode");
+        let (specs, input_source) = App::resolve_audio_hardware(&config, &mut input)
+            .expect("resolve_audio_hardware should succeed in calibration mode");
 
         assert_eq!(specs.sample_rate, 44100);
         assert_eq!(specs.channels, 2);
@@ -473,6 +517,42 @@ mod tests {
             input_source,
             InputSource::Calibration(TestSignal::FixedTone(hz)) if (hz - 440.0).abs() < f32::EPSILON
         ));
+    }
+
+    #[test]
+    fn validate_audio_hardware_skips_the_check_in_calibration_mode() {
+        let config = AppConfig {
+            analyse_channels: Some(vec![99].into_boxed_slice()),
+            ..AppConfig::default()
+        };
+        let hw_specs = Specs {
+            sample_rate: 44100,
+            channels: 2,
+        };
+        let input_source = InputSource::Calibration(TestSignal::FixedTone(440.0));
+
+        assert!(App::validate_audio_hardware(&config, hw_specs, &input_source).is_ok());
+    }
+
+    #[test]
+    fn resolve_midi_hardware_returns_none_when_not_configured() {
+        let config = AppConfig::default();
+        let result = App::resolve_midi_hardware(&config).expect("should not error");
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn resolve_midi_hardware_resolves_test_clock() {
+        let config = AppConfig {
+            midi_input: Some(ConfigMidiInput::TestClock(120.0)),
+            ..AppConfig::default()
+        };
+        let result = App::resolve_midi_hardware(&config)
+            .expect("should not error")
+            .expect("should resolve to Some");
+        assert!(
+            matches!(result, MidiInputSource::TestClock(bpm) if (bpm - 120.0).abs() < f32::EPSILON)
+        );
     }
 
     #[test]
