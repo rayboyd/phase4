@@ -2,15 +2,15 @@
 //! synthetic clock at a configured tempo, mirroring the calibration or device
 //! split the audio input already has.
 //!
-//! Writes directly to two atomics on `AppState`, no channel. The mapper reads
-//! them once per broadcast frame it actually sends. Runs at a lower thread
-//! priority than the analyser, audio takes priority under contention.
+//! Writes directly to two atomics on `AppState`. The mapper reads them
+//! once per broadcast frame it actually sends. Runs at a lower thread
+//! priority than the analyser.
 //!
-//! Deliberately minimal, raw bytes are matched directly against the four MIDI
-//! Real-Time codes phase4 cares about, no parsed event type. Start, Stop,
-//! Continue, and a running 1/16 step count derived from Clock ticks. The step
-//! count is absolute since the most recent Start, read by the mapper as a
-//! snapshot, and reset only by Start.
+//! Raw bytes are matched directly against the four MIDI Real-Time codes
+//! phase4 cares about. Start, Stop, Continue, and a running 1/16 step
+//! count derived from Clock ticks. The step count is absolute since the
+//! most recent Start, read by the mapper as a snapshot, and reset only by
+//! Start.
 
 use crate::app::{AppState, MIDI_TRANSPORT_CONTINUE, MIDI_TRANSPORT_START, MIDI_TRANSPORT_STOP};
 use crate::config::ConfigMidiInput;
@@ -29,8 +29,7 @@ struct MidiDeviceInfo {
     name: String,
 }
 
-/// MIDI listener thread priority, same crate, same 0-99 cross-platform scale
-/// as the analyser priority. Deliberately lower.
+/// MIDI listener thread priority. Set lower than analyser.
 const MIDI_THREAD_PRIORITY: u8 = 20;
 
 /// Poll cadence for both the synthetic clock tick scheduling and the real
