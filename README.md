@@ -16,6 +16,7 @@ Phase4 supports 64-bit [macOS](docs/tutorials/compile.md#macos), [Windows](docs/
   - [Check](#check)
   - [Serve](#serve)
   - [Connect](#connect)
+- [Outputs](#outputs)
   - [OSC](#osc)
   - [MIDI transport and clock](#midi-transport-and-clock)
 - [Configuration file](#configuration-file)
@@ -28,8 +29,9 @@ Pre-built binaries for macOS and Linux are on the [releases page](https://github
 1. [Check](#check) hardware compatibility.
 2. Select a device and [serve](#serve) analysis data.
 3. [Connect](#connect) a WebSocket client.
-4. Optionally [send OSC output](#osc).
-5. Optionally attach [MIDI transport and clock](#midi-transport-and-clock).
+
+See [Outputs](#outputs) to also send OSC data or attach MIDI transport
+and clock.
 
 ### Check
 
@@ -69,6 +71,12 @@ No audio hardware to hand, calibration mode drives the full pipeline with a synt
 Phase4 streams real-time audio analysis data as a JSON broadcast. Any tool capable of opening a standard WebSocket connection (including browsers, Node.js, Python, or creative coding environments like TouchDesigner) can consume this stream. Point your WebSocket client to `ws://127.0.0.1:8889` to start receiving the data.
 
 If Phase4 is broadcasting, check this [CodePen example](https://codepen.io/rayboyd/full/wBzOPPr) to see the server in action.
+
+## Outputs
+
+Beyond the core WebSocket stream, Phase4 can send OSC messages to any
+UDP target, and attach MIDI transport and clock data to the streams
+you already have running.
 
 ### OSC
 
