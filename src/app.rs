@@ -114,7 +114,6 @@ impl App {
     /// # Panics
     ///
     /// Panics if worker thread startup fails internally.
-    #[allow(clippy::too_many_lines)]
     pub fn new(config: AppConfig) -> Result<Self> {
         let state = Arc::new(AppState::new());
         let stream_state = Arc::clone(&state);
@@ -162,30 +161,15 @@ impl App {
         let (display_tx, display_rx) = watch::channel(DisplayPayload::new(display_channels));
 
         // Spawn Producers. Hardware or a Generator is spawned.
-        let mut generator_thread = None;
-        match input_source {
-            InputSource::Calibration(signal) => {
-                log::info!("{}", calibration_announcement(signal));
-                generator_thread = Some(Generator::spawn(
-                    signal,
-                    hw_specs.sample_rate,
-                    hw_specs.channels,
-                    analyse_tx,
-                    generator_state,
-                ));
-            }
-            InputSource::Hardware(device, stream_config) => {
-                input_device.start_stream(
-                    &device,
-                    &stream_config,
-                    StreamSink {
-                        tx: analyse_tx,
-                        mode: analyse_mode,
-                    },
-                    &stream_state,
-                )?;
-            }
-        }
+        let generator_thread = Self::spawn_input(
+            input_source,
+            hw_specs,
+            analyse_mode,
+            analyse_tx,
+            generator_state,
+            &stream_state,
+            &mut input_device,
+        )?;
 
         // Spawn Worker Threads.
         let analyser = Processor::new(config.vocoder_config);
@@ -283,6 +267,48 @@ impl App {
         }
 
         Ok(output_threads)
+    }
+
+    /// Spawns the audio producer side of the pipeline: either a synthetic
+    /// [`Generator`] thread in calibration mode, or a real hardware input
+    /// stream started in place on `input_device`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the hardware input stream cannot be started.
+    fn spawn_input(
+        input_source: InputSource,
+        hw_specs: Specs,
+        analyse_mode: ChannelMode,
+        analyse_tx: ringbuf::HeapProd<f32>,
+        generator_state: Arc<AppState>,
+        stream_state: &Arc<AppState>,
+        input_device: &mut Input,
+    ) -> Result<Option<std::thread::JoinHandle<()>>> {
+        match input_source {
+            InputSource::Calibration(signal) => {
+                log::info!("{}", calibration_announcement(signal));
+                Ok(Some(Generator::spawn(
+                    signal,
+                    hw_specs.sample_rate,
+                    hw_specs.channels,
+                    analyse_tx,
+                    generator_state,
+                )))
+            }
+            InputSource::Hardware(device, stream_config) => {
+                input_device.start_stream(
+                    &device,
+                    &stream_config,
+                    StreamSink {
+                        tx: analyse_tx,
+                        mode: analyse_mode,
+                    },
+                    stream_state,
+                )?;
+                Ok(None)
+            }
+        }
     }
 
     /// Returns hardware specs and a resolved [`InputSource`], either calibration-mode
