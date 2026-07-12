@@ -5,6 +5,12 @@
 //! argument in the range 0.0..=1.0. The receiver maps these to its own
 //! parameters using its OSC shortcut editor (e.g. `TouchDesigner` OSC In CHOP).
 //!
+//! When MIDI input is configured, `/phase4/midi/steps` is sent alongside the
+//! bin addresses every frame, one `i` (int) argument, the current absolute
+//! step count. `/phase4/midi/start`, `/phase4/midi/stop`, and
+//! `/phase4/midi/continue` each carry one `i` argument (`1`, a conventional
+//! bang value) and are sent only on the frame their transport event fired.
+//!
 //! Message structures and addresses are pre-built once before the send loop.
 //! Each frame, only the float argument is mutated in place. The UDP socket is
 //! bound to an ephemeral local port and kept unconnected, so each send uses
@@ -53,11 +59,13 @@ impl OscSender {
         display_rx: watch::Receiver<DisplayPayload>,
         channels: usize,
         state: Arc<AppState>,
+        midi_enabled: bool,
     ) -> Result<JoinHandle<()>> {
         let socket =
             UdpSocket::bind("0.0.0.0:0").context("Failed to bind UDP socket for OSC output")?;
 
         let packets = Self::build_packets(channels);
+        let midi_packets = midi_enabled.then(Self::build_midi_packets);
         let target = self.target;
         let handle = super::spawn_async_worker("osc-sender", async move {
             OscRuntime {
@@ -65,6 +73,7 @@ impl OscSender {
                 socket,
                 target,
                 packets,
+                midi_packets,
                 scratch: Vec::new(),
                 state,
                 send_failure_logged: false,
@@ -94,6 +103,37 @@ impl OscSender {
         }
         packets
     }
+
+    /// Pre-builds the MIDI packet table: one steps packet and one bang packet
+    /// per transport event.
+    fn build_midi_packets() -> MidiOscPackets {
+        let bang = |addr: &str| {
+            OscPacket::Message(OscMessage {
+                addr: addr.to_string(),
+                args: vec![OscType::Int(1)],
+            })
+        };
+        MidiOscPackets {
+            steps_packet: OscPacket::Message(OscMessage {
+                addr: "/phase4/midi/steps".to_string(),
+                args: vec![OscType::Int(0)],
+            }),
+            start_packet: bang("/phase4/midi/start"),
+            stop_packet: bang("/phase4/midi/stop"),
+            continue_packet: bang("/phase4/midi/continue"),
+        }
+    }
+}
+
+/// Pre-built MIDI packets, one per address, updated in place each frame
+/// `midi_enabled` is true. `steps_packet` is sent every frame, the other
+/// three are sent only on the frame their transport event fired.
+#[allow(clippy::struct_field_names)]
+struct MidiOscPackets {
+    steps_packet: OscPacket,
+    start_packet: OscPacket,
+    stop_packet: OscPacket,
+    continue_packet: OscPacket,
 }
 
 /// Runtime state for the OSC sender thread.
@@ -106,6 +146,7 @@ struct OscRuntime {
     socket: UdpSocket,
     target: SocketAddr,
     packets: Vec<OscPacket>,
+    midi_packets: Option<MidiOscPackets>,
     scratch: Vec<u8>,
     state: Arc<AppState>,
     send_failure_logged: bool,
@@ -127,7 +168,7 @@ impl OscRuntime {
 
             // Minimise the watch read-lock duration: update packet values and release
             // the guard before any encoding or I/O work begins.
-            {
+            let midi_snapshot = {
                 let guard = self.display_rx.borrow_and_update();
                 for (ch_packets, channel) in self
                     .packets
@@ -142,43 +183,99 @@ impl OscRuntime {
                         }
                     }
                 }
-            }
+                guard.midi.clone()
+            };
 
             // Encode and send each packet. No allocations occur in this loop.
             for packet in &self.packets {
-                self.scratch.clear();
-                match rosc::encoder::encode_into(packet, &mut self.scratch) {
-                    Ok(_) => {
-                        self.encode_failure_logged = false;
+                Self::encode_and_send(
+                    &mut self.scratch,
+                    &self.socket,
+                    self.target,
+                    packet,
+                    &mut self.send_failure_logged,
+                    &mut self.encode_failure_logged,
+                );
+            }
 
-                        match self.socket.send_to(&self.scratch, self.target) {
-                            Ok(_) => self.send_failure_logged = false,
-                            Err(e) => {
-                                if !self.send_failure_logged {
-                                    if let OscPacket::Message(msg) = packet {
-                                        log::warn!(
-                                            "OSC send failed for {}: {e}. Further send failures until \
-                                             the next successful send will not be logged individually.",
-                                            msg.addr
-                                        );
-                                    }
-                                    self.send_failure_logged = true;
-                                }
-                            }
+            if let Some(midi) = midi_snapshot {
+                if let Some(midi_packets) = self.midi_packets.as_mut() {
+                    if let OscPacket::Message(msg) = &mut midi_packets.steps_packet {
+                        if let Some(OscType::Int(ref mut n)) = msg.args.first_mut() {
+                            *n = midi.steps.cast_signed();
                         }
                     }
+                }
+
+                if let Some(midi_packets) = &self.midi_packets {
+                    Self::encode_and_send(
+                        &mut self.scratch,
+                        &self.socket,
+                        self.target,
+                        &midi_packets.steps_packet,
+                        &mut self.send_failure_logged,
+                        &mut self.encode_failure_logged,
+                    );
+
+                    let transport_packet = match midi.transport {
+                        Some("start") => Some(&midi_packets.start_packet),
+                        Some("stop") => Some(&midi_packets.stop_packet),
+                        Some("continue") => Some(&midi_packets.continue_packet),
+                        _ => None,
+                    };
+                    if let Some(packet) = transport_packet {
+                        Self::encode_and_send(
+                            &mut self.scratch,
+                            &self.socket,
+                            self.target,
+                            packet,
+                            &mut self.send_failure_logged,
+                            &mut self.encode_failure_logged,
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    fn encode_and_send(
+        scratch: &mut Vec<u8>,
+        socket: &UdpSocket,
+        target: SocketAddr,
+        packet: &OscPacket,
+        send_failure_logged: &mut bool,
+        encode_failure_logged: &mut bool,
+    ) {
+        scratch.clear();
+        match rosc::encoder::encode_into(packet, scratch) {
+            Ok(_) => {
+                *encode_failure_logged = false;
+                match socket.send_to(scratch, target) {
+                    Ok(_) => *send_failure_logged = false,
                     Err(e) => {
-                        if !self.encode_failure_logged {
+                        if !*send_failure_logged {
                             if let OscPacket::Message(msg) = packet {
                                 log::warn!(
-                                    "OSC encode failed for {}: {e}. Further encode failures until \
-                                     the next successful encode will not be logged individually.",
+                                    "OSC send failed for {}: {e}. Further send failures until \
+                                     the next successful send will not be logged individually.",
                                     msg.addr
                                 );
                             }
-                            self.encode_failure_logged = true;
+                            *send_failure_logged = true;
                         }
                     }
+                }
+            }
+            Err(e) => {
+                if !*encode_failure_logged {
+                    if let OscPacket::Message(msg) = packet {
+                        log::warn!(
+                            "OSC encode failed for {}: {e}. Further encode failures until \
+                             the next successful encode will not be logged individually.",
+                            msg.addr
+                        );
+                    }
+                    *encode_failure_logged = true;
                 }
             }
         }
@@ -220,6 +317,29 @@ mod tests {
             assert!(matches!(msg.args[0], OscType::Float(_)));
         } else {
             panic!("packet at [{ch_1_sampled_bin_idx}] must be an OscMessage");
+        }
+    }
+
+    // The MIDI packet table must have the right addresses and argument types.
+    #[test]
+    fn midi_packet_table_has_correct_addresses_and_arg_types() {
+        let midi_packets = OscSender::build_midi_packets();
+
+        let cases = [
+            (&midi_packets.steps_packet, "/phase4/midi/steps"),
+            (&midi_packets.start_packet, "/phase4/midi/start"),
+            (&midi_packets.stop_packet, "/phase4/midi/stop"),
+            (&midi_packets.continue_packet, "/phase4/midi/continue"),
+        ];
+
+        for (packet, expected_addr) in cases {
+            if let OscPacket::Message(msg) = packet {
+                assert_eq!(msg.addr, expected_addr);
+                assert_eq!(msg.args.len(), 1);
+                assert!(matches!(msg.args[0], OscType::Int(_)));
+            } else {
+                panic!("{expected_addr} must be an OscMessage");
+            }
         }
     }
 

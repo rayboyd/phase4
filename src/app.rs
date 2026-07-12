@@ -121,7 +121,7 @@ impl App {
         let mapper_state = Arc::clone(&state);
         let generator_state = Arc::clone(&state);
         let controller_state = Arc::clone(&state);
-
+        let midi_enabled = config.midi_input.is_some();
         let mut input_device = Input::new();
         let (hw_specs, input_source) = Self::resolve_hardware(&config, &mut input_device)?;
         validate_vocoder_sample_rate(config.vocoder_config.freq_high, hw_specs.sample_rate)?;
@@ -161,30 +161,15 @@ impl App {
         let (display_tx, display_rx) = watch::channel(DisplayPayload::new(display_channels));
 
         // Spawn Producers. Hardware or a Generator is spawned.
-        let mut generator_thread = None;
-        match input_source {
-            InputSource::Calibration(signal) => {
-                log::info!("{}", calibration_announcement(signal));
-                generator_thread = Some(Generator::spawn(
-                    signal,
-                    hw_specs.sample_rate,
-                    hw_specs.channels,
-                    analyse_tx,
-                    generator_state,
-                ));
-            }
-            InputSource::Hardware(device, stream_config) => {
-                input_device.start_stream(
-                    &device,
-                    &stream_config,
-                    StreamSink {
-                        tx: analyse_tx,
-                        mode: analyse_mode,
-                    },
-                    &stream_state,
-                )?;
-            }
-        }
+        let generator_thread = Self::spawn_input(
+            input_source,
+            hw_specs,
+            analyse_mode,
+            analyse_tx,
+            generator_state,
+            &stream_state,
+            &mut input_device,
+        )?;
 
         // Spawn Worker Threads.
         let analyser = Processor::new(config.vocoder_config);
@@ -197,15 +182,20 @@ impl App {
             display_channels,
             mapper_state,
             config.broadcast_rate,
-            config.midi_input.is_some(),
+            midi_enabled,
         ));
 
         // Spawn one worker per configured output transport. Each descriptor in
         // config.outputs matches to exactly one spawn arm in spawn_outputs,
         // adding a new transport means adding one variant and one arm there,
         // nothing else changes.
-        let output_threads =
-            Self::spawn_outputs(&config.outputs, &display_rx, display_channels, &state)?;
+        let output_threads = Self::spawn_outputs(
+            &config.outputs,
+            &display_rx,
+            display_channels,
+            &state,
+            midi_enabled,
+        )?;
 
         let midi_thread = match &config.midi_input {
             Some(ConfigMidiInput::TestClock(bpm)) => {
@@ -229,11 +219,7 @@ impl App {
                 midi_thread,
                 output_threads,
             ),
-            controller: Controller::new(
-                config.controller_mode,
-                controller_state,
-                config.midi_input.is_some(),
-            ),
+            controller: Controller::new(config.controller_mode, controller_state, midi_enabled),
             shutdown_started: false,
         })
     }
@@ -250,6 +236,7 @@ impl App {
         display_rx: &watch::Receiver<DisplayPayload>,
         display_channels: usize,
         state: &Arc<AppState>,
+        midi_enabled: bool,
     ) -> Result<Vec<(OutputWorker, std::thread::JoinHandle<()>)>> {
         let mut output_threads = Vec::new();
 
@@ -267,8 +254,12 @@ impl App {
                 }
                 OutputConfig::Osc { addr } => {
                     let sender = OscSender::new(*addr);
-                    let handle =
-                        sender.spawn(display_rx.clone(), display_channels, Arc::clone(state))?;
+                    let handle = sender.spawn(
+                        display_rx.clone(),
+                        display_channels,
+                        Arc::clone(state),
+                        midi_enabled,
+                    )?;
                     log::info!("OSC sender transmitting to udp://{addr}");
                     output_threads.push((OutputWorker::Osc, handle));
                 }
@@ -276,6 +267,48 @@ impl App {
         }
 
         Ok(output_threads)
+    }
+
+    /// Spawns the audio producer side of the pipeline: either a synthetic
+    /// [`Generator`] thread in calibration mode, or a real hardware input
+    /// stream started in place on `input_device`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the hardware input stream cannot be started.
+    fn spawn_input(
+        input_source: InputSource,
+        hw_specs: Specs,
+        analyse_mode: ChannelMode,
+        analyse_tx: ringbuf::HeapProd<f32>,
+        generator_state: Arc<AppState>,
+        stream_state: &Arc<AppState>,
+        input_device: &mut Input,
+    ) -> Result<Option<std::thread::JoinHandle<()>>> {
+        match input_source {
+            InputSource::Calibration(signal) => {
+                log::info!("{}", calibration_announcement(signal));
+                Ok(Some(Generator::spawn(
+                    signal,
+                    hw_specs.sample_rate,
+                    hw_specs.channels,
+                    analyse_tx,
+                    generator_state,
+                )))
+            }
+            InputSource::Hardware(device, stream_config) => {
+                input_device.start_stream(
+                    &device,
+                    &stream_config,
+                    StreamSink {
+                        tx: analyse_tx,
+                        mode: analyse_mode,
+                    },
+                    stream_state,
+                )?;
+                Ok(None)
+            }
+        }
     }
 
     /// Returns hardware specs and a resolved [`InputSource`], either calibration-mode

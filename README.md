@@ -102,7 +102,7 @@ When MIDI input is configured, each display frame may include a top-level `midi`
 
 When MIDI input is not configured, the `midi` key is absent, so clients that only read `channels` are unaffected.
 
-OSC forwarding of MIDI transport and clock is not implemented yet.
+When MIDI input is configured, the OSC sender also transmits `/phase4/midi/steps` every frame, one `i` argument, the current absolute step count, and `/phase4/midi/start`, `/phase4/midi/stop`, `/phase4/midi/continue`, each one `i` argument (`1`), sent only on the frame their transport event fired.
 
 Embedding Phase4 in your own application is documented in [docs/tutorials/wrapper.md](docs/tutorials/wrapper.md).
 
