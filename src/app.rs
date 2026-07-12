@@ -185,6 +185,21 @@ impl App {
             midi_enabled,
         ));
 
+        // Resolved before spawn_outputs so a bad --midi-device fails before
+        // the WebSocket server binds, mirroring resolve_hardware's early
+        // failure for a bad --audio-device.
+        let midi_thread = match &config.midi_input {
+            Some(ConfigMidiInput::TestClock(bpm)) => {
+                log::info!("Calibration mode: MIDI test clock at {bpm} bpm");
+                Some(MidiListener::spawn(
+                    ConfigMidiInput::TestClock(*bpm),
+                    state.clone(),
+                )?)
+            }
+            Some(input) => Some(MidiListener::spawn(input.clone(), state.clone())?),
+            None => None,
+        };
+
         // Spawn one worker per configured output transport. Each descriptor in
         // config.outputs matches to exactly one spawn arm in spawn_outputs,
         // adding a new transport means adding one variant and one arm there,
@@ -196,18 +211,6 @@ impl App {
             &state,
             midi_enabled,
         )?;
-
-        let midi_thread = match &config.midi_input {
-            Some(ConfigMidiInput::TestClock(bpm)) => {
-                log::info!("Calibration mode: MIDI test clock at {bpm} bpm");
-                Some(MidiListener::spawn(
-                    ConfigMidiInput::TestClock(*bpm),
-                    state.clone(),
-                ))
-            }
-            Some(input) => Some(MidiListener::spawn(input.clone(), state.clone())),
-            None => None,
-        };
 
         Ok(Self {
             input_device: Some(input_device),
