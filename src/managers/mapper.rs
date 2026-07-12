@@ -11,12 +11,12 @@
 //! Downstream transports subscribe to this channel and apply their own wire
 //! encoding where appropriate.
 
-use crate::app::{
-    AppState, MIDI_TRANSPORT_CONTINUE, MIDI_TRANSPORT_NONE, MIDI_TRANSPORT_START,
-    MIDI_TRANSPORT_STOP,
-};
+use crate::app::AppState;
 use crate::dsp::{
     DisplayChannelLevel, DisplayPayload, MidiSnapshot, RawChannelLevel, RawPayload, DISPLAY_BINS,
+};
+use crate::managers::{
+    MIDI_TRANSPORT_CONTINUE, MIDI_TRANSPORT_NONE, MIDI_TRANSPORT_START, MIDI_TRANSPORT_STOP,
 };
 use std::cmp::Ordering::{Equal, Greater, Less};
 use std::sync::{atomic::Ordering, Arc};

@@ -12,7 +12,7 @@
 //! most recent Start, read by the mapper as a snapshot, and reset only by
 //! Start.
 
-use crate::app::{AppState, MIDI_TRANSPORT_CONTINUE, MIDI_TRANSPORT_START, MIDI_TRANSPORT_STOP};
+use crate::app::AppState;
 use crate::config::ConfigMidiInput;
 use crate::ListFormat;
 use anyhow::{Context, Result};
@@ -43,6 +43,20 @@ const MIDI_CLOCK_TICKS_PER_QUARTER_NOTE: f64 = 24.0;
 /// resolution: 24 ticks per quarter note divided by four.
 const MIDI_CLOCK_TICKS_PER_STEP: u8 = 6;
 
+/// Encoding of the last MIDI transport event seen, stored in an
+/// `AtomicU8` on `AppState`. `NONE` means no transport event since the
+/// last read.
+pub(crate) const MIDI_TRANSPORT_NONE: u8 = 0;
+pub(crate) const MIDI_TRANSPORT_START: u8 = 1;
+pub(crate) const MIDI_TRANSPORT_STOP: u8 = 2;
+pub(crate) const MIDI_TRANSPORT_CONTINUE: u8 = 3;
+
+/// Raw MIDI Real-Time status bytes `record_byte` matches against.
+const MIDI_STATUS_TIMING_CLOCK: u8 = 0xF8;
+const MIDI_STATUS_START: u8 = 0xFA;
+const MIDI_STATUS_CONTINUE: u8 = 0xFB;
+const MIDI_STATUS_STOP: u8 = 0xFC;
+
 /// Matches a single raw MIDI status byte against the four Real-Time codes
 /// phase4 cares about. Start, Stop, and Continue update `AppState` directly.
 /// Clock ticks accumulate privately in `ticks_since_step` and are only
@@ -52,20 +66,20 @@ const MIDI_CLOCK_TICKS_PER_STEP: u8 = 6;
 /// clears it. All other bytes are ignored.
 fn record_byte(byte: u8, state: &AppState, ticks_since_step: &mut u8) {
     match byte {
-        0xFA => {
+        MIDI_STATUS_START => {
             state
                 .midi_last_transport
                 .store(MIDI_TRANSPORT_START, Ordering::Release);
             *ticks_since_step = 0;
             state.midi_steps.store(0, Ordering::Release);
         }
-        0xFC => state
+        MIDI_STATUS_STOP => state
             .midi_last_transport
             .store(MIDI_TRANSPORT_STOP, Ordering::Release),
-        0xFB => state
+        MIDI_STATUS_CONTINUE => state
             .midi_last_transport
             .store(MIDI_TRANSPORT_CONTINUE, Ordering::Release),
-        0xF8 => {
+        MIDI_STATUS_TIMING_CLOCK => {
             *ticks_since_step += 1;
             if *ticks_since_step >= MIDI_CLOCK_TICKS_PER_STEP {
                 *ticks_since_step = 0;
@@ -349,7 +363,7 @@ mod tests {
         }
         assert_eq!(
             state.midi_last_transport.load(Ordering::Acquire),
-            crate::app::MIDI_TRANSPORT_NONE
+            MIDI_TRANSPORT_NONE
         );
         assert_eq!(state.midi_steps.load(Ordering::Acquire), 0);
     }
