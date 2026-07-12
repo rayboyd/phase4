@@ -62,9 +62,8 @@ pub struct AppState {
     /// Written by the MIDI listener thread, read and cleared by the mapper
     /// each time it broadcasts a frame.
     pub midi_last_transport: AtomicU8,
-    /// Raw MIDI clock ticks (0xF8 bytes) seen since the mapper last read and
-    /// cleared this counter.
-    pub midi_clock_ticks: AtomicU32,
+    /// MIDI 1/16 note steps derived from incoming MIDI clock ticks.
+    pub midi_steps: AtomicU32,
 }
 
 impl Default for AppState {
@@ -73,7 +72,7 @@ impl Default for AppState {
             is_active: AtomicBool::new(true),
             keep_running: AtomicBool::new(true),
             midi_last_transport: AtomicU8::new(MIDI_TRANSPORT_NONE),
-            midi_clock_ticks: AtomicU32::new(0),
+            midi_steps: AtomicU32::new(0),
         }
     }
 }
@@ -436,6 +435,6 @@ mod tests {
             state.midi_last_transport.load(Ordering::Acquire),
             MIDI_TRANSPORT_NONE
         );
-        assert_eq!(state.midi_clock_ticks.load(Ordering::Acquire), 0);
+        assert_eq!(state.midi_steps.load(Ordering::Acquire), 0);
     }
 }

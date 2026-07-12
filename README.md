@@ -91,12 +91,12 @@ When MIDI input is configured, each display frame may include a top-level `midi`
   "channels": [{ "peak": 0.38, "bins": [0.0, 0.1, 0.2, 0.3] }],
   "midi": {
     "transport": "start",
-    "clock_ticks": 24
+    "steps": 24
   }
 }
 ```
 
-`transport` is one of `start`, `stop`, or `continue`, and is omitted when no transport event happened since the previous broadcast frame. `clock_ticks` is the raw count of incoming MIDI clock bytes (`0xF8`) observed since the previous broadcast frame.
+`transport` is one of `start`, `stop`, or `continue`, and is omitted when no transport event happened since the previous broadcast frame. `steps` is the count of MIDI 1/16 note steps observed since the previous broadcast frame.
 
 When MIDI input is not configured, the `midi` key is absent, so clients that only read `channels` are unaffected.
 

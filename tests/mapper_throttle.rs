@@ -183,7 +183,7 @@ async fn midi_snapshot_is_not_consumed_on_a_throttled_cycle() {
     let (display_tx, mut display_rx) = display_channel(channels);
     let state = Arc::new(AppState::new());
 
-    state.midi_clock_ticks.store(5, Ordering::Release);
+    state.midi_steps.store(5, Ordering::Release);
 
     // A low rate (2 Hz) so the second frame is throttled.
     let handle = Mapper::spawn(raw_rx, display_tx, channels, state.clone(), Some(2.0), true);
@@ -194,7 +194,7 @@ async fn midi_snapshot_is_not_consumed_on_a_throttled_cycle() {
     assert!(first.is_ok());
     let first_payload = display_rx.borrow_and_update().clone();
     assert_eq!(
-        first_payload.midi.as_ref().map(|m| m.clock_ticks),
+        first_payload.midi.as_ref().map(|m| m.steps),
         Some(5),
         "the first frame should carry the ticks recorded before it"
     );
@@ -202,7 +202,7 @@ async fn midi_snapshot_is_not_consumed_on_a_throttled_cycle() {
     // A second, rapid frame lands inside the throttle window and must not be
     // broadcast, so the ticks recorded here must survive to the next frame
     // that actually sends, not be silently cleared here.
-    state.midi_clock_ticks.store(2, Ordering::Release);
+    state.midi_steps.store(2, Ordering::Release);
     send_frame(&raw_tx, channels, 0.2);
     let throttled = tokio::time::timeout(Duration::from_millis(100), display_rx.changed()).await;
     assert!(

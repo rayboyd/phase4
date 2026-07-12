@@ -152,8 +152,8 @@ fn map_channel(raw: &RawChannelLevel, out: &mut DisplayChannelLevel) {
     }
 }
 
-/// Reads and clears the MIDI transport and clock tick atomics, called only on
-/// a cycle that actually broadcasts.
+/// Reads and clears the MIDI transport and step atomics, called only on a
+/// cycle that actually broadcasts.
 fn read_midi_snapshot(state: &AppState, midi_enabled: bool) -> Option<MidiSnapshot> {
     if !midi_enabled {
         return None;
@@ -161,10 +161,10 @@ fn read_midi_snapshot(state: &AppState, midi_enabled: bool) -> Option<MidiSnapsh
     let transport_code = state
         .midi_last_transport
         .swap(MIDI_TRANSPORT_NONE, Ordering::AcqRel);
-    let clock_ticks = state.midi_clock_ticks.swap(0, Ordering::AcqRel);
+    let steps = state.midi_steps.swap(0, Ordering::AcqRel);
     Some(MidiSnapshot {
         transport: transport_code_to_str(transport_code),
-        clock_ticks,
+        steps,
     })
 }
 

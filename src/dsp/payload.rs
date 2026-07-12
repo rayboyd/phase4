@@ -132,8 +132,8 @@ pub struct MidiSnapshot {
     /// the previous broadcast frame. Omitted from JSON when nothing happened.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub transport: Option<&'static str>,
-    /// Raw MIDI clock ticks (0xF8 bytes) seen since the previous frame.
-    pub clock_ticks: u32,
+    /// MIDI 1/16 note steps seen since the previous frame.
+    pub steps: u32,
 }
 
 impl Serialize for DisplayChannelLevel {
@@ -223,11 +223,11 @@ mod tests {
     fn midi_snapshot_omits_transport_when_none() {
         let snapshot = MidiSnapshot {
             transport: None,
-            clock_ticks: 3,
+            steps: 3,
         };
         let json = serde_json::to_string(&snapshot).expect("should serialise");
         assert!(!json.contains("transport"));
-        assert!(json.contains("\"clock_ticks\":3"));
+        assert!(json.contains("\"steps\":3"));
     }
 
     // The serialised JSON must contain the expected top-level key, per-channel

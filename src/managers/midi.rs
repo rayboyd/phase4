@@ -7,9 +7,8 @@
 //! priority than the analyser, audio takes priority under contention.
 //!
 //! Deliberately minimal, raw bytes are matched directly against the four MIDI
-//! Real-Time codes phase4 cares about, no parsed event type, no accumulated
-//! step position, no subdivision. Start, Stop, Continue, and a running Clock
-//! tick count, nothing else.
+//! Real-Time codes phase4 cares about, no parsed event type. Start, Stop,
+//! Continue, and a running 1/16 step count derived from Clock ticks.
 
 use crate::app::{AppState, MIDI_TRANSPORT_CONTINUE, MIDI_TRANSPORT_START, MIDI_TRANSPORT_STOP};
 use crate::config::ConfigMidiInput;
@@ -39,14 +38,25 @@ const MIDI_POLL_INTERVAL_MS: u64 = 10;
 
 const MIDI_CLOCK_TICKS_PER_QUARTER_NOTE: f64 = 24.0;
 
+/// Raw MIDI clock ticks (0xF8 bytes) per 1/16 note step, phase4's fixed
+/// resolution: 24 ticks per quarter note divided by four.
+const MIDI_CLOCK_TICKS_PER_STEP: u8 = 6;
+
 /// Matches a single raw MIDI status byte against the four Real-Time codes
-/// phase4 cares about, updating `AppState` directly. All other bytes are
+/// phase4 cares about. Start, Stop, and Continue update `AppState` directly.
+/// Clock ticks accumulate privately in `ticks_since_step` and are only
+/// published to `AppState` once every `MIDI_CLOCK_TICKS_PER_STEP` ticks, so
+/// what phase4 exposes is a step count computed against the real MIDI clock,
+/// not a raw pulse count sampled at the broadcast rate. All other bytes are
 /// ignored.
-fn record_byte(byte: u8, state: &AppState) {
+fn record_byte(byte: u8, state: &AppState, ticks_since_step: &mut u8) {
     match byte {
-        0xFA => state
-            .midi_last_transport
-            .store(MIDI_TRANSPORT_START, Ordering::Release),
+        0xFA => {
+            state
+                .midi_last_transport
+                .store(MIDI_TRANSPORT_START, Ordering::Release);
+            *ticks_since_step = 0;
+        }
         0xFC => state
             .midi_last_transport
             .store(MIDI_TRANSPORT_STOP, Ordering::Release),
@@ -54,7 +64,11 @@ fn record_byte(byte: u8, state: &AppState) {
             .midi_last_transport
             .store(MIDI_TRANSPORT_CONTINUE, Ordering::Release),
         0xF8 => {
-            state.midi_clock_ticks.fetch_add(1, Ordering::AcqRel);
+            *ticks_since_step += 1;
+            if *ticks_since_step >= MIDI_CLOCK_TICKS_PER_STEP {
+                *ticks_since_step = 0;
+                state.midi_steps.fetch_add(1, Ordering::AcqRel);
+            }
         }
         _ => {}
     }
@@ -147,15 +161,16 @@ fn run_synthetic_clock(bpm: f32, state: &Arc<AppState>) {
     let tick_interval =
         Duration::from_secs_f64(60.0 / (f64::from(bpm) * MIDI_CLOCK_TICKS_PER_QUARTER_NOTE));
     let poll_interval = Duration::from_millis(MIDI_POLL_INTERVAL_MS);
+    let mut ticks_since_step: u8 = 0;
 
     // A synthetic clock is always running the instant it starts.
-    record_byte(0xFA, state);
+    record_byte(0xFA, state, &mut ticks_since_step);
 
     let mut next_tick = Instant::now() + tick_interval;
     while state.keep_running.load(Ordering::Acquire) {
         let now = Instant::now();
         if now >= next_tick {
-            record_byte(0xF8, state);
+            record_byte(0xF8, state, &mut ticks_since_step);
             next_tick += tick_interval;
         }
         let sleep_for = next_tick
@@ -195,12 +210,12 @@ fn run_real_device(name_query: &str, state: &Arc<AppState>) {
     let connection = midi_in.connect(
         port,
         "phase4-midi-in",
-        move |_timestamp_us, bytes, _data: &mut ()| {
+        move |_timestamp_us, bytes, ticks_since_step: &mut u8| {
             for &byte in bytes {
-                record_byte(byte, &thread_state);
+                record_byte(byte, &thread_state, ticks_since_step);
             }
         },
-        (),
+        0u8,
     );
 
     let Ok(_connection) = connection else {
@@ -224,7 +239,7 @@ mod tests {
     #[test]
     fn record_byte_sets_start() {
         let state = AppState::new();
-        record_byte(0xFA, &state);
+        record_byte(0xFA, &state, &mut 0u8);
         assert_eq!(
             state.midi_last_transport.load(Ordering::Acquire),
             MIDI_TRANSPORT_START
@@ -234,7 +249,7 @@ mod tests {
     #[test]
     fn record_byte_sets_stop() {
         let state = AppState::new();
-        record_byte(0xFC, &state);
+        record_byte(0xFC, &state, &mut 0u8);
         assert_eq!(
             state.midi_last_transport.load(Ordering::Acquire),
             MIDI_TRANSPORT_STOP
@@ -244,7 +259,7 @@ mod tests {
     #[test]
     fn record_byte_sets_continue() {
         let state = AppState::new();
-        record_byte(0xFB, &state);
+        record_byte(0xFB, &state, &mut 0u8);
         assert_eq!(
             state.midi_last_transport.load(Ordering::Acquire),
             MIDI_TRANSPORT_CONTINUE
@@ -252,25 +267,72 @@ mod tests {
     }
 
     #[test]
-    fn record_byte_increments_clock_ticks() {
+    fn record_byte_does_not_publish_before_a_full_step() {
         let state = AppState::new();
-        record_byte(0xF8, &state);
-        record_byte(0xF8, &state);
-        record_byte(0xF8, &state);
-        assert_eq!(state.midi_clock_ticks.load(Ordering::Acquire), 3);
+        let mut ticks_since_step = 0u8;
+        for _ in 0..(MIDI_CLOCK_TICKS_PER_STEP - 1) {
+            record_byte(0xF8, &state, &mut ticks_since_step);
+        }
+        assert_eq!(state.midi_steps.load(Ordering::Acquire), 0);
+    }
+
+    #[test]
+    fn record_byte_publishes_one_step_after_six_ticks() {
+        let state = AppState::new();
+        let mut ticks_since_step = 0u8;
+        for _ in 0..MIDI_CLOCK_TICKS_PER_STEP {
+            record_byte(0xF8, &state, &mut ticks_since_step);
+        }
+        assert_eq!(state.midi_steps.load(Ordering::Acquire), 1);
+    }
+
+    #[test]
+    fn record_byte_accumulator_persists_across_calls() {
+        let state = AppState::new();
+        let mut ticks_since_step = 0u8;
+        for _ in 0..4 {
+            record_byte(0xF8, &state, &mut ticks_since_step);
+        }
+        assert_eq!(state.midi_steps.load(Ordering::Acquire), 0);
+        for _ in 0..2 {
+            record_byte(0xF8, &state, &mut ticks_since_step);
+        }
+        assert_eq!(
+            state.midi_steps.load(Ordering::Acquire),
+            1,
+            "the four ticks from the first batch should carry over and complete a step with the next two, not reset between calls"
+        );
+    }
+
+    #[test]
+    fn record_byte_start_resets_the_step_accumulator() {
+        let state = AppState::new();
+        let mut ticks_since_step = 0u8;
+        for _ in 0..3 {
+            record_byte(0xF8, &state, &mut ticks_since_step);
+        }
+        record_byte(0xFA, &state, &mut ticks_since_step);
+        for _ in 0..3 {
+            record_byte(0xF8, &state, &mut ticks_since_step);
+        }
+        assert_eq!(
+            state.midi_steps.load(Ordering::Acquire),
+            0,
+            "Start should reset the partial accumulator, three ticks before plus three after must not wrongly complete a step"
+        );
     }
 
     #[test]
     fn record_byte_ignores_unrecognised_bytes() {
         let state = AppState::new();
         for byte in [0x00u8, 0xFE, 0xFF, 0x90] {
-            record_byte(byte, &state);
+            record_byte(byte, &state, &mut 0u8);
         }
         assert_eq!(
             state.midi_last_transport.load(Ordering::Acquire),
             crate::app::MIDI_TRANSPORT_NONE
         );
-        assert_eq!(state.midi_clock_ticks.load(Ordering::Acquire), 0);
+        assert_eq!(state.midi_steps.load(Ordering::Acquire), 0);
     }
 
     #[test]
