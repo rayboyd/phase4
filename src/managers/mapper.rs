@@ -11,8 +11,13 @@
 //! Downstream transports subscribe to this channel and apply their own wire
 //! encoding where appropriate.
 
-use crate::app::AppState;
-use crate::dsp::{DisplayChannelLevel, DisplayPayload, RawChannelLevel, RawPayload, DISPLAY_BINS};
+use crate::app::{
+    AppState, MIDI_TRANSPORT_CONTINUE, MIDI_TRANSPORT_NONE, MIDI_TRANSPORT_START,
+    MIDI_TRANSPORT_STOP,
+};
+use crate::dsp::{
+    DisplayChannelLevel, DisplayPayload, MidiSnapshot, RawChannelLevel, RawPayload, DISPLAY_BINS,
+};
 use std::cmp::Ordering::{Equal, Greater, Less};
 use std::sync::{atomic::Ordering, Arc};
 use std::thread::JoinHandle;
@@ -34,13 +39,21 @@ impl Mapper {
         channels: usize,
         state: Arc<AppState>,
         broadcast_rate: Option<f32>,
+        midi_enabled: bool,
     ) -> JoinHandle<()> {
         let broadcast_interval =
             broadcast_rate.map(|hz| Duration::from_secs_f64(1.0 / f64::from(hz)));
 
         super::spawn_async_worker(
             "mapper",
-            Self::run(raw_rx, display_tx, channels, state, broadcast_interval),
+            Self::run(
+                raw_rx,
+                display_tx,
+                channels,
+                state,
+                broadcast_interval,
+                midi_enabled,
+            ),
         )
     }
 
@@ -50,6 +63,7 @@ impl Mapper {
         channels: usize,
         state: Arc<AppState>,
         broadcast_interval: Option<Duration>,
+        midi_enabled: bool,
     ) {
         // Pre-allocated buffer reused every frame to avoid per-frame heap allocation.
         let mut display_data = DisplayPayload::new(channels);
@@ -86,6 +100,8 @@ impl Mapper {
                     }
                 }
             }
+
+            display_data.midi = read_midi_snapshot(&state, midi_enabled);
 
             let payload = std::mem::take(&mut display_data);
             display_data = display_tx.send_replace(payload);
@@ -133,6 +149,31 @@ fn map_channel(raw: &RawChannelLevel, out: &mut DisplayChannelLevel) {
                 chunk.fill(val);
             }
         }
+    }
+}
+
+/// Reads and clears MIDI transport, and snapshots MIDI steps, called only on
+/// a cycle that actually broadcasts.
+fn read_midi_snapshot(state: &AppState, midi_enabled: bool) -> Option<MidiSnapshot> {
+    if !midi_enabled {
+        return None;
+    }
+    let transport_code = state
+        .midi_last_transport
+        .swap(MIDI_TRANSPORT_NONE, Ordering::AcqRel);
+    let steps = state.midi_steps.load(Ordering::Acquire);
+    Some(MidiSnapshot {
+        transport: transport_code_to_str(transport_code),
+        steps,
+    })
+}
+
+fn transport_code_to_str(code: u8) -> Option<&'static str> {
+    match code {
+        MIDI_TRANSPORT_START => Some("start"),
+        MIDI_TRANSPORT_STOP => Some("stop"),
+        MIDI_TRANSPORT_CONTINUE => Some("continue"),
+        _ => None,
     }
 }
 

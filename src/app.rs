@@ -13,23 +13,30 @@
 //! main thread indefinitely.
 
 use crate::config::{
-    validate_vocoder_sample_rate, AppConfig, AppConfigError, ConfigInput, ConfigOutputs,
-    OutputConfig, TestSignal,
+    validate_vocoder_sample_rate, AppConfig, AppConfigError, ConfigInput, ConfigMidiInput,
+    ConfigOutputs, OutputConfig, TestSignal,
 };
 use crate::controller::Controller;
 use crate::dsp::{vocoder::VOCODER_BANDS, DisplayPayload, RawPayload};
 use crate::managers::audio::{ChannelMode, StreamSink};
-use crate::managers::{Generator, Input, Mapper, OscSender, Processor, Server, Specs};
+use crate::managers::{
+    Generator, Input, Mapper, MidiListener, OscSender, Processor, Server, Specs,
+};
 use crate::worker::{OutputWorker, WorkerThreads};
 use anyhow::Result;
 use std::sync::{
-    atomic::{AtomicBool, Ordering},
+    atomic::{AtomicBool, AtomicU32, AtomicU8, Ordering},
     Arc,
 };
 use tokio::sync::watch;
 
 /// Safety buffer for the analyse ringbuf, headroom for analysis accumulation.
 const ANALYSE_BUFFER_MS: u32 = 500;
+
+pub const MIDI_TRANSPORT_NONE: u8 = 0;
+pub const MIDI_TRANSPORT_START: u8 = 1;
+pub const MIDI_TRANSPORT_STOP: u8 = 2;
+pub const MIDI_TRANSPORT_CONTINUE: u8 = 3;
 
 /// Builds the calibration mode announcement for the given test signal.
 fn calibration_announcement(signal: TestSignal) -> String {
@@ -51,6 +58,16 @@ enum InputSource {
 pub struct AppState {
     pub is_active: AtomicBool,
     pub keep_running: AtomicBool,
+    /// Last MIDI transport event seen, one of the `MIDI_TRANSPORT_*` codes.
+    /// Written by the MIDI listener thread, read and cleared by the mapper
+    /// each time it broadcasts a frame.
+    pub midi_last_transport: AtomicU8,
+    /// MIDI 1/16 note steps derived from incoming MIDI clock ticks.
+    ///
+    /// Absolute monotonic count since the most recent Start event. Written by
+    /// the MIDI listener thread, read by the mapper as a snapshot, and reset
+    /// only by Start.
+    pub midi_steps: AtomicU32,
 }
 
 impl Default for AppState {
@@ -58,6 +75,8 @@ impl Default for AppState {
         Self {
             is_active: AtomicBool::new(true),
             keep_running: AtomicBool::new(true),
+            midi_last_transport: AtomicU8::new(MIDI_TRANSPORT_NONE),
+            midi_steps: AtomicU32::new(0),
         }
     }
 }
@@ -182,6 +201,7 @@ impl App {
             display_channels,
             mapper_state,
             config.broadcast_rate,
+            config.midi_input.is_some(),
         ));
 
         // Spawn one worker per configured output transport. Each descriptor in
@@ -191,6 +211,18 @@ impl App {
         let output_threads =
             Self::spawn_outputs(&config.outputs, &display_rx, display_channels, &state)?;
 
+        let midi_thread = match &config.midi_input {
+            Some(ConfigMidiInput::TestClock(bpm)) => {
+                log::info!("Calibration mode: MIDI test clock at {bpm} bpm");
+                Some(MidiListener::spawn(
+                    ConfigMidiInput::TestClock(*bpm),
+                    state.clone(),
+                ))
+            }
+            Some(input) => Some(MidiListener::spawn(input.clone(), state.clone())),
+            None => None,
+        };
+
         Ok(Self {
             input_device: Some(input_device),
             state,
@@ -198,9 +230,14 @@ impl App {
                 generator_thread,
                 analyser_thread,
                 mapper_thread,
+                midi_thread,
                 output_threads,
             ),
-            controller: Controller::new(config.controller_mode, controller_state),
+            controller: Controller::new(
+                config.controller_mode,
+                controller_state,
+                config.midi_input.is_some(),
+            ),
             shutdown_started: false,
         })
     }
@@ -352,8 +389,8 @@ mod tests {
         let mut app = App {
             input_device: None,
             state: state.clone(),
-            workers: WorkerThreads::new(generator_thread, None, None, Vec::new()),
-            controller: Controller::new(ControllerMode::Term, state.clone()),
+            workers: WorkerThreads::new(generator_thread, None, None, None, Vec::new()),
+            controller: Controller::new(ControllerMode::Term, state.clone(), false),
             shutdown_started: false,
         };
 
@@ -404,5 +441,15 @@ mod tests {
             input_source,
             InputSource::Calibration(TestSignal::FixedTone(hz)) if (hz - 440.0).abs() < f32::EPSILON
         ));
+    }
+
+    #[test]
+    fn midi_atomics_default_to_none_and_zero() {
+        let state = AppState::new();
+        assert_eq!(
+            state.midi_last_transport.load(Ordering::Acquire),
+            MIDI_TRANSPORT_NONE
+        );
+        assert_eq!(state.midi_steps.load(Ordering::Acquire), 0);
     }
 }

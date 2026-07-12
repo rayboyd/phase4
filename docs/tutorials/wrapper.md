@@ -50,7 +50,7 @@ parse them to drive wrapper logic.
 
 ## stdout, reserved
 
-Phase4 writes nothing to stdout while serving (`--list` output is the
+Phase4 writes nothing to stdout while serving (`--audio-list` output is the
 exception, and a wrapper does not serve and list in the same invocation).
 Structured machine-readable events may be added on stdout in a future release,
 wrappers should leave the pipe connected and unread rather than closing it.
@@ -83,7 +83,7 @@ reason available in the captured log lines.
 ## Minimal pseudocode
 
     child = spawn("phase4",
-                  args: ["--device", "Duet 3", "--ws-addr", "127.0.0.1:8889",
+                  args: ["--audio-device", "Duet 3", "--ws-addr", "127.0.0.1:8889",
                          "--controller-mode", "headless"],
                   cwd: config_dir,
                   stdin: pipe, stdout: pipe, stderr: pipe)

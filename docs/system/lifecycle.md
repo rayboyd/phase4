@@ -23,9 +23,11 @@
 }}%%
 flowchart TD
 		A[main] --> B[Parse CLI args]
-		B --> C{--list?}
+		B --> C{--audio-list?}
 		C -->|yes| D[List input devices and exit]
-		C -->|no| E2[Load config.yaml if present]
+		C -->|no| C2{--midi-list?}
+		C2 -->|yes| D2[List MIDI input devices and exit]
+		C2 -->|no| E2[Load config.yaml if present]
 		E2 --> E[Build AppConfig: CLI overrides file, file overrides defaults]
 		E --> E3{At least one of --ws-addr, --osc-addr configured?}
 		E3 -->|no| E4[Exit: NoOutputConfigured, non-zero]
@@ -46,8 +48,11 @@ flowchart TD
 		P -->|no| Q
 		P2 --> Q{--osc-addr configured?}
 		Q -->|yes| Q2[Spawn OSC sender thread]
-		Q -->|no| R[Run controller loop until shutdown]
-		Q2 --> R
+		Q -->|no| Q3
+		Q2 --> Q3{MIDI input configured?}
+		Q3 -->|yes| Q4[Spawn MIDI listener thread]
+		Q3 -->|no| R[Run controller loop until shutdown]
+		Q4 --> R
 		R --> S[Shutdown: drop input, signal keep_running=false, join workers with timeouts]
 ```
 
@@ -85,6 +90,8 @@ flowchart LR
 		C2 -->|watch send_replace RawPayload| E[(RawPayload watch)]
 		E --> F[Mapper thread]
 		F -->|map bins plus broadcast-rate gate| G[(DisplayPayload watch)]
+		N1[MIDI listener thread] -->|raw bytes to atomics| N2[(AppState MIDI atomics)]
+		N2 -->|read and clear on broadcast cycles| F
 		G --> H[WebSocket server]
 		H -->|serialise once per frame in dedicated task| H2[(Server JSON watch)]
 		H2 --> I[Clients: browser or native]
@@ -120,6 +127,9 @@ stateDiagram-v2
 		state Running {
 			[*] --> Flags
 			Flags --> Flags: T key toggles is_active
+			Flags --> Flags: S key sets MIDI Start and resets midi_steps
+			Flags --> Flags: X key sets MIDI Stop
+			Flags --> Flags: R key sets MIDI Continue
 			Flags --> ExitRequested: Ctrl+C sets keep_running=false
 		}
 
@@ -136,6 +146,7 @@ sequenceDiagram
 		participant Gen as Generator
 		participant An as Analyser
 		participant Map as Mapper
+		participant Midi as MidiListener
 		participant Srv as Server
 		participant Osc as OscSender
 
@@ -145,6 +156,7 @@ sequenceDiagram
 		Main->>Gen: join with 250ms timeout
 		Main->>An: join with 1000ms timeout
 		Main->>Map: join with 1000ms timeout
+		Main->>Midi: join with 250ms timeout
 		Main->>Srv: join with 1500ms timeout
 		Main->>Osc: join with 1500ms timeout
 

@@ -4,7 +4,7 @@ Calibration mode replaces the hardware input with a synthetic sine wave, making 
 
 ## Fixed tone
 
-Pass `--test-hz` with a frequency in Hz. No `--device` is required, but at least one output transport (`--ws-addr` or `--osc-addr`) must still be given.
+Pass `--test-hz` with a frequency in Hz. No `--audio-device` is required, but at least one output transport (`--ws-addr` or `--osc-addr`) must still be given.
 
 ```sh
 ./phase4 --test-hz 440 --ws-addr 127.0.0.1:8889

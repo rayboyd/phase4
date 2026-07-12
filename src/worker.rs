@@ -27,6 +27,10 @@ const ANALYSER_SHUTDOWN_TIMEOUT_MS: u64 = 1_000;
 /// Grace period for the mapper thread to observe analyser channel closure.
 const MAPPER_SHUTDOWN_TIMEOUT_MS: u64 = 1_000;
 
+/// Grace period for the MIDI input thread, which wakes on the same 10 ms
+/// cadence as the audio generator.
+const MIDI_INPUT_SHUTDOWN_TIMEOUT_MS: u64 = 250;
+
 /// Grace period for the server thread to finish its bounded accept and client shutdown.
 const SERVER_SHUTDOWN_TIMEOUT_MS: u64 = 1_500;
 
@@ -121,11 +125,20 @@ impl OutputWorker {
     }
 }
 
+fn midi_input_spec() -> WorkerSpec {
+    WorkerSpec {
+        name: "midi-input",
+        success_message: "- MIDI input shutdown complete",
+        timeout_ms: MIDI_INPUT_SHUTDOWN_TIMEOUT_MS,
+    }
+}
+
 /// Owns the [`JoinHandle`] for each fixed pipeline stage, plus one handle per
 /// configured output transport worker.
 #[derive(Default)]
 pub(crate) struct WorkerThreads {
     pub(crate) pipeline: [Option<JoinHandle<()>>; PipelineWorker::COUNT],
+    pub(crate) midi_input: Option<JoinHandle<()>>,
     pub(crate) outputs: Vec<(OutputWorker, JoinHandle<()>)>,
 }
 
@@ -138,13 +151,18 @@ impl WorkerThreads {
         generator: Option<JoinHandle<()>>,
         analyser: Option<JoinHandle<()>>,
         mapper: Option<JoinHandle<()>>,
+        midi_input: Option<JoinHandle<()>>,
         outputs: Vec<(OutputWorker, JoinHandle<()>)>,
     ) -> Self {
         let mut pipeline = [None, None, None];
         pipeline[PipelineWorker::Generator as usize] = generator;
         pipeline[PipelineWorker::Analyser as usize] = analyser;
         pipeline[PipelineWorker::Mapper as usize] = mapper;
-        Self { pipeline, outputs }
+        Self {
+            pipeline,
+            midi_input,
+            outputs,
+        }
     }
 
     /// Signals all workers to stop by joining the fixed pipeline stages first,
@@ -157,6 +175,10 @@ impl WorkerThreads {
                 continue;
             };
             Self::join_and_log(worker.spec(), handle);
+        }
+
+        if let Some(handle) = self.midi_input.take() {
+            Self::join_and_log(midi_input_spec(), handle);
         }
 
         for (worker, handle) in self.outputs.drain(..) {
@@ -248,5 +270,23 @@ mod tests {
         keep_running.store(false, Ordering::Release);
         rx.recv_timeout(Duration::from_millis(200))
             .expect("detached thread should still exit once signalled");
+    }
+
+    #[test]
+    fn shutdown_joins_midi_input_when_present() {
+        let (tx, rx) = mpsc::channel();
+        let handle = thread::spawn(move || {
+            tx.send(())
+                .expect("midi-input exit signal should be delivered");
+        });
+
+        let mut workers = WorkerThreads {
+            midi_input: Some(handle),
+            ..WorkerThreads::default()
+        };
+        workers.shutdown();
+
+        rx.recv_timeout(Duration::from_millis(200))
+            .expect("midi_input handle should have been joined by shutdown");
     }
 }

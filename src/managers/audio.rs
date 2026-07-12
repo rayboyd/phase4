@@ -38,7 +38,7 @@ impl Specs {
 }
 
 /// A single enumerated input device, serialised as one entry in the JSON
-/// array produced by `--list-format json`.
+/// array produced by `--audio-list-format json`.
 ///
 /// `sample_rate`, `channels`, and `sample_format` are `None` when the
 /// device's hardware configuration could not be queried, the text-mode
@@ -275,7 +275,7 @@ impl Input {
     ) -> Result<(cpal::Device, cpal::SupportedStreamConfig, Specs)> {
         if name_query.trim().is_empty() {
             anyhow::bail!(
-                "Device query must not be empty. Run with --list to see available devices."
+                "Device query must not be empty. Run with --audio-list to see available devices."
             );
         }
 
@@ -316,7 +316,7 @@ impl Input {
         // a live input, so silently capturing it is unsafe. Device selection must be explicit.
         anyhow::bail!(
             "No input device matched \"{name_query}\". phase4 will not fall back to the \
-             system default. Run with --list to see available devices."
+             system default. Run with --audio-list to see available devices."
         );
     }
 
@@ -360,7 +360,7 @@ impl Input {
             anyhow::bail!(
                 "Device reports {} sample format; phase4 requires f32 input. \
                  Most professional audio interfaces deliver f32 natively. \
-                 Run with --list to see available devices.",
+                 Run with --audio-list to see available devices.",
                 config.sample_format()
             );
         }

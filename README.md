@@ -24,10 +24,10 @@ Pre-built binaries for macOS and Linux are on the [releases page](https://github
 List available input devices to find your device index and confirm 32-bit Float support.
 
 ```sh
-./phase4 --list
+./phase4 --audio-list
 ```
 
-Core Audio, the macOS audio subsystem, works internally with 32-bit Float and typically presents devices (including the built-in microphone) as F32 to applications. So running `./phase4 --list` on a MacBook will almost certainly show the built-in mic as F32-capable.
+Core Audio, the macOS audio subsystem, works internally with 32-bit Float and typically presents devices (including the built-in microphone) as F32 to applications. So running `./phase4 --audio-list` on a MacBook will almost certainly show the built-in mic as F32-capable.
 
 If a device is not supported, you'll see **No hardware support (32-bit required)** in the terminal output.
 
@@ -36,16 +36,18 @@ If a device is not supported, you'll see **No hardware support (32-bit required)
 Launch Phase4 using your device name (e.g., Duet 3) and a WebSocket listen address.
 
 ```sh
-./phase4 --device "Duet 3" --ws-addr 127.0.0.1:8889
+./phase4 --audio-device "Duet 3" --ws-addr 127.0.0.1:8889
 ```
 
 Press `T` to toggle the engine's active state.
+When MIDI input is configured (`--test-midi-clock` or `--midi-device`),
+`S` sends Start, `X` sends Stop, and `R` sends Continue.
 
 ```
 > [INFO] Welcome to phase4.
 > [INFO] Audio device resolved (exact match): Duet 3
 > [INFO] WebSocket server listening on ws://127.0.0.1:8889
-> [INFO] Ready. Press T to toggle engine, Ctrl+C to exit.
+> [INFO] Ready. Press T to toggle engine, S/X/R for MIDI Start/Stop/Continue, Ctrl+C to exit.
 ```
 
 No audio hardware to hand, calibration mode drives the full pipeline with a synthetic sine wave. See [docs/tutorials/calibration.md](docs/tutorials/calibration.md).
@@ -61,12 +63,46 @@ If Phase4 is broadcasting, check this [CodePen example](https://codepen.io/raybo
 Phase4 can send real-time analysis data as OSC float messages over UDP. Pass `--osc-addr` with a `host:port` target to enable it, either alongside `--ws-addr` or on its own.
 
 ```sh
-./phase4 --device "Duet 3" --ws-addr 127.0.0.1:8889 --osc-addr 127.0.0.1:7000
+./phase4 --audio-device "Duet 3" --ws-addr 127.0.0.1:8889 --osc-addr 127.0.0.1:7000
 ```
 
 Each frequency bin is sent as a separate OSC message with address `/phase4/ch/{channel}/bin/{bin}` and a single `f` argument in the range `0.0` to `1.0`. Map these addresses to parameters using your software's OSC shortcut editor.
 
 See [docs/tutorials/osc.md](docs/tutorials/osc.md) for the full address reference and integration notes.
+
+### MIDI transport and clock
+
+Phase4 can also attach MIDI transport and clock data to the existing WebSocket payload stream, using either a real MIDI input device or a synthetic test clock.
+
+Use one of the following flags.
+
+```sh
+./phase4 --audio-device "Duet 3" --ws-addr 127.0.0.1:8889 --midi-device "Loopback"
+```
+
+```sh
+./phase4 --audio-device "Duet 3" --ws-addr 127.0.0.1:8889 --test-midi-clock 120.0
+```
+
+`--midi-device` and `--test-midi-clock` are mutually exclusive.
+
+When MIDI input is configured, each display frame may include a top-level `midi` key:
+
+```json
+{
+  "channels": [{ "peak": 0.38, "bins": [0.0, 0.1, 0.2, 0.3] }],
+  "midi": {
+    "transport": "start",
+    "steps": 24
+  }
+}
+```
+
+`transport` is one of `start`, `stop`, or `continue`, and is omitted when no transport event happened since the previous broadcast frame. `steps` is the absolute count of MIDI 1/16 note steps since the most recent Start event. The value does not reset each broadcast frame, clients detect new steps by comparing the current value to the previous frame.
+
+When MIDI input is not configured, the `midi` key is absent, so clients that only read `channels` are unaffected.
+
+OSC forwarding of MIDI transport and clock is not implemented yet.
 
 Embedding Phase4 in your own application is documented in [docs/tutorials/wrapper.md](docs/tutorials/wrapper.md).
 

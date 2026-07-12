@@ -126,6 +126,16 @@ pub struct DisplayChannelLevel {
     pub bins: [f32; DISPLAY_BINS],
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct MidiSnapshot {
+    /// "start", "stop", or "continue" if a transport event happened since
+    /// the previous broadcast frame. Omitted from JSON when nothing happened.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub transport: Option<&'static str>,
+    /// MIDI 1/16 note steps seen since the previous frame.
+    pub steps: u32,
+}
+
 impl Serialize for DisplayChannelLevel {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let mut s = serializer.serialize_struct("DisplayChannelLevel", 2)?;
@@ -139,6 +149,10 @@ impl Serialize for DisplayChannelLevel {
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct DisplayPayload {
     pub channels: Vec<DisplayChannelLevel>,
+    /// Absent when MIDI input is not configured, so existing clients that
+    /// only read channels see no schema change.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub midi: Option<MidiSnapshot>,
 }
 
 impl DisplayPayload {
@@ -151,6 +165,7 @@ impl DisplayPayload {
                     bins: [0.0; DISPLAY_BINS],
                 })
                 .collect(),
+            midi: None,
         }
     }
 }
@@ -197,6 +212,22 @@ mod tests {
             assert_eq!(ch.peak, 0.0);
             assert!(ch.bins.iter().all(|&b| b == 0.0));
         }
+    }
+
+    #[test]
+    fn display_payload_midi_defaults_to_none() {
+        assert!(DisplayPayload::new(1).midi.is_none());
+    }
+
+    #[test]
+    fn midi_snapshot_omits_transport_when_none() {
+        let snapshot = MidiSnapshot {
+            transport: None,
+            steps: 3,
+        };
+        let json = serde_json::to_string(&snapshot).expect("should serialise");
+        assert!(!json.contains("transport"));
+        assert!(json.contains("\"steps\":3"));
     }
 
     // The serialised JSON must contain the expected top-level key, per-channel
