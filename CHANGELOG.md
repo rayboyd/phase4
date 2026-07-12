@@ -2,6 +2,36 @@
 
 All notable changes to Phase4 will be documented in this file.
 
+## Unreleased
+
+### Bug Fixes
+
+- Compute steps in the listener before broadcast, not raw ticks after it ([e93e303](https://github.com/rayboyd/phase4/commit/e93e3035fb09c0501224453589eaad04143b78b8))
+- Bring App::new under clippys 100-line pedantic threshold ([de623eb](https://github.com/rayboyd/phase4/commit/de623eb4e3ee89eecc3952b250ee5cd5a5f10dea))
+- Use named constants ([3f9d53c](https://github.com/rayboyd/phase4/commit/3f9d53c7fc340bb66e0d2ea91a0bcae4675c960c))
+- Resolve device by name before spawning, fail fast like audio ([ccb2298](https://github.com/rayboyd/phase4/commit/ccb22981a1d3a14770c2379d1117cfb397f608c5))
+
+### Documentation
+
+- Remove rhetorical framing from two doc comments ([c2305cd](https://github.com/rayboyd/phase4/commit/c2305cdb51b26bf81813350b9d89da9d562092c6))
+- Reorganise const layout ([54fae74](https://github.com/rayboyd/phase4/commit/54fae74e8431fd63d866e8e40d9bad4dc72f6c0b))
+- Remove rhetorical framing from doc comments ([8a65b18](https://github.com/rayboyd/phase4/commit/8a65b181c5e169926e07bfd7eb3eb515f7555899))
+- Split OSC and MIDI into their own Outputs section ([b8a4055](https://github.com/rayboyd/phase4/commit/b8a405598083c81f81c67326e1b1028b0ce32758))
+
+### Features
+
+- Add real device and synthetic clock input riding the existing payload, document --midi-device and --midi-test-bpm, update lifecycle diagram ([404b459](https://github.com/rayboyd/phase4/commit/404b45981bc31e12a4d257420aca35f962cb044c))
+- Fix help heading and add MIDI device listing ([ce04f3a](https://github.com/rayboyd/phase4/commit/ce04f3a3445d45c0c2c8ec590ff7d5009bab3d51))
+- Announce MIDI test clock mode synchronously at startup ([988f7e6](https://github.com/rayboyd/phase4/commit/988f7e6a21d58e860139710921013b80f8a3b1e6))
+- Add keyboard transport control for the MIDI test clock ([ac78690](https://github.com/rayboyd/phase4/commit/ac78690cc515d410d5a72badf6bd8634105b832b))
+- Forward MIDI transport and steps alongside bin data ([ff98185](https://github.com/rayboyd/phase4/commit/ff98185b0b21e103b6199672176185d91e89da58))
+
+### Refactor
+
+- Prefix audio flags with audio\_, relocate --test-midi-clock to Calibration ([f416902](https://github.com/rayboyd/phase4/commit/f41690242c55d9ed749f16ac39076eda904ef574))
+- Relocate transport constants to managers::midi, name the status bytes ([1a95adf](https://github.com/rayboyd/phase4/commit/1a95adf65497f67188fd0a4a2c485f610791d73c))
+- Restructure App::new into declare, validate, threads phases ([457aa83](https://github.com/rayboyd/phase4/commit/457aa8312caec29e84eb03ba076d85d96fb0325c))
+
 ## 0.0.7
 
 ### Bug Fixes
