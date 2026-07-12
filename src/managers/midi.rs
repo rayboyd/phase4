@@ -8,7 +8,9 @@
 //!
 //! Deliberately minimal, raw bytes are matched directly against the four MIDI
 //! Real-Time codes phase4 cares about, no parsed event type. Start, Stop,
-//! Continue, and a running 1/16 step count derived from Clock ticks.
+//! Continue, and a running 1/16 step count derived from Clock ticks. The step
+//! count is absolute since the most recent Start, read by the mapper as a
+//! snapshot, and reset only by Start.
 
 use crate::app::{AppState, MIDI_TRANSPORT_CONTINUE, MIDI_TRANSPORT_START, MIDI_TRANSPORT_STOP};
 use crate::config::ConfigMidiInput;
@@ -46,9 +48,9 @@ const MIDI_CLOCK_TICKS_PER_STEP: u8 = 6;
 /// phase4 cares about. Start, Stop, and Continue update `AppState` directly.
 /// Clock ticks accumulate privately in `ticks_since_step` and are only
 /// published to `AppState` once every `MIDI_CLOCK_TICKS_PER_STEP` ticks, so
-/// what phase4 exposes is a step count computed against the real MIDI clock,
-/// not a raw pulse count sampled at the broadcast rate. All other bytes are
-/// ignored.
+/// what phase4 exposes is a step count computed against the real MIDI clock.
+/// This count is absolute since the latest Start event, and the mapper never
+/// clears it. All other bytes are ignored.
 fn record_byte(byte: u8, state: &AppState, ticks_since_step: &mut u8) {
     match byte {
         0xFA => {
@@ -56,6 +58,7 @@ fn record_byte(byte: u8, state: &AppState, ticks_since_step: &mut u8) {
                 .midi_last_transport
                 .store(MIDI_TRANSPORT_START, Ordering::Release);
             *ticks_since_step = 0;
+            state.midi_steps.store(0, Ordering::Release);
         }
         0xFC => state
             .midi_last_transport
@@ -320,6 +323,23 @@ mod tests {
             0,
             "Start should reset the partial accumulator, three ticks before plus three after must not wrongly complete a step"
         );
+    }
+
+    #[test]
+    fn record_byte_start_resets_the_absolute_step_count() {
+        let state = AppState::new();
+        let mut ticks_since_step = 0u8;
+
+        // Complete two full steps first.
+        for _ in 0..(MIDI_CLOCK_TICKS_PER_STEP * 2) {
+            record_byte(0xF8, &state, &mut ticks_since_step);
+        }
+        assert_eq!(state.midi_steps.load(Ordering::Acquire), 2);
+
+        // A fresh Start resets the published count itself, not just the
+        // local tick accumulator.
+        record_byte(0xFA, &state, &mut ticks_since_step);
+        assert_eq!(state.midi_steps.load(Ordering::Acquire), 0);
     }
 
     #[test]

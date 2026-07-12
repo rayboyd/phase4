@@ -40,12 +40,14 @@ Launch Phase4 using your device name (e.g., Duet 3) and a WebSocket listen addre
 ```
 
 Press `T` to toggle the engine's active state.
+When MIDI input is configured (`--test-midi-clock` or `--midi-device`),
+`S` sends Start, `X` sends Stop, and `R` sends Continue.
 
 ```
 > [INFO] Welcome to phase4.
 > [INFO] Audio device resolved (exact match): Duet 3
 > [INFO] WebSocket server listening on ws://127.0.0.1:8889
-> [INFO] Ready. Press T to toggle engine, Ctrl+C to exit.
+> [INFO] Ready. Press T to toggle engine, S/X/R for MIDI Start/Stop/Continue, Ctrl+C to exit.
 ```
 
 No audio hardware to hand, calibration mode drives the full pipeline with a synthetic sine wave. See [docs/tutorials/calibration.md](docs/tutorials/calibration.md).
@@ -96,7 +98,7 @@ When MIDI input is configured, each display frame may include a top-level `midi`
 }
 ```
 
-`transport` is one of `start`, `stop`, or `continue`, and is omitted when no transport event happened since the previous broadcast frame. `steps` is the count of MIDI 1/16 note steps observed since the previous broadcast frame.
+`transport` is one of `start`, `stop`, or `continue`, and is omitted when no transport event happened since the previous broadcast frame. `steps` is the absolute count of MIDI 1/16 note steps since the most recent Start event. The value does not reset each broadcast frame, clients detect new steps by comparing the current value to the previous frame.
 
 When MIDI input is not configured, the `midi` key is absent, so clients that only read `channels` are unaffected.
 

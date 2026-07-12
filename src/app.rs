@@ -63,6 +63,10 @@ pub struct AppState {
     /// each time it broadcasts a frame.
     pub midi_last_transport: AtomicU8,
     /// MIDI 1/16 note steps derived from incoming MIDI clock ticks.
+    ///
+    /// Absolute monotonic count since the most recent Start event. Written by
+    /// the MIDI listener thread, read by the mapper as a snapshot, and reset
+    /// only by Start.
     pub midi_steps: AtomicU32,
 }
 
@@ -229,7 +233,11 @@ impl App {
                 midi_thread,
                 output_threads,
             ),
-            controller: Controller::new(config.controller_mode, controller_state),
+            controller: Controller::new(
+                config.controller_mode,
+                controller_state,
+                config.midi_input.is_some(),
+            ),
             shutdown_started: false,
         })
     }
@@ -382,7 +390,7 @@ mod tests {
             input_device: None,
             state: state.clone(),
             workers: WorkerThreads::new(generator_thread, None, None, None, Vec::new()),
-            controller: Controller::new(ControllerMode::Term, state.clone()),
+            controller: Controller::new(ControllerMode::Term, state.clone(), false),
             shutdown_started: false,
         };
 

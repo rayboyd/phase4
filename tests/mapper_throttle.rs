@@ -177,7 +177,7 @@ async fn throttle_suppresses_intermediate_frames() {
 }
 
 #[tokio::test]
-async fn midi_snapshot_is_not_consumed_on_a_throttled_cycle() {
+async fn midi_steps_reports_the_current_value_across_a_throttled_cycle() {
     let channels = 1usize;
     let (raw_tx, raw_rx) = watch::channel(RawPayload::new(channels, VOCODER_BANDS));
     let (display_tx, mut display_rx) = display_channel(channels);
@@ -190,25 +190,36 @@ async fn midi_snapshot_is_not_consumed_on_a_throttled_cycle() {
 
     sleep(Duration::from_millis(50)).await;
     send_frame(&raw_tx, channels, 0.1);
-    let first = display_rx.changed().await;
-    assert!(first.is_ok());
-    let first_payload = display_rx.borrow_and_update().clone();
+    display_rx
+        .changed()
+        .await
+        .expect("first frame should broadcast");
+    let first = display_rx.borrow_and_update().clone();
     assert_eq!(
-        first_payload.midi.as_ref().map(|m| m.steps),
+        first.midi.as_ref().map(|m| m.steps),
         Some(5),
-        "the first frame should carry the ticks recorded before it"
+        "the first frame should carry the current step count"
     );
 
-    // A second, rapid frame lands inside the throttle window and must not be
-    // broadcast, so the ticks recorded here must survive to the next frame
-    // that actually sends, not be silently cleared here.
-    state.midi_steps.store(2, Ordering::Release);
+    // Bump the count during what will be a throttled cycle.
+    state.midi_steps.store(7, Ordering::Release);
     send_frame(&raw_tx, channels, 0.2);
     let throttled = tokio::time::timeout(Duration::from_millis(100), display_rx.changed()).await;
     assert!(
         throttled.is_err(),
         "second frame should be throttled, not broadcast"
     );
+
+    // Once the throttle window passes, the next sent frame reports the
+    // current value, 7, not the stale 5 and not lost entirely.
+    sleep(Duration::from_millis(600)).await;
+    send_frame(&raw_tx, channels, 0.3);
+    display_rx
+        .changed()
+        .await
+        .expect("third frame should broadcast");
+    let third = display_rx.borrow_and_update().clone();
+    assert_eq!(third.midi.as_ref().map(|m| m.steps), Some(7));
 
     state.keep_running.store(false, Ordering::Release);
     drop(raw_tx);
