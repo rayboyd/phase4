@@ -43,19 +43,18 @@ const MIDI_CLOCK_TICKS_PER_QUARTER_NOTE: f64 = 24.0;
 /// resolution: 24 ticks per quarter note divided by four.
 const MIDI_CLOCK_TICKS_PER_STEP: u8 = 6;
 
-/// Encoding of the last MIDI transport event seen, stored in an
-/// `AtomicU8` on `AppState`. `NONE` means no transport event since the
-/// last read.
-pub(crate) const MIDI_TRANSPORT_NONE: u8 = 0;
-pub(crate) const MIDI_TRANSPORT_START: u8 = 1;
-pub(crate) const MIDI_TRANSPORT_STOP: u8 = 2;
-pub(crate) const MIDI_TRANSPORT_CONTINUE: u8 = 3;
-
 /// Raw MIDI Real-Time status bytes `record_byte` matches against.
 const MIDI_STATUS_TIMING_CLOCK: u8 = 0xF8;
 const MIDI_STATUS_START: u8 = 0xFA;
 const MIDI_STATUS_CONTINUE: u8 = 0xFB;
 const MIDI_STATUS_STOP: u8 = 0xFC;
+
+/// Encoding of the last MIDI transport event seen, stored in an `AtomicU8`
+/// on `AppState`. `NONE` means no transport event since the last read.
+pub(crate) const MIDI_TRANSPORT_NONE: u8 = 0;
+pub(crate) const MIDI_TRANSPORT_START: u8 = 1;
+pub(crate) const MIDI_TRANSPORT_STOP: u8 = 2;
+pub(crate) const MIDI_TRANSPORT_CONTINUE: u8 = 3;
 
 /// Matches a single raw MIDI status byte against the four Real-Time codes
 /// phase4 cares about. Start, Stop, and Continue update `AppState` directly.
