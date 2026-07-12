@@ -9,7 +9,8 @@
 //! attached terminal. Which variant runs is always stated explicitly on the
 //! command line, never inferred from the environment.
 
-use crate::app::{AppState, MIDI_TRANSPORT_CONTINUE, MIDI_TRANSPORT_START, MIDI_TRANSPORT_STOP};
+use crate::app::AppState;
+use crate::managers::{MIDI_TRANSPORT_CONTINUE, MIDI_TRANSPORT_START, MIDI_TRANSPORT_STOP};
 use crate::ControllerMode;
 use anyhow::Result;
 use crossterm::{

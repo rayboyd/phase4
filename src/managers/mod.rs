@@ -26,6 +26,9 @@ pub use audio::{Input, Specs};
 pub use generator::Generator;
 pub use mapper::Mapper;
 pub use midi::MidiListener;
+pub(crate) use midi::{
+    MIDI_TRANSPORT_CONTINUE, MIDI_TRANSPORT_NONE, MIDI_TRANSPORT_START, MIDI_TRANSPORT_STOP,
+};
 pub use osc::OscSender;
 pub use server::Server;
 

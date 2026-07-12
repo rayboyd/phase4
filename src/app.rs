@@ -21,6 +21,7 @@ use crate::dsp::{vocoder::VOCODER_BANDS, DisplayPayload, RawPayload};
 use crate::managers::audio::{ChannelMode, StreamSink};
 use crate::managers::{
     Generator, Input, Mapper, MidiListener, OscSender, Processor, Server, Specs,
+    MIDI_TRANSPORT_NONE,
 };
 use crate::worker::{OutputWorker, WorkerThreads};
 use anyhow::Result;
@@ -32,11 +33,6 @@ use tokio::sync::watch;
 
 /// Safety buffer for the analyse ringbuf, headroom for analysis accumulation.
 const ANALYSE_BUFFER_MS: u32 = 500;
-
-pub const MIDI_TRANSPORT_NONE: u8 = 0;
-pub const MIDI_TRANSPORT_START: u8 = 1;
-pub const MIDI_TRANSPORT_STOP: u8 = 2;
-pub const MIDI_TRANSPORT_CONTINUE: u8 = 3;
 
 /// Builds the calibration mode announcement for the given test signal.
 fn calibration_announcement(signal: TestSignal) -> String {
