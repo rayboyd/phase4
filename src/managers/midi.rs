@@ -180,13 +180,13 @@ fn run_synthetic_clock(bpm: f32, state: &Arc<AppState>) {
     let mut ticks_since_step: u8 = 0;
 
     // A synthetic clock is always running the instant it starts.
-    record_byte(0xFA, state, &mut ticks_since_step);
+    record_byte(MIDI_STATUS_START, state, &mut ticks_since_step);
 
     let mut next_tick = Instant::now() + tick_interval;
     while state.keep_running.load(Ordering::Acquire) {
         let now = Instant::now();
         if now >= next_tick {
-            record_byte(0xF8, state, &mut ticks_since_step);
+            record_byte(MIDI_STATUS_TIMING_CLOCK, state, &mut ticks_since_step);
             next_tick += tick_interval;
         }
         let sleep_for = next_tick
