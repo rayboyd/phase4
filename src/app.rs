@@ -207,10 +207,17 @@ impl App {
         let output_threads =
             Self::spawn_outputs(&config.outputs, &display_rx, display_channels, &state)?;
 
-        let midi_thread = config
-            .midi_input
-            .clone()
-            .map(|input: ConfigMidiInput| MidiListener::spawn(input, state.clone()));
+        let midi_thread = match &config.midi_input {
+            Some(ConfigMidiInput::TestClock(bpm)) => {
+                log::info!("Calibration mode: MIDI test clock at {bpm} bpm");
+                Some(MidiListener::spawn(
+                    ConfigMidiInput::TestClock(*bpm),
+                    state.clone(),
+                ))
+            }
+            Some(input) => Some(MidiListener::spawn(input.clone(), state.clone())),
+            None => None,
+        };
 
         Ok(Self {
             input_device: Some(input_device),
