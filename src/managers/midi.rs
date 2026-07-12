@@ -149,27 +149,86 @@ impl MidiListener {
 
     /// Spawns the MIDI listener on a dedicated OS thread.
     ///
+    /// For `ConfigMidiInput::Device`, the device is resolved synchronously
+    /// before the thread is spawned, a missing device is reported as an
+    /// error here rather than discovered later inside the thread.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if no MIDI input device matches the configured name.
+    ///
     /// # Panics
     ///
     /// Panics if the OS thread cannot be spawned.
-    pub fn spawn(input: ConfigMidiInput, state: Arc<AppState>) -> JoinHandle<()> {
-        thread::Builder::new()
-            .name("midi-input".into())
-            .spawn(move || {
-                super::log_priority_result(set_current_thread_priority(
-                    ThreadPriority::Crossplatform(
-                        ThreadPriorityValue::try_from(MIDI_THREAD_PRIORITY)
-                            .expect("valid priority"),
-                    ),
-                ));
-
-                match input {
-                    ConfigMidiInput::TestClock(bpm) => run_synthetic_clock(bpm, &state),
-                    ConfigMidiInput::Device(name) => run_real_device(&name, &state),
-                }
-            })
-            .expect("failed to spawn midi-input thread")
+    pub fn spawn(input: ConfigMidiInput, state: Arc<AppState>) -> Result<JoinHandle<()>> {
+        match input {
+            ConfigMidiInput::TestClock(bpm) => Ok(thread::Builder::new()
+                .name("midi-input".into())
+                .spawn(move || {
+                    super::log_priority_result(set_current_thread_priority(
+                        ThreadPriority::Crossplatform(
+                            ThreadPriorityValue::try_from(MIDI_THREAD_PRIORITY)
+                                .expect("valid priority"),
+                        ),
+                    ));
+                    run_synthetic_clock(bpm, &state);
+                })
+                .expect("failed to spawn midi-input thread")),
+            ConfigMidiInput::Device(name) => {
+                let (midi_in, port, port_name) = resolve_midi_device(&name)?;
+                Ok(thread::Builder::new()
+                    .name("midi-input".into())
+                    .spawn(move || {
+                        super::log_priority_result(set_current_thread_priority(
+                            ThreadPriority::Crossplatform(
+                                ThreadPriorityValue::try_from(MIDI_THREAD_PRIORITY)
+                                    .expect("valid priority"),
+                            ),
+                        ));
+                        run_real_device(midi_in, &port, &port_name, &state);
+                    })
+                    .expect("failed to spawn midi-input thread"))
+            }
+        }
     }
+}
+
+/// Resolves a real MIDI input device by name, synchronously, before any
+/// thread is spawned. Mirrors `App::resolve_hardware`'s audio device
+/// resolution: a missing device is reported once, at startup, rather than
+/// discovered later inside a running thread.
+///
+/// # Errors
+///
+/// Returns an error if MIDI input cannot be initialised, or if no port
+/// matches the given name.
+fn resolve_midi_device(
+    name_query: &str,
+) -> Result<(midir::MidiInput, midir::MidiInputPort, String)> {
+    let midi_in = midir::MidiInput::new("phase4").context("Failed to initialise MIDI input")?;
+
+    let needle = name_query.to_lowercase();
+    let ports = midi_in.ports();
+    let port = ports
+        .iter()
+        .find(|p| {
+            midi_in.port_name(p).is_ok_and(|name| {
+                name.eq_ignore_ascii_case(name_query) || name.to_lowercase().contains(&needle)
+            })
+        })
+        .cloned()
+        .with_context(|| {
+            format!(
+                "No MIDI input device matching '{name_query}' found. \
+                 Run with --midi-list to see available devices."
+            )
+        })?;
+
+    let port_name = midi_in
+        .port_name(&port)
+        .unwrap_or_else(|_| name_query.to_string());
+
+    Ok((midi_in, port, port_name))
 }
 
 fn run_synthetic_clock(bpm: f32, state: &Arc<AppState>) {
@@ -195,31 +254,12 @@ fn run_synthetic_clock(bpm: f32, state: &Arc<AppState>) {
     }
 }
 
-fn run_real_device(name_query: &str, state: &Arc<AppState>) {
-    let midi_in = match midir::MidiInput::new("phase4") {
-        Ok(input) => input,
-        Err(e) => {
-            log::error!("Failed to initialise MIDI input: {e}");
-            return;
-        }
-    };
-
-    let needle = name_query.to_lowercase();
-    let ports = midi_in.ports();
-    let port = ports.iter().find(|p| {
-        midi_in.port_name(p).is_ok_and(|name| {
-            name.eq_ignore_ascii_case(name_query) || name.to_lowercase().contains(&needle)
-        })
-    });
-
-    let Some(port) = port else {
-        log::error!("No MIDI input device matching '{name_query}' found");
-        return;
-    };
-
-    let port_name = midi_in
-        .port_name(port)
-        .unwrap_or_else(|_| name_query.to_string());
+fn run_real_device(
+    midi_in: midir::MidiInput,
+    port: &midir::MidiInputPort,
+    port_name: &str,
+    state: &Arc<AppState>,
+) {
     let thread_state = Arc::clone(state);
 
     let connection = midi_in.connect(
@@ -250,6 +290,12 @@ fn run_real_device(name_query: &str, state: &Arc<AppState>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn resolve_midi_device_fails_for_an_unmatched_name() {
+        let result = resolve_midi_device("a-name-no-real-device-will-ever-have");
+        assert!(result.is_err());
+    }
 
     #[test]
     fn record_byte_sets_start() {
