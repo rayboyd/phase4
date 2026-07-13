@@ -2,6 +2,16 @@
 
 All notable changes to Phase4 will be documented in this file.
 
+## Unreleased
+
+### Documentation
+
+- Remove bare-label comments with no explanatory content, amend lib code layout ([77778b2](https://github.com/rayboyd/phase4/commit/77778b295010c7700d2fe3041768581958f496a3))
+
+### Refactor
+
+- Park the midi thread rather than sleep ([6ee5a9f](https://github.com/rayboyd/phase4/commit/6ee5a9f36396cf91d27c4834bc28badca01baf1b))
+
 ## 0.0.8
 
 ### Bug Fixes
