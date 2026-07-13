@@ -26,10 +26,21 @@ use crate::app::AppState;
 use crate::dsp::{DisplayPayload, DISPLAY_BINS};
 use anyhow::{Context, Result};
 use rosc::{OscMessage, OscPacket, OscType};
+use socket2::{Domain, Socket, Type};
 use std::net::{SocketAddr, UdpSocket};
 use std::sync::{atomic::Ordering, Arc};
 use std::thread::JoinHandle;
 use tokio::sync::watch;
+
+/// Conservative upper bound on the encoded byte size of a single OSC message
+/// (address string, type tag, and one float or int argument). Measured
+/// messages run roughly 32 to 40 bytes; this leaves headroom so longer
+/// future addresses don't undercut the send buffer sizing below.
+const OSC_MESSAGE_SIZE_ESTIMATE_BYTES: usize = 64;
+
+/// How many frames' worth of burst the send buffer should comfortably
+/// absorb, so an occasional slow drain by the OS doesn't stall `sendto`.
+const OSC_SEND_BUFFER_FRAME_HEADROOM: usize = 4;
 
 pub struct OscSender {
     target: SocketAddr,
@@ -45,10 +56,16 @@ impl OscSender {
     ///
     /// Binds an ephemeral local UDP socket eagerly so any bind error surfaces
     /// here as a `Result` rather than panicking inside the spawned thread.
+    /// The socket's send buffer is sized explicitly, scaled to the per-frame
+    /// message burst (`channels * DISPLAY_BINS`, plus a MIDI allowance of the
+    /// steps message and one transport bang), rather than left on the OS
+    /// default, so the burst that fires every frame doesn't block `sendto`
+    /// under queue pressure.
     ///
     /// # Errors
     ///
-    /// Returns an error if the local UDP socket cannot be bound.
+    /// Returns an error if the local UDP socket cannot be bound or if the
+    /// send buffer size cannot be set.
     ///
     /// # Panics
     ///
@@ -61,8 +78,20 @@ impl OscSender {
         state: Arc<AppState>,
         midi_enabled: bool,
     ) -> Result<JoinHandle<()>> {
-        let socket =
-            UdpSocket::bind("0.0.0.0:0").context("Failed to bind UDP socket for OSC output")?;
+        let messages_per_frame = channels * DISPLAY_BINS + if midi_enabled { 2 } else { 0 };
+        let send_buffer_size =
+            messages_per_frame * OSC_MESSAGE_SIZE_ESTIMATE_BYTES * OSC_SEND_BUFFER_FRAME_HEADROOM;
+
+        let raw_socket = Socket::new(Domain::IPV4, Type::DGRAM, None)
+            .context("Failed to create UDP socket for OSC output")?;
+        raw_socket
+            .set_send_buffer_size(send_buffer_size)
+            .context("Failed to set UDP send buffer size for OSC output")?;
+        let bind_addr: SocketAddr = (std::net::Ipv4Addr::UNSPECIFIED, 0).into();
+        raw_socket
+            .bind(&bind_addr.into())
+            .context("Failed to bind UDP socket for OSC output")?;
+        let socket: UdpSocket = raw_socket.into();
 
         let packets = Self::build_packets(channels);
         let midi_packets = midi_enabled.then(Self::build_midi_packets);
@@ -407,6 +436,30 @@ mod tests {
     fn udp_socket_bind_succeeds() {
         let socket = UdpSocket::bind("0.0.0.0:0");
         assert!(socket.is_ok(), "ephemeral UDP bind must succeed");
+    }
+
+    // The socket built with an explicit send buffer size must actually carry
+    // at least the requested capacity. The OS may round up (some platforms
+    // report double the requested figure), so assert a lower bound rather
+    // than an exact match.
+    #[test]
+    fn socket_send_buffer_size_is_at_least_requested() {
+        let requested = 64 * 1024;
+
+        let socket = Socket::new(Domain::IPV4, Type::DGRAM, None).expect("socket must be created");
+        socket
+            .set_send_buffer_size(requested)
+            .expect("send buffer size must be settable");
+        let bind_addr: SocketAddr = (std::net::Ipv4Addr::UNSPECIFIED, 0).into();
+        socket.bind(&bind_addr.into()).expect("bind must succeed");
+
+        let actual = socket
+            .send_buffer_size()
+            .expect("send buffer size must be readable");
+        assert!(
+            actual >= requested,
+            "actual send buffer size {actual} must be at least the requested {requested}"
+        );
     }
 
     // send_to on an unconnected socket must not error locally, even when
