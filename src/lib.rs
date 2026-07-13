@@ -16,6 +16,32 @@ pub mod worker;
 use clap::Parser;
 use std::net::SocketAddr;
 
+/// Runtime controller selection.
+#[derive(clap::ValueEnum, Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ControllerMode {
+    /// Interactive terminal control (raw mode, keyboard driven). The default,
+    /// unchanged behaviour for running phase4 directly from a shell.
+    #[default]
+    Term,
+
+    /// Headless mode: block until stdin closes, no keyboard handling. Wrapper
+    /// processes should always pass this explicitly.
+    Headless,
+}
+
+/// Output format for device listing commands (`--audio-list-format`, `--midi-list-format`).
+#[derive(clap::ValueEnum, Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ListFormat {
+    /// Human-readable, one line per device. The default.
+    #[default]
+    Text,
+
+    /// A single JSON array on stdout, one object per device. Intended for a
+    /// wrapper process to parse programmatically, nothing else is written to
+    /// stdout in this mode.
+    Json,
+}
+
 /// Synthetic signal generation for device calibration.
 #[derive(clap::Args)]
 #[command(next_help_heading = "Calibration")]
@@ -34,37 +60,6 @@ pub struct CalibrationArgs {
     /// instead of a real device. Mutually exclusive with --midi-device.
     #[arg(long, conflicts_with = "midi_device")]
     pub test_midi_clock: Option<f32>,
-}
-
-/// MIDI input configuration.
-#[derive(clap::Args, Debug, Clone)]
-#[command(next_help_heading = "Midi")]
-pub struct MidiArgs {
-    /// Connect to a real MIDI input device matching this name (exact match first,
-    /// then substring). Mutually exclusive with --test-midi-clock.
-    #[arg(long)]
-    pub midi_device: Option<String>,
-
-    /// List available MIDI input devices and exit.
-    #[arg(long)]
-    pub midi_list: bool,
-
-    /// Output format for `--midi-list`.
-    #[arg(long, value_enum, default_value_t = ListFormat::Text)]
-    pub midi_list_format: ListFormat,
-}
-
-/// Output format for device listing commands (`--audio-list-format`,
-/// `--midi-list-format`).
-#[derive(clap::ValueEnum, Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum ListFormat {
-    /// Human-readable, one line per device. The default.
-    #[default]
-    Text,
-    /// A single JSON array on stdout, one object per device. Intended for a
-    /// wrapper process to parse programmatically, nothing else is written to
-    /// stdout in this mode.
-    Json,
 }
 
 /// Device selection and listing.
@@ -87,6 +82,24 @@ pub struct InputArgs {
     /// Omit to forward all channels.
     #[arg(long = "audio-analyse-channels", value_delimiter = ',')]
     pub audio_analyse_channels: Option<Vec<u16>>,
+}
+
+/// MIDI input configuration.
+#[derive(clap::Args, Debug, Clone)]
+#[command(next_help_heading = "Midi")]
+pub struct MidiArgs {
+    /// Connect to a real MIDI input device matching this name (exact match first,
+    /// then substring). Mutually exclusive with --test-midi-clock.
+    #[arg(long)]
+    pub midi_device: Option<String>,
+
+    /// List available MIDI input devices and exit.
+    #[arg(long)]
+    pub midi_list: bool,
+
+    /// Output format for `--midi-list`.
+    #[arg(long, value_enum, default_value_t = ListFormat::Text)]
+    pub midi_list_format: ListFormat,
 }
 
 /// Output transport settings. Both transports are opt-in, omitting an
@@ -147,18 +160,6 @@ pub struct VocoderArgs {
     pub filter_q: Option<f32>,
 }
 
-/// Runtime controller selection.
-#[derive(clap::ValueEnum, Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum ControllerMode {
-    /// Interactive terminal control (raw mode, keyboard driven). The default,
-    /// unchanged behaviour for running phase4 directly from a shell.
-    #[default]
-    Term,
-    /// Headless mode: block until stdin closes, no keyboard handling. Wrapper
-    /// processes should always pass this explicitly.
-    Headless,
-}
-
 /// Runtime controller behaviour.
 #[derive(clap::Args)]
 #[command(next_help_heading = "Runtime")]
@@ -187,10 +188,10 @@ pub struct Args {
     pub calibration: CalibrationArgs,
 
     #[command(flatten)]
-    pub midi: MidiArgs,
+    pub input: InputArgs,
 
     #[command(flatten)]
-    pub input: InputArgs,
+    pub midi: MidiArgs,
 
     #[command(flatten)]
     pub network: NetworkArgs,

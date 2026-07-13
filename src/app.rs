@@ -123,7 +123,6 @@ impl App {
         let controller_state = Arc::clone(&state);
         let mut input_device = Input::new();
 
-        // Declare: resolve everything the function needs.
         let (hw_specs, input_source) = Self::resolve_audio_hardware(&config, &mut input_device)?;
         let midi_source = Self::resolve_midi_hardware(&config)?;
         let midi_enabled = midi_source.is_some();
@@ -142,7 +141,6 @@ impl App {
         let (raw_tx, raw_rx) = watch::channel(RawPayload::new(display_channels, VOCODER_BANDS));
         let (display_tx, display_rx) = watch::channel(DisplayPayload::new(display_channels));
 
-        // Threads.
         let generator_thread = Self::spawn_audio_input(
             input_source,
             hw_specs,
@@ -183,8 +181,6 @@ impl App {
             &state,
             midi_enabled,
         )?;
-
-        // Return.
 
         Ok(Self {
             input_device: Some(input_device),
