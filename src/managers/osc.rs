@@ -1,22 +1,35 @@
 //! [`OscSender`] receives the mapped [`DisplayPayload`] over a watch channel
-//! and emits one OSC float message per bin per channel over UDP.
+//! and emits all bin messages for a frame as a single OSC bundle over UDP.
 //!
 //! Address scheme: `/phase4/ch/{channel}/bin/{bin}` with a single `f` (float)
 //! argument in the range 0.0..=1.0. The receiver maps these to its own
-//! parameters using its OSC shortcut editor (e.g. `TouchDesigner` OSC In CHOP).
+//! parameters using its OSC shortcut editor (e.g. `TouchDesigner` OSC In DAT,
+//! which unpacks bundles; OSC In CHOP does not and requires individual
+//! messages).
 //!
 //! When MIDI input is configured, `/phase4/midi/steps` is sent alongside the
-//! bin addresses every frame, one `i` (int) argument, the current absolute
-//! step count. `/phase4/midi/start`, `/phase4/midi/stop`, and
+//! bin bundle every frame, one `i` (int) argument, the current absolute step
+//! count. `/phase4/midi/start`, `/phase4/midi/stop`, and
 //! `/phase4/midi/continue` each carry one `i` argument (`1`, a conventional
 //! bang value) and are sent only on the frame their transport event fired.
+//! MIDI messages are sent individually, not folded into the bin bundle: they
+//! are low frequency and broadcast-channel based already, not the per-call
+//! cost the bundle exists to amortise.
 //!
-//! Message structures and addresses are pre-built once before the send loop.
-//! Each frame, only the float argument is mutated in place. The UDP socket is
-//! bound to an ephemeral local port and kept unconnected, so each send uses
-//! `socket.send_to(&bytes, target)`. A reusable Vec<u8> scratch buffer is
-//! cleared and reused for each frame's encoding, so the steady-state send loop
-//! performs no heap allocation.
+//! All `channels * DISPLAY_BINS` bin messages are pre-built once, as the
+//! `content` of a single persistent `OscPacket::Bundle`, before the send
+//! loop, not rebuilt per frame. Each frame, only the float arguments are
+//! mutated in place, then the whole bundle is encoded and sent as one
+//! `sendto` call rather than one call per bin. At the default build (stereo,
+//! 32 bins, 64 bin messages), the encoded bundle runs roughly 2 to 2.5KB,
+//! over standard Ethernet's 1500 byte MTU. That's fine on loopback, whose MTU
+//! is far larger, but raises IP fragmentation risk if `--osc-addr` is ever
+//! pointed at a non-loopback destination.
+//!
+//! The UDP socket is bound to an ephemeral local port and kept unconnected,
+//! so each send uses `socket.send_to(&bytes, target)`. A reusable Vec<u8>
+//! scratch buffer is cleared and reused for each frame's encoding, so the
+//! steady-state send loop performs no heap allocation.
 //!
 //! OSC uses UDP so no connection management, handshake, or backpressure exists.
 //! The sender is a plain OS thread with a minimal single-threaded Tokio runtime,
@@ -25,7 +38,7 @@
 use crate::app::AppState;
 use crate::dsp::{DisplayPayload, DISPLAY_BINS};
 use anyhow::{Context, Result};
-use rosc::{OscMessage, OscPacket, OscType};
+use rosc::{OscBundle, OscMessage, OscPacket, OscTime, OscType};
 use socket2::{Domain, Socket, Type};
 use std::net::{SocketAddr, UdpSocket};
 use std::sync::{atomic::Ordering, Arc};
@@ -93,7 +106,7 @@ impl OscSender {
             .context("Failed to bind UDP socket for OSC output")?;
         let socket: UdpSocket = raw_socket.into();
 
-        let packets = Self::build_packets(channels);
+        let bin_bundle = Self::build_bin_bundle(channels);
         let midi_packets = midi_enabled.then(Self::build_midi_packets);
         let target = self.target;
         let handle = super::spawn_async_worker("osc-sender", async move {
@@ -101,7 +114,7 @@ impl OscSender {
                 display_rx,
                 socket,
                 target,
-                packets,
+                bin_bundle,
                 midi_packets,
                 scratch: Vec::new(),
                 state,
@@ -131,6 +144,17 @@ impl OscSender {
             }
         }
         packets
+    }
+
+    /// Pre-builds the bin message table for a channel count, wrapped as the
+    /// `content` of a single `OscPacket::Bundle`, so a frame's bin messages
+    /// are encoded and sent as one UDP packet. Uses the OSC spec's immediate
+    /// time tag (seconds 0, fractional 1), the conventional value for "now".
+    fn build_bin_bundle(channels: usize) -> OscPacket {
+        OscPacket::Bundle(OscBundle {
+            timetag: OscTime::from((0, 1)),
+            content: Self::build_packets(channels),
+        })
     }
 
     /// Pre-builds the MIDI packet table: one steps packet and one bang packet
@@ -168,13 +192,13 @@ struct MidiOscPackets {
 /// Runtime state for the OSC sender thread.
 ///
 /// Owns the watch receiver, unconnected UDP socket, target address, pre-built
-/// packet table, reusable encode scratch buffer, and app state. The async run
+/// bin bundle, reusable encode scratch buffer, and app state. The async run
 /// loop is a method on this struct.
 struct OscRuntime {
     display_rx: watch::Receiver<DisplayPayload>,
     socket: UdpSocket,
     target: SocketAddr,
-    packets: Vec<OscPacket>,
+    bin_bundle: OscPacket,
     midi_packets: Option<MidiOscPackets>,
     scratch: Vec<u8>,
     state: Arc<AppState>,
@@ -199,8 +223,11 @@ impl OscRuntime {
             // the guard before any encoding or I/O work begins.
             let midi_snapshot = {
                 let guard = self.display_rx.borrow_and_update();
-                for (ch_packets, channel) in self
-                    .packets
+                let OscPacket::Bundle(bundle) = &mut self.bin_bundle else {
+                    unreachable!("bin_bundle is always built as OscPacket::Bundle");
+                };
+                for (ch_packets, channel) in bundle
+                    .content
                     .chunks_exact_mut(DISPLAY_BINS)
                     .zip(guard.channels.iter())
                 {
@@ -215,17 +242,15 @@ impl OscRuntime {
                 guard.midi.clone()
             };
 
-            // Encode and send each packet. No allocations occur in this loop.
-            for packet in &self.packets {
-                Self::encode_and_send(
-                    &mut self.scratch,
-                    &self.socket,
-                    self.target,
-                    packet,
-                    &mut self.send_failure_logged,
-                    &mut self.encode_failure_logged,
-                );
-            }
+            // Encode and send the whole bundle in one UDP packet.
+            Self::encode_and_send(
+                &mut self.scratch,
+                &self.socket,
+                self.target,
+                &self.bin_bundle,
+                &mut self.send_failure_logged,
+                &mut self.encode_failure_logged,
+            );
 
             if let Some(midi) = midi_snapshot {
                 if let Some(midi_packets) = self.midi_packets.as_mut() {
@@ -283,13 +308,11 @@ impl OscRuntime {
                     Ok(_) => *send_failure_logged = false,
                     Err(e) => {
                         if !*send_failure_logged {
-                            if let OscPacket::Message(msg) = packet {
-                                log::warn!(
-                                    "OSC send failed for {}: {e}. Further send failures until \
-                                     the next successful send will not be logged individually.",
-                                    msg.addr
-                                );
-                            }
+                            log::warn!(
+                                "OSC send failed for {}: {e}. Further send failures until \
+                                 the next successful send will not be logged individually.",
+                                Self::describe_packet(packet)
+                            );
                             *send_failure_logged = true;
                         }
                     }
@@ -297,16 +320,23 @@ impl OscRuntime {
             }
             Err(e) => {
                 if !*encode_failure_logged {
-                    if let OscPacket::Message(msg) = packet {
-                        log::warn!(
-                            "OSC encode failed for {}: {e}. Further encode failures until \
-                             the next successful encode will not be logged individually.",
-                            msg.addr
-                        );
-                    }
+                    log::warn!(
+                        "OSC encode failed for {}: {e}. Further encode failures until \
+                         the next successful encode will not be logged individually.",
+                        Self::describe_packet(packet)
+                    );
                     *encode_failure_logged = true;
                 }
             }
+        }
+    }
+
+    /// Describes a packet for warning logs: an address for a single message,
+    /// or a message count for a bundle, since a bundle has no single address.
+    fn describe_packet(packet: &OscPacket) -> String {
+        match packet {
+            OscPacket::Message(msg) => msg.addr.clone(),
+            OscPacket::Bundle(bundle) => format!("bundle of {} messages", bundle.content.len()),
         }
     }
 }
@@ -346,6 +376,30 @@ mod tests {
             assert!(matches!(msg.args[0], OscType::Float(_)));
         } else {
             panic!("packet at [{ch_1_sampled_bin_idx}] must be an OscMessage");
+        }
+    }
+
+    // The pre-built bin bundle must wrap all channels * DISPLAY_BINS messages
+    // as its content, with the same shape as the flat packet table.
+    #[test]
+    fn pre_built_bin_bundle_has_correct_shape() {
+        let channels = 2;
+        let bundle = OscSender::build_bin_bundle(channels);
+
+        let OscPacket::Bundle(bundle) = bundle else {
+            panic!("build_bin_bundle must return an OscPacket::Bundle");
+        };
+
+        assert_eq!(
+            bundle.content.len(),
+            channels * DISPLAY_BINS,
+            "bundle content length must be channels * DISPLAY_BINS"
+        );
+
+        if let OscPacket::Message(msg) = &bundle.content[0] {
+            assert_eq!(msg.addr, "/phase4/ch/0/bin/0");
+        } else {
+            panic!("bundle content[0] must be an OscMessage");
         }
     }
 

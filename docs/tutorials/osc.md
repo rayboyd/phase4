@@ -21,7 +21,7 @@ Phase4 binds an ephemeral local UDP port and sends to the specified target. OSC 
 
 ## Address Scheme
 
-Each frequency bin is sent as a separate OSC message. The address pattern is:
+Each frequency bin is represented by an OSC message. The address pattern is:
 
 ```
 /phase4/ch/{channel}/bin/{bin}
@@ -31,7 +31,9 @@ Each frequency bin is sent as a separate OSC message. The address pattern is:
 - `{bin}` is zero-based, ordered from lowest to highest frequency.
 - The argument is a single `f` (32-bit float) in the range `0.0` to `1.0`.
 
-All OSC message structures (addresses and argument slots) are built once before the send loop. On each frame, only the float value is updated in place. The encoded bytes are written into a reused buffer, so the send loop performs no heap allocation in steady state.
+All `channels * DISPLAY_BINS` bin messages for a frame are sent together as a single OSC bundle (`#bundle` header, immediate time tag) in one UDP packet, rather than one packet per bin.
+
+All OSC message structures (addresses and argument slots) are built once before the send loop, as the content of a single persistent bundle. On each frame, only the float value is updated in place, then the whole bundle is encoded and sent as one UDP packet. The encoded bytes are written into a reused buffer, so the send loop performs no heap allocation in steady state.
 
 ## Message Reference
 
@@ -58,13 +60,13 @@ When MIDI input is not configured, none of these four addresses are ever sent.
 
 ## TouchDesigner Integration
 
-Add an OSC In CHOP to your network and set its Network Port to match the port given in `--osc-addr`. Each `/phase4/ch/{channel}/bin/{bin}` message arrives as its own channel.
+Add an OSC In DAT to your network and set its Network Port to match the port given in `--osc-addr`. OSC In DAT unpacks OSC bundles, so all `/phase4/ch/{channel}/bin/{bin}` messages for a frame arrive together from the single UDP packet Phase4 sends. OSC In CHOP does not unpack bundles and will receive nothing from Phase4's output; use OSC In DAT instead.
 
-OSC In CHOP does not unpack OSC bundles, individual messages are required, confirmed against a real report of OSC In CHOP receiving nothing when sent a bundle. Phase4 always sends one message per bin per channel rather than bundling them, so this needs no special handling on the TouchDesigner side.
-
-If you are receiving a large number of channels, OSC In CHOP has a Queued option with configurable target buffer sizes, useful for smoothing out bursts of incoming messages rather than dropping them under load.
+If you are receiving a large number of messages, check your receiving application for options to buffer or queue bursts of incoming messages rather than dropping them under load.
 
 Phase4 fires and forgets each UDP packet. There is no connection handshake, acknowledgement, or backpressure. If the target is not running or unreachable, packets are silently dropped.
+
+Bin messages for a frame are combined into one OSC bundle per UDP packet. At the default build (stereo, 32 bins, 64 bin messages), the encoded bundle runs roughly 2 to 2.5KB, over standard Ethernet's 1500 byte MTU. That's not an issue on loopback, whose MTU is far larger, but it raises IP fragmentation risk if `--osc-addr` targets a non-loopback destination.
 
 ## Notes
 

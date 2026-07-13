@@ -18,6 +18,11 @@ use tokio::net::UdpSocket;
 use tokio::sync::watch;
 use tokio::time::{sleep, timeout};
 
+/// Receive buffer size, generous enough for a full bin bundle even at the
+/// largest `display-bins-*` feature CI exercises. Heap-allocated rather than
+/// a stack array so it doesn't blow up the async fns' future size.
+const MAX_DATAGRAM_BYTES: usize = 32 * 1024;
+
 /// Binds an ephemeral local UDP socket for the test to receive on.
 async fn bind_receiver() -> (UdpSocket, SocketAddr) {
     let socket = UdpSocket::bind("127.0.0.1:0")
@@ -27,28 +32,40 @@ async fn bind_receiver() -> (UdpSocket, SocketAddr) {
     (socket, address)
 }
 
-/// Receives exactly `count` OSC packets and returns each decoded message's
-/// bin index, parsed from its address, mapped to its float argument.
+/// Receives one OSC bundle carrying `count` bin messages and returns each
+/// decoded message's bin index, parsed from its address, mapped to its
+/// float argument.
 ///
-/// Receiving by count rather than a fixed duration avoids a race against
-/// the sender's sequential `send_to` calls. Parsing into a map rather than
-/// assuming arrival order avoids depending on UDP delivery order, which is
-/// not guaranteed even on loopback.
+/// All bin messages for a frame now arrive as a single UDP packet (one OSC
+/// bundle), rather than one packet per bin, so this receives exactly one
+/// datagram and decodes its bundle content. Parsing into a map rather than
+/// assuming content order avoids depending on the bundle's internal message
+/// ordering.
 async fn receive_bin_values(socket: &UdpSocket, count: usize) -> HashMap<usize, f32> {
+    let mut buffer = vec![0u8; MAX_DATAGRAM_BYTES];
+
+    let (length, _from) = timeout(Duration::from_secs(1), socket.recv_from(&mut buffer))
+        .await
+        .expect("timed out waiting for an OSC bundle")
+        .expect("failed to receive an OSC bundle");
+
+    let (_remainder, packet) =
+        rosc::decoder::decode_udp(&buffer[..length]).expect("failed to decode OSC packet");
+
+    let OscPacket::Bundle(bundle) = packet else {
+        panic!("expected an OSC bundle, got a single message");
+    };
+
+    assert_eq!(
+        bundle.content.len(),
+        count,
+        "bundle must carry exactly {count} bin messages"
+    );
+
     let mut values = HashMap::with_capacity(count);
-    let mut buffer = [0u8; 1024];
-
-    for _ in 0..count {
-        let (length, _from) = timeout(Duration::from_secs(1), socket.recv_from(&mut buffer))
-            .await
-            .expect("timed out waiting for an OSC packet")
-            .expect("failed to receive an OSC packet");
-
-        let (_remainder, packet) =
-            rosc::decoder::decode_udp(&buffer[..length]).expect("failed to decode OSC packet");
-
-        let OscPacket::Message(message) = packet else {
-            panic!("expected an OSC message, got a bundle");
+    for element in bundle.content {
+        let OscPacket::Message(message) = element else {
+            panic!("bundle content must only contain messages, not nested bundles");
         };
 
         let bin = message
@@ -68,24 +85,38 @@ async fn receive_bin_values(socket: &UdpSocket, count: usize) -> HashMap<usize, 
     values
 }
 
-/// Receives exactly `count` OSC packets and returns each decoded message's
-/// address, ignoring argument values. Used to confirm which addresses fired
-/// on a given frame rather than their payload.
-async fn receive_addresses(socket: &UdpSocket, count: usize) -> Vec<String> {
-    let mut addresses = Vec::with_capacity(count);
-    let mut buffer = [0u8; 1024];
-    for _ in 0..count {
+/// Receives exactly `datagram_count` UDP datagrams and returns the OSC
+/// addresses they carry, ignoring argument values. A bundle datagram
+/// contributes the addresses of every message in its content, flattened
+/// recursively. Used to confirm which addresses fired on a given frame
+/// rather than their payload.
+async fn receive_addresses(socket: &UdpSocket, datagram_count: usize) -> Vec<String> {
+    let mut addresses = Vec::new();
+    let mut buffer = vec![0u8; MAX_DATAGRAM_BYTES];
+    for _ in 0..datagram_count {
         let (length, _from) = timeout(Duration::from_secs(1), socket.recv_from(&mut buffer))
             .await
             .expect("timed out waiting for an OSC packet")
             .expect("failed to receive an OSC packet");
         let (_remainder, packet) =
             rosc::decoder::decode_udp(&buffer[..length]).expect("failed to decode OSC packet");
-        if let OscPacket::Message(message) = packet {
-            addresses.push(message.addr);
-        }
+        collect_addresses(packet, &mut addresses);
     }
     addresses
+}
+
+/// Flattens a packet's addresses into `addresses`, recursing into bundle
+/// content so callers don't need to distinguish a bundle datagram from a
+/// single-message datagram.
+fn collect_addresses(packet: OscPacket, addresses: &mut Vec<String>) {
+    match packet {
+        OscPacket::Message(message) => addresses.push(message.addr),
+        OscPacket::Bundle(bundle) => {
+            for element in bundle.content {
+                collect_addresses(element, addresses);
+            }
+        }
+    }
 }
 
 /// Joins the sender thread with a hard deadline, mirroring
@@ -197,9 +228,10 @@ async fn sender_forwards_midi_steps_and_transport_when_enabled() {
         .send(payload)
         .expect("update should reach the OSC sender");
 
-    // DISPLAY_BINS bin packets, plus /phase4/midi/steps and
-    // /phase4/midi/start, not /stop or /continue, on this frame.
-    let addresses = receive_addresses(&receiver, DISPLAY_BINS + 2).await;
+    // One bin bundle datagram (DISPLAY_BINS addresses), plus separate
+    // /phase4/midi/steps and /phase4/midi/start datagrams, not /stop or
+    // /continue, on this frame: 3 datagrams total.
+    let addresses = receive_addresses(&receiver, 3).await;
     assert!(addresses.contains(&"/phase4/midi/steps".to_string()));
     assert!(addresses.contains(&"/phase4/midi/start".to_string()));
     assert!(!addresses.contains(&"/phase4/midi/stop".to_string()));
@@ -230,7 +262,8 @@ async fn sender_never_forwards_midi_when_not_enabled() {
         .send(payload)
         .expect("update should reach the OSC sender");
 
-    let addresses = receive_addresses(&receiver, DISPLAY_BINS).await;
+    // One bin bundle datagram, no MIDI datagrams since MIDI is disabled.
+    let addresses = receive_addresses(&receiver, 1).await;
     assert!(addresses.iter().all(|a| !a.starts_with("/phase4/midi/")));
 
     state.keep_running.store(false, Ordering::Release);
