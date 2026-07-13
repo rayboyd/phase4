@@ -215,6 +215,10 @@ impl WorkerThreads {
                 return JoinOutcome::TimedOut;
             }
 
+            // Continually wake to prevent a race condition where the thread
+            // enters a park state after the initial shutdown signal is posted.
+            handle.thread().unpark();
+
             let remaining = deadline.saturating_duration_since(now);
             thread::sleep(remaining.min(Duration::from_millis(SHUTDOWN_POLL_MS)));
         }
