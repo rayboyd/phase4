@@ -10,18 +10,6 @@ Check the [platform requirements section](docs/tutorials/compile.md#platform-req
 
 Phase4 supports 64-bit [macOS](docs/tutorials/compile.md#macos), [Windows](docs/tutorials/compile.md#windows) and [Linux](docs/tutorials/compile.md#linux).
 
-## Contents
-
-- [Quickstart](#quickstart)
-  - [Check](#check)
-  - [Serve](#serve)
-  - [Connect](#connect)
-- [Outputs](#outputs)
-  - [OSC](#osc)
-  - [MIDI transport and clock](#midi-transport-and-clock)
-- [Configuration file](#configuration-file)
-- [Licence](#licence)
-
 ## Quickstart
 
 Pre-built binaries for macOS and Linux are on the [releases page](https://github.com/rayboyd/phase4/releases/latest). Windows users need to [compile from source](docs/tutorials/compile.md). Compiling is also the route if you want a non-default band resolution.
@@ -74,9 +62,7 @@ If Phase4 is broadcasting, check this [CodePen example](https://codepen.io/raybo
 
 ## Outputs
 
-Beyond the core WebSocket stream, Phase4 can send OSC messages to any
-UDP target, and attach MIDI transport and clock data to the streams
-you already have running.
+Beyond the core WebSocket stream, Phase4 can send OSC messages to any UDP target, and attach MIDI transport and clock data to the streams you already have running.
 
 ### OSC
 
@@ -90,7 +76,7 @@ Each frequency bin is sent as a separate OSC message with address `/phase4/ch/{c
 
 See [docs/tutorials/osc.md](docs/tutorials/osc.md) for the full address reference and integration notes.
 
-### MIDI transport and clock
+### MIDI
 
 Phase4 can also attach MIDI transport and clock data to the existing WebSocket payload stream, using either a real MIDI input device or a synthetic test clock.
 
@@ -126,7 +112,7 @@ When MIDI input is configured, the OSC sender also transmits `/phase4/midi/steps
 
 Embedding Phase4 in your own application is documented in [docs/tutorials/wrapper.md](docs/tutorials/wrapper.md).
 
-## Configuration file
+## Config
 
 Instead of passing flags on every invocation you can place a `config.yaml` file in the current working directory, that is, wherever the Phase4 process is launched from, not where the binary itself lives on disk. Phase4 reads it at startup and applies a three-tier priority rule. CLI flags override file values, file values override hardcoded defaults. Any key may be omitted, and absent keys inherit the default.
 
