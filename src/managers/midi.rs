@@ -273,9 +273,10 @@ fn run_real_device(
     log::info!("MIDI input connected: {port_name}");
 
     // midir delivers bytes on its own backend thread. Holding _connection keeps
-    // that alive, this thread only needs to wait for shutdown.
+    // that alive. This thread only needs to wait for shutdown, park the thread
+    // indefinitely so it remains asleep with 0% CPU footprint.
     while state.keep_running.load(Ordering::Acquire) {
-        thread::sleep(Duration::from_millis(MIDI_POLL_INTERVAL_MS));
+        thread::park();
     }
 }
 
