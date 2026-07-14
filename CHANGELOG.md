@@ -4,9 +4,14 @@ All notable changes to Phase4 will be documented in this file.
 
 ## Unreleased
 
+### Build
+
+- Dependency updates ([9bd5abb](https://github.com/rayboyd/phase4/commit/9bd5abb74d37b4d3e2e05800058d261e37b99fb6))
+
 ### Documentation
 
 - Remove bare-label comments with no explanatory content, amend lib code layout ([77778b2](https://github.com/rayboyd/phase4/commit/77778b295010c7700d2fe3041768581958f496a3))
+- Document struct fields across the managers module ([07cc35b](https://github.com/rayboyd/phase4/commit/07cc35bf8067ae66d19de299344967fafd2e512a))
 
 ### Performance
 
