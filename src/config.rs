@@ -11,8 +11,12 @@ use std::net::SocketAddr;
 use std::path::Path;
 use thiserror::Error;
 
+/// Fallback WebSocket client cap used when neither CLI nor `config.yaml` sets one.
 pub const DEFAULT_MAX_CLIENTS: usize = 8;
+
+/// Fallback broadcast rate in Hz used when neither CLI nor `config.yaml` sets one.
 const DEFAULT_BROADCAST_RATE_HZ: f32 = 60.0;
+
 /// Default calibration tone frequency in Hz (concert pitch A4). Used only by
 /// `AppConfig::default()`, which `resolve_config` always overwrites.
 pub const DEFAULT_TEST_HZ: f32 = 440.0;
@@ -22,6 +26,7 @@ pub const DEFAULT_TEST_HZ: f32 = 440.0;
 pub enum TestSignal {
     /// Fixed tone at the given frequency in Hz.
     FixedTone(f32),
+
     /// Logarithmic frequency sweep driven by a sine LFO at the given rate in Hz.
     Sweep(f32),
 }
@@ -33,6 +38,7 @@ pub enum TestSignal {
 pub enum ConfigInput {
     /// Synthetic calibration signal, no hardware involved.
     Calibration(TestSignal),
+
     /// Hardware device resolved by name match (exact first, then substring).
     Device(String),
 }
@@ -43,6 +49,7 @@ pub enum ConfigInput {
 pub enum ConfigMidiInput {
     /// Synthetic test clock at the given tempo, in beats per minute.
     TestClock(f32),
+
     /// Real MIDI input device resolved by name.
     Device(String),
 }
@@ -59,6 +66,7 @@ pub enum OutputConfig {
         max_clients: usize,
         no_browser_origin: bool,
     },
+
     /// OSC UDP messages. `addr` is a target address, phase4 sends to it.
     Osc { addr: SocketAddr },
 }
@@ -282,8 +290,10 @@ pub struct FileVocoderConfig {
 pub struct FileConfig {
     #[serde(default)]
     pub network: FileNetworkConfig,
+
     #[serde(default)]
     pub audio: FileAudioConfig,
+
     #[serde(default)]
     pub vocoder: FileVocoderConfig,
 }
@@ -344,7 +354,7 @@ fn resolve_config(args: &Args, file: FileConfig) -> Result<AppConfig, AppConfigE
 
     let osc_addr = args.network.osc_addr.or(file.network.osc_addr);
 
-    // Audio
+    // Audio.
     let raw_device = args
         .input
         .audio_device
@@ -357,7 +367,7 @@ fn resolve_config(args: &Args, file: FileConfig) -> Result<AppConfig, AppConfigE
         .clone()
         .or(file.audio.analyse_channels);
 
-    // Vocoder
+    // Vocoder.
     let attack_ms = args
         .vocoder
         .attack_ms
@@ -400,7 +410,7 @@ fn resolve_config(args: &Args, file: FileConfig) -> Result<AppConfig, AppConfigE
 
     let midi_input = resolve_midi_input(args)?;
 
-    // Validation
+    // Validation.
     validate_vocoder_fields(attack_ms, release_ms, freq_low, freq_high, filter_q)?;
 
     if !is_strictly_positive(broadcast_rate) {
