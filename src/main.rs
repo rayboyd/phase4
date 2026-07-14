@@ -20,9 +20,7 @@ fn log_line_ending(mode: ControllerMode) -> &'static str {
     }
 }
 
-/// Returns whether the startup banner should be shown for the given
-/// controller mode. Term mode has a human watching a terminal, headless
-/// mode is a wrapper process with no one to greet.
+/// Returns whether the startup banner should be shown for the given mode.
 fn should_show_banner(mode: ControllerMode) -> bool {
     matches!(mode, ControllerMode::Term)
 }
