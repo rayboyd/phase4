@@ -19,6 +19,7 @@ use std::sync::Arc;
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
+/// Produces a synthetic test signal in place of hardware audio input.
 pub struct Generator;
 
 /// Calibration signal level. -12 dBFS leaves plenty of headroom and keeps the

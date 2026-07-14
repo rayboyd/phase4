@@ -22,7 +22,10 @@ use std::sync::Arc;
 /// Captured hardware info used for buffer sizing logic.
 #[derive(Clone, Copy)]
 pub struct Specs {
+    /// Number of interleaved hardware channels.
     pub channels: u16,
+
+    /// Hardware sample rate in Hz.
     pub sample_rate: u32,
 }
 
@@ -45,11 +48,22 @@ impl Specs {
 /// equivalent is the "Configuration unavailable" warning line.
 #[derive(serde::Serialize)]
 struct DeviceInfo {
+    /// Zero-based position in the host's input device enumeration.
     index: usize,
+
+    /// Device name, or "Unknown Device" if the description could not be read.
     name: String,
+
+    /// Hardware sample rate in Hz.
     sample_rate: Option<u32>,
+
+    /// Number of hardware input channels.
     channels: Option<u16>,
+
+    /// Native sample format reported by the device, e.g. "F32".
     sample_format: Option<String>,
+
+    /// Whether the device's default configuration is `f32`, phase4's required sample format.
     supported: bool,
 }
 
@@ -61,7 +75,10 @@ struct DeviceInfo {
 /// constructed once before stream start and moved into the closure. There are
 /// no allocations or atomic ref-count touches at callback time.
 pub enum ChannelMode {
+    /// Forward every hardware channel via the `push_slice` fast path.
     All,
+
+    /// Forward only the listed zero-based hardware channel indices, sorted and deduplicated.
     Selected(Box<[u16]>),
 }
 
@@ -84,7 +101,10 @@ impl ChannelMode {
 /// only a selected subset. `tx` is the SPSC producer for the downstream
 /// consumer.
 pub struct StreamSink<P> {
+    /// SPSC producer for the downstream consumer.
     pub tx: P,
+
+    /// Which hardware channels to forward.
     pub mode: ChannelMode,
 }
 
@@ -115,8 +135,10 @@ impl<P: Producer<Item = f32>> StreamSink<P> {
     }
 }
 
+/// Owns the active input stream, if one has been started.
 #[derive(Default)]
 pub struct Input {
+    /// The running `cpal` stream, kept alive for as long as capture should continue.
     active_stream: Option<cpal::Stream>,
 }
 

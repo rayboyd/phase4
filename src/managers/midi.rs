@@ -22,9 +22,14 @@ use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 use thread_priority::{set_current_thread_priority, ThreadPriority, ThreadPriorityValue};
 
+/// A single enumerated MIDI input device, serialised as one entry in the
+/// JSON array produced by `--midi-list-format json`.
 #[derive(Debug, Serialize)]
 struct MidiDeviceInfo {
+    /// Zero-based position in the port enumeration.
     index: usize,
+
+    /// Device name, or "Unknown Device" if the port name could not be read.
     name: String,
 }
 
@@ -92,7 +97,11 @@ fn record_byte(byte: u8, state: &AppState, ticks_since_step: &mut u8) {
 /// already-resolved real device connection. Mirrors `InputSource` for
 /// audio.
 pub(crate) enum MidiInputSource {
+    /// Synthetic clock, driven at the given BPM instead of a real device.
     TestClock(f32),
+
+    /// A resolved real device: the open input handle, its port, and the
+    /// resolved port name (input handle, port, resolved name).
     Hardware(midir::MidiInput, midir::MidiInputPort, String),
 }
 
@@ -102,6 +111,7 @@ fn set_midi_thread_priority() {
     )));
 }
 
+/// Listens for MIDI transport and clock events, real or synthetic.
 pub struct MidiListener;
 
 impl MidiListener {
