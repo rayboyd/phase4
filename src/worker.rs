@@ -41,8 +41,10 @@ const OSC_SENDER_SHUTDOWN_TIMEOUT_MS: u64 = 1_500;
 enum JoinOutcome {
     /// The thread finished and joined cleanly.
     Joined,
+
     /// The grace period elapsed before the thread finished; it has been detached.
     TimedOut,
+
     /// The thread finished but its closure panicked.
     Panicked,
 }
