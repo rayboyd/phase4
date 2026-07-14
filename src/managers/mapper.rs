@@ -24,6 +24,7 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 use tokio::sync::watch;
 
+/// Maps raw vocoder envelope bins to display resolution for broadcast.
 pub struct Mapper;
 
 impl Mapper {

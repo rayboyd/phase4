@@ -65,8 +65,12 @@ fn reject_browser_origin(origin: &str) -> ErrorResponse {
         .expect("failed to build origin rejection response")
 }
 
+/// Handshake callback that enforces the server's browser-origin policy.
 struct OriginPolicyCallback {
+    /// Address of the connecting client, used only for logging.
     addr: SocketAddr,
+
+    /// Whether to reject handshakes carrying an `Origin` header.
     reject_browser_origin: bool,
 }
 
@@ -175,9 +179,15 @@ fn initial_serialised_snapshot(payload: &DisplayPayload, already_logged: &mut bo
     Utf8Bytes::from(EMPTY_DISPLAY_PAYLOAD_JSON.to_owned())
 }
 
+/// Owns the WebSocket broadcast server configuration.
 pub struct Server {
+    /// Address the TCP listener binds to.
     address: SocketAddr,
+
+    /// Whether to reject handshakes carrying an `Origin` header.
     no_browser_origin: bool,
+
+    /// Maximum number of concurrently connected clients.
     max_clients: usize,
 }
 

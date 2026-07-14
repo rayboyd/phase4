@@ -55,7 +55,9 @@ const OSC_MESSAGE_SIZE_ESTIMATE_BYTES: usize = 64;
 /// absorb, so an occasional slow drain by the OS doesn't stall `sendto`.
 const OSC_SEND_BUFFER_FRAME_HEADROOM: usize = 4;
 
+/// Sends mapped display payloads as OSC bundles over UDP.
 pub struct OscSender {
+    /// Destination address for every OSC packet sent.
     target: SocketAddr,
 }
 
@@ -183,9 +185,16 @@ impl OscSender {
 /// three are sent only on the frame their transport event fired.
 #[allow(clippy::struct_field_names)]
 struct MidiOscPackets {
+    /// Absolute step count, sent every frame.
     steps_packet: OscPacket,
+
+    /// Bang sent only on the frame a Start event fired.
     start_packet: OscPacket,
+
+    /// Bang sent only on the frame a Stop event fired.
     stop_packet: OscPacket,
+
+    /// Bang sent only on the frame a Continue event fired.
     continue_packet: OscPacket,
 }
 
@@ -195,14 +204,31 @@ struct MidiOscPackets {
 /// bin bundle, reusable encode scratch buffer, and app state. The async run
 /// loop is a method on this struct.
 struct OscRuntime {
+    /// Signals when the mapper has published a new display frame.
     display_rx: watch::Receiver<DisplayPayload>,
+
+    /// Unconnected UDP socket used for every send.
     socket: UdpSocket,
+
+    /// Destination address for every OSC packet sent.
     target: SocketAddr,
+
+    /// Pre-built bin messages, wrapped as a single `OscPacket::Bundle`, updated in place each frame.
     bin_bundle: OscPacket,
+
+    /// Pre-built MIDI packets, present only when MIDI input is configured.
     midi_packets: Option<MidiOscPackets>,
+
+    /// Reusable encode buffer, cleared and reused each frame to avoid heap allocation.
     scratch: Vec<u8>,
+
+    /// Shared application state, polled for shutdown.
     state: Arc<AppState>,
+
+    /// Whether the last send failure has already been logged, so repeats are silenced.
     send_failure_logged: bool,
+
+    /// Whether the last encode failure has already been logged, so repeats are silenced.
     encode_failure_logged: bool,
 }
 

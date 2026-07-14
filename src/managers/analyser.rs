@@ -50,12 +50,20 @@ fn interleaved_peak(buffer: &[f32], channel: usize, channels: usize) -> f32 {
 
 /// Internal state for the analyser thread, owns the transfer buffer and DSP state.
 struct State {
+    /// Number of interleaved audio channels being analysed.
     channels: usize,
+
+    /// Scratch buffer the analyser thread pops ringbuf samples into each iteration.
     transfer_buffer: Vec<f32>,
+
     /// Pre-allocated payload buffer, reused every frame to avoid per-call heap allocation.
     /// Published via swap into the watch channel gives us no clones or allocations.
     frame_data: RawPayload,
+
+    /// Publishes each frame's `RawPayload` to the mapper.
     raw_tx: watch::Sender<RawPayload>,
+
+    /// One vocoder analyser per channel, same order as `channels`.
     analysers: Vec<VocoderAnalyser>,
 }
 
@@ -116,6 +124,7 @@ impl State {
 /// Owns the analyser thread, spawning a loop that drains audio samples and
 /// publishing DSP results over the watch channel.
 pub struct Processor {
+    /// Vocoder configuration used to construct each channel's analyser in [`State::new`].
     vocoder_config: VocoderConfig,
 }
 
