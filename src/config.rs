@@ -14,12 +14,12 @@ use thiserror::Error;
 /// Fallback WebSocket client cap used when neither CLI nor `config.yaml` sets one.
 pub const DEFAULT_MAX_CLIENTS: usize = 8;
 
-/// Fallback broadcast rate in Hz used when neither CLI nor `config.yaml` sets one.
-const DEFAULT_BROADCAST_RATE_HZ: f32 = 60.0;
-
 /// Default calibration tone frequency in Hz (concert pitch A4). Used only by
 /// `AppConfig::default()`, which `resolve_config` always overwrites.
 pub const DEFAULT_TEST_HZ: f32 = 440.0;
+
+/// Fallback broadcast rate in Hz used when neither CLI nor `config.yaml` sets one.
+const DEFAULT_BROADCAST_RATE_HZ: f32 = 60.0;
 
 /// The synthetic calibration signal, a simple sine wave in one of two modes.
 #[derive(Debug, Clone, Copy, PartialEq)]

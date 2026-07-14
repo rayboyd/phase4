@@ -24,8 +24,12 @@ use std::time::Duration;
 /// Keyboard input polling interval.
 const POLL_RATE_MS: u64 = 100;
 
+/// Dispatch enum selected once at startup by `ControllerMode`, never re-evaluated.
 pub enum Controller {
+    /// Interactive terminal control, keyboard driven.
     Term(TermController),
+
+    /// Blocks until stdin closes, for wrapper-spawned child processes.
     Headless(HeadlessController),
 }
 
