@@ -187,8 +187,8 @@ impl Processor {
                             }
                             was_active = true;
 
-                            // Drain the ringbuf, or sleep briefly when empty to avoid
-                            // spinning the CPU with nothing to process.
+                            // Drain the ringbuf, or sleep briefly when empty to avoid  spinning the CPU
+                            // with nothing to process.
                             let samples = consumer.pop_slice(&mut dsp_state.transfer_buffer);
                             if samples > 0 {
                                 dsp_state.process(samples);
