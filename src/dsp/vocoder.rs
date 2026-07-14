@@ -3,10 +3,9 @@
 //! respond per-sample, giving lower latency and smoother animation than windowed
 //! transforms.
 
-use biquad::{Biquad, Coefficients, DirectForm1, ToHertz, Type};
-
 use crate::config::VocoderConfig;
 use crate::dsp::units::{Hertz, Milliseconds};
+use biquad::{Biquad, Coefficients, DirectForm1, ToHertz, Type};
 
 /// Number of frequency bands in the filter bank.
 pub const VOCODER_BANDS: usize = 64;

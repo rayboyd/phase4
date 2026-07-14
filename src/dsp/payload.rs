@@ -6,7 +6,8 @@
 //!
 //! 2. **Display**: [`DisplayChannelLevel`] / [`DisplayPayload`] carry a
 //!    [`DISPLAY_BINS`]-bin display mapping of those envelope levels and are
-//!    serialised to JSON for WebSocket broadcast.
+//!    serialised to JSON for WebSocket broadcast. [`DisplayPayload`] also
+//!    carries an optional [`MidiSnapshot`] when MIDI input is configured.
 //!
 //! [`DISPLAY_BINS`] is set at compile time via a Cargo feature flag
 //! (`display-bins-4`, `display-bins-8`, `display-bins-16`,
@@ -87,22 +88,27 @@ const _: () = assert!(
     "VOCODER_BANDS and DISPLAY_BINS must be integer multiples of one another",
 );
 
-//
-// Raw Payload (Internal)
-//
-
+/// One channel's full-resolution vocoder output for a single analysis frame.
+/// Never serialised, `bins.len()` is `VOCODER_BANDS` regardless of feature flags.
 #[derive(Debug, Clone)]
 pub struct RawChannelLevel {
+    /// Peak absolute sample value for this channel over the analysis chunk.
     pub peak: f32,
+
+    /// One envelope-follower value per vocoder band, low to high frequency.
     pub bins: Vec<f32>,
 }
 
+/// Vocoder output for every channel, published once per analysis frame.
+/// Internal only, the mapper reduces this to a `DisplayPayload`.
 #[derive(Debug, Clone, Default)]
 pub struct RawPayload {
+    /// One entry per audio channel, in hardware channel order.
     pub channels: Vec<RawChannelLevel>,
 }
 
 impl RawPayload {
+    /// Allocates `channels` zeroed entries, each with `bin_count` bins.
     #[must_use]
     pub fn new(channels: usize, bin_count: usize) -> Self {
         Self {
@@ -116,22 +122,26 @@ impl RawPayload {
     }
 }
 
-//
-// Display Payload (Broadcast)
-//
-
+/// One channel's display-resolution vocoder output. `bins.len()` is always `DISPLAY_BINS`,
+/// written by the mapper's downsample or upsample path from a `RawChannelLevel`.
 #[derive(Debug, Clone)]
 pub struct DisplayChannelLevel {
+    /// Peak absolute sample value for this channel, copied through unchanged
+    /// from the source `RawChannelLevel`.
     pub peak: f32,
+    /// One mapped envelope value per display bin, low to high frequency.
     pub bins: [f32; DISPLAY_BINS],
 }
 
+/// One frame's MIDI transport and step state, attached to `DisplayPayload`
+/// only when MIDI input is configured.
 #[derive(Debug, Clone, Serialize)]
 pub struct MidiSnapshot {
     /// "start", "stop", or "continue" if a transport event happened since
     /// the previous broadcast frame. Omitted from JSON when nothing happened.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub transport: Option<&'static str>,
+
     /// MIDI 1/16 note steps seen since the previous frame.
     pub steps: u32,
 }
@@ -146,9 +156,13 @@ impl Serialize for DisplayChannelLevel {
     }
 }
 
+/// Display-resolution vocoder output for every channel, published once per
+/// broadcast frame and serialised to JSON for WebSocket and OSC output.
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct DisplayPayload {
+    /// One entry per audio channel, in hardware channel order.
     pub channels: Vec<DisplayChannelLevel>,
+
     /// Absent when MIDI input is not configured, so existing clients that
     /// only read channels see no schema change.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -156,6 +170,7 @@ pub struct DisplayPayload {
 }
 
 impl DisplayPayload {
+    /// Allocates `channels` zeroed entries with `midi` absent.
     #[must_use]
     pub fn new(channels: usize) -> Self {
         Self {
@@ -214,11 +229,13 @@ mod tests {
         }
     }
 
+    // DisplayPayload carries no MIDI snapshot until MIDI input produces one.
     #[test]
     fn display_payload_midi_defaults_to_none() {
         assert!(DisplayPayload::new(1).midi.is_none());
     }
 
+    // The transport key is omitted entirely, not sent as null, when nothing fired.
     #[test]
     fn midi_snapshot_omits_transport_when_none() {
         let snapshot = MidiSnapshot {
@@ -230,9 +247,8 @@ mod tests {
         assert!(json.contains("\"steps\":3"));
     }
 
-    // The serialised JSON must contain the expected top-level key, per-channel
-    // keys, and the correct array lengths. This catches accidental schema drift
-    // that would break clients parsing the wire format.
+    // Checks the full JSON shape, keys, channel count, bin length, so schema
+    // drift that would break client parsers is caught here, not on the wire.
     #[test]
     fn serialisation_shape_matches_client_contract() {
         let payload = DisplayPayload::new(2);
