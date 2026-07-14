@@ -42,9 +42,8 @@ fn calibration_announcement(signal: TestSignal) -> String {
     }
 }
 
-/// The resolved input source for the audio pipeline: either a real hardware
-/// device or a synthetic calibration generator. Resolved once in `App::new`
-/// from `AppConfig::input`.
+/// The input source for the audio pipeline. Either a real hardware device or a
+/// synthetic calibration generator. Resolved once in `App::new` from `AppConfig::input`.
 enum InputSource {
     Calibration(TestSignal),
     Hardware(cpal::Device, cpal::SupportedStreamConfig),
@@ -52,12 +51,19 @@ enum InputSource {
 
 /// Shared application state flags for cross-thread synchronisation.
 pub struct AppState {
+    /// Whether the analyser is currently processing samples.
+    /// Toggled by the controller (T key), read by the analyser thread.
     pub is_active: AtomicBool,
+
+    /// Signals every worker thread to exit.
+    /// Set false by the controller (Ctrl+C) or `App::shutdown`.
     pub keep_running: AtomicBool,
+
     /// Last MIDI transport event seen, one of the `MIDI_TRANSPORT_*` codes.
     /// Written by the MIDI listener thread, read and cleared by the mapper
     /// each time it broadcasts a frame.
     pub midi_last_transport: AtomicU8,
+
     /// MIDI 1/16 note steps derived from incoming MIDI clock ticks.
     ///
     /// Absolute monotonic count since the most recent Start event. Written by
@@ -109,7 +115,7 @@ impl App {
     ///
     /// Returns an error if the audio device cannot be opened, the input stream
     /// cannot be started, or a configured output transport cannot bind to its
-    /// address.
+    /// given address.
     ///
     /// # Panics
     ///
@@ -164,16 +170,11 @@ impl App {
             midi_enabled,
         ));
 
-        // Resolved in the declare phase above, so a bad --midi-device fails
-        // before any thread spawns, matching resolve_audio_hardware's early
-        // failure for a bad --audio-device. Spawned here, alongside every
-        // other thread this function starts.
         let midi_thread = midi_source.map(|source| Self::spawn_midi_input(source, state.clone()));
 
-        // Spawn one worker per configured output transport. Each descriptor in
+        // Spawns one worker per configured output transport. Each descriptor in
         // config.outputs matches to exactly one spawn arm in spawn_outputs,
-        // adding a new transport means adding one variant and one arm there,
-        // nothing else changes.
+        // adding a new transport means adding one variant and one arm there.
         let output_threads = Self::spawn_outputs(
             &config.outputs,
             &display_rx,
@@ -242,9 +243,8 @@ impl App {
         Ok(output_threads)
     }
 
-    /// Validates that all requested channel indices are within the
-    /// hardware's capacity. Does not apply in calibration mode, where no
-    /// real device is involved.
+    /// Validates that all channel indices are within the hardware's capacity.
+    /// Does not apply in calibration mode, where no real device is involved.
     ///
     /// # Errors
     ///
@@ -425,8 +425,8 @@ impl App {
 
 impl Drop for App {
     // Keep drop lightweight and idempotent by delegating to the explicit
-    // shutdown path. This still gives callers a best effort fallback when
-    // they do not call shutdown() themselves.
+    // shutdown path. This gives callers a best effort fallback when they
+    // do not call shutdown() themselves.
     fn drop(&mut self) {
         self.shutdown();
     }
