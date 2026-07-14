@@ -2,7 +2,19 @@
 
 All notable changes to Phase4 will be documented in this file.
 
-## Unreleased
+## 0.0.9
+
+### Breaking Change
+
+#### OSC bundling
+
+Bin messages are now sent as a single OSC bundle per frame instead of one UDP packet per bin.
+
+If you're using **OSC In CHOP** in TouchDesigner, switch to **OSC In DAT**. CHOP does not unpack OSC bundles and will silently receive nothing from this release onward. See [docs/tutorials/osc.md](docs/tutorials/osc.md) for the updated setup.
+
+MIDI messages (`/phase4/midi/*`) are unaffected, they're still sent individually.
+
+If you route `--osc-addr` at a non-loopback destination, note the bundled packet can run over standard Ethernet's 1500 byte MTU at larger `display-bins-*` builds, which raises IP fragmentation risk. Fine on loopback, worth knowing if you ever send phase4's OSC output across a network.
 
 ### Build
 
