@@ -273,6 +273,12 @@ pub struct FileAudioConfig {
     pub analyse_channels: Option<Vec<u16>>,
 }
 
+/// MIDI-layer fields that may be set via `config.yaml`.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct FileMidiConfig {
+    pub device_name_match: Option<String>,
+}
+
 /// Vocoder filter-bank fields that may be set via `config.yaml`.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct FileVocoderConfig {
@@ -293,6 +299,9 @@ pub struct FileConfig {
 
     #[serde(default)]
     pub audio: FileAudioConfig,
+
+    #[serde(default)]
+    pub midi: FileMidiConfig,
 
     #[serde(default)]
     pub vocoder: FileVocoderConfig,
@@ -408,7 +417,7 @@ fn resolve_config(args: &Args, file: FileConfig) -> Result<AppConfig, AppConfigE
         ConfigInput::Device(raw_device.ok_or(AppConfigError::MissingDevice)?)
     };
 
-    let midi_input = resolve_midi_input(args)?;
+    let midi_input = resolve_midi_input(args, &file.midi)?;
 
     // Validation.
     validate_vocoder_fields(attack_ms, release_ms, freq_low, freq_high, filter_q)?;
@@ -482,20 +491,25 @@ fn is_strictly_positive(value: f32) -> bool {
     value.is_finite() && value > 0.0
 }
 
-fn resolve_midi_input(args: &Args) -> Result<Option<ConfigMidiInput>, AppConfigError> {
+fn resolve_midi_input(
+    args: &Args,
+    file_midi: &FileMidiConfig,
+) -> Result<Option<ConfigMidiInput>, AppConfigError> {
     if let Some(bpm) = args.calibration.test_midi_clock {
-        if !bpm.is_finite() || bpm <= 0.0 {
+        if !is_strictly_positive(bpm) {
             return Err(AppConfigError::InvalidMidiTempo { value: bpm });
         }
         return Ok(Some(ConfigMidiInput::TestClock(bpm)));
     }
 
-    Ok(args
+    let raw_device = args
         .midi
         .midi_device
         .clone()
-        .filter(|name| !name.trim().is_empty())
-        .map(ConfigMidiInput::Device))
+        .or(file_midi.device_name_match.clone())
+        .filter(|name| !name.trim().is_empty());
+
+    Ok(raw_device.map(ConfigMidiInput::Device))
 }
 
 fn validate_bind_addr(addr: SocketAddr) -> Result<(), AppConfigError> {
@@ -1181,6 +1195,84 @@ mod tests {
         };
         let result = resolve_config(&args, file);
         assert!(matches!(result, Err(AppConfigError::MissingDevice)));
+    }
+
+    // File config midi device is used when the CLI supplies none.
+    #[test]
+    fn file_config_midi_device_used_when_cli_absent() {
+        let args = args_with_device(Some("test"));
+
+        let file = FileConfig {
+            midi: FileMidiConfig {
+                device_name_match: Some("Loopback".to_string()),
+            },
+            ..Default::default()
+        };
+
+        let config = resolve_config(&args, file).unwrap();
+        assert!(matches!(
+            config.midi_input,
+            Some(ConfigMidiInput::Device(ref name)) if name == "Loopback"
+        ));
+    }
+
+    // A CLI midi device takes priority over a file config value.
+    #[test]
+    fn cli_midi_device_overrides_file_config() {
+        let mut args = args_with_device(Some("test"));
+        args.midi.midi_device = Some("Hardware Port".to_string());
+
+        let file = FileConfig {
+            midi: FileMidiConfig {
+                device_name_match: Some("Loopback".to_string()),
+            },
+            ..Default::default()
+        };
+
+        let config = resolve_config(&args, file).unwrap();
+        assert!(matches!(
+            config.midi_input,
+            Some(ConfigMidiInput::Device(ref name)) if name == "Hardware Port"
+        ));
+    }
+
+    // --test-midi-clock overrides a file-configured midi device, the same
+    // precedence audio calibration flags already have over the audio device.
+    #[test]
+    fn test_midi_clock_overrides_file_config_midi_device() {
+        let mut args = args_with_device(Some("test"));
+        args.calibration.test_midi_clock = Some(120.0);
+
+        let file = FileConfig {
+            midi: FileMidiConfig {
+                device_name_match: Some("Loopback".to_string()),
+            },
+            ..Default::default()
+        };
+
+        let config = resolve_config(&args, file).unwrap();
+        assert!(
+            matches!(config.midi_input, Some(ConfigMidiInput::TestClock(bpm)) if (bpm - 120.0).abs() < f32::EPSILON),
+            "the synthetic clock must win over a file-configured device, not error or silently prefer the device"
+        );
+    }
+
+    // An empty midi device string resolves to no MIDI configured, not an
+    // error, MIDI is optional so there's no ambiguity to guard against the
+    // way there is for the required audio device.
+    #[test]
+    fn empty_file_config_midi_device_resolves_to_none() {
+        let args = args_with_device(Some("test"));
+
+        let file = FileConfig {
+            midi: FileMidiConfig {
+                device_name_match: Some(String::new()),
+            },
+            ..Default::default()
+        };
+
+        let config = resolve_config(&args, file).unwrap();
+        assert_eq!(config.midi_input, None);
     }
 
     // --- Output transport resolution ---

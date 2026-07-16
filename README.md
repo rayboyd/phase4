@@ -146,6 +146,13 @@ vocoder:
   freq_high: 16000.0
 ```
 
+A MIDI input device can be pinned the same way. `--test-midi-clock` stays CLI-only, it's a calibration flag and is never read from the file:
+
+```yaml
+midi:
+  device_name_match: "Loopback"
+```
+
 See [example.config.yaml](example.config.yaml) for the full reference with all keys and their defaults.
 
 ## Licence

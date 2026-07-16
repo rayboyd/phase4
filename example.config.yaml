@@ -48,6 +48,14 @@ audio:
   # default: (all channels)
   # analyse_channels: [0, 1]
 
+midi:
+  # Partial or full name of the MIDI input device to use.
+  # Exact matches are preferred; substring matches are used as a fallback.
+  # Mutually exclusive with --test-midi-clock, which stays CLI-only,
+  # it's a calibration flag, not persistent configuration.
+  # default: (none, MIDI input disabled unless set here or via --midi-device)
+  # device_name_match: "Loopback"
+
 vocoder:
   # Envelope follower attack time constant in milliseconds.
   # Smaller values react faster to transients.
