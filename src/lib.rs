@@ -7,6 +7,7 @@
 compile_error!("phase4 requires a 64-bit target.");
 
 pub mod app;
+mod bootstrap;
 pub mod config;
 pub mod controller;
 pub mod dsp;
