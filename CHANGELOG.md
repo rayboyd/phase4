@@ -2,6 +2,18 @@
 
 All notable changes to Phase4 will be documented in this file.
 
+## 0.0.10
+
+### Features
+
+- Add config.yaml support for the MIDI input device ([c2ad37b](https://github.com/rayboyd/phase4/commit/c2ad37b9fd35732b568ccbf5462333957a85fae0))
+
+### Refactor
+
+- Extract config resolution and worker spawning into a bootstrap module ([1a58066](https://github.com/rayboyd/phase4/commit/1a580666481cc4e8a5f17110517dbe175f0f8ed7))
+- Remove startup bloat and tests ([b18b198](https://github.com/rayboyd/phase4/commit/b18b19872992b1babb6700089215e7285d3512ef))
+- Split config.rs into a config/ module (types, resolve, validate) ([b31e01f](https://github.com/rayboyd/phase4/commit/b31e01fd24c7a7b4e87d5ce0f064da329a5de183))
+
 ## 0.0.9
 
 ### Breaking Change
