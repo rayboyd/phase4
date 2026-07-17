@@ -102,11 +102,7 @@ impl App {
             input_device: Some(bootstrapped.input_device),
             state: bootstrapped.state,
             workers: bootstrapped.workers,
-            controller: Controller::new(
-                bootstrapped.controller_mode,
-                controller_state,
-                bootstrapped.midi_enabled,
-            ),
+            controller: Controller::new(bootstrapped.controller_mode, controller_state),
             shutdown_started: false,
         })
     }
@@ -196,7 +192,7 @@ mod tests {
             input_device: None,
             state: state.clone(),
             workers: WorkerThreads::new(generator_thread, None, None, None, Vec::new()),
-            controller: Controller::new(ControllerMode::Term, state.clone(), false),
+            controller: Controller::new(ControllerMode::Term, state.clone()),
             shutdown_started: false,
         };
 

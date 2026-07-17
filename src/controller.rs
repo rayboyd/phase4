@@ -10,7 +10,6 @@
 //! command line, never inferred from the environment.
 
 use crate::app::AppState;
-use crate::managers::{MIDI_TRANSPORT_CONTINUE, MIDI_TRANSPORT_START, MIDI_TRANSPORT_STOP};
 use crate::ControllerMode;
 use anyhow::Result;
 use crossterm::{
@@ -36,9 +35,9 @@ pub enum Controller {
 impl Controller {
     /// Constructs the controller variant selected by `mode`.
     #[must_use]
-    pub fn new(mode: ControllerMode, state: Arc<AppState>, midi_enabled: bool) -> Self {
+    pub fn new(mode: ControllerMode, state: Arc<AppState>) -> Self {
         match mode {
-            ControllerMode::Term => Self::Term(TermController::new(state, midi_enabled)),
+            ControllerMode::Term => Self::Term(TermController::new(state)),
             ControllerMode::Headless => Self::Headless(HeadlessController::new(state)),
         }
     }
@@ -58,31 +57,13 @@ impl Controller {
 
 pub struct TermController {
     state: Arc<AppState>,
-    midi_enabled: bool,
 }
 
 impl TermController {
     /// Creates a [`TermController`] bound to the given shared application state.
     #[must_use]
-    pub fn new(state: Arc<AppState>, midi_enabled: bool) -> Self {
-        Self {
-            state,
-            midi_enabled,
-        }
-    }
-
-    fn ready_line(&self) -> String {
-        if self.midi_enabled {
-            "Ready. Press T to toggle engine, S/X/R for MIDI Start/Stop/Continue, Ctrl+C to exit."
-                .to_string()
-        } else {
-            "Ready. Press T to toggle engine, Ctrl+C to exit.".to_string()
-        }
-    }
-
-    #[cfg(test)]
-    fn ready_line_for_test(&self) -> String {
-        self.ready_line()
+    pub fn new(state: Arc<AppState>) -> Self {
+        Self { state }
     }
 
     /// Enters raw mode and polls for key events until shutdown.
@@ -94,7 +75,7 @@ impl TermController {
     pub fn run(&self) -> Result<()> {
         enable_raw_mode()?;
 
-        log::info!("{}", self.ready_line());
+        log::info!("Ready. Press T to toggle engine, Ctrl+C to exit.");
 
         while self.state.keep_running.load(Ordering::Acquire) {
             if event::poll(Duration::from_millis(POLL_RATE_MS))? {
@@ -118,28 +99,6 @@ impl TermController {
                 self.state.is_active.store(!was_active, Ordering::Release);
                 let status = if was_active { "PAUSED" } else { "ACTIVE" };
                 log::info!("Engine Status: {status}");
-            }
-
-            KeyCode::Char('s' | 'S') => {
-                self.state
-                    .midi_last_transport
-                    .store(MIDI_TRANSPORT_START, Ordering::Release);
-                self.state.midi_steps.store(0, Ordering::Release);
-                log::info!("MIDI: Start");
-            }
-
-            KeyCode::Char('x' | 'X') => {
-                self.state
-                    .midi_last_transport
-                    .store(MIDI_TRANSPORT_STOP, Ordering::Release);
-                log::info!("MIDI: Stop");
-            }
-
-            KeyCode::Char('r' | 'R') => {
-                self.state
-                    .midi_last_transport
-                    .store(MIDI_TRANSPORT_CONTINUE, Ordering::Release);
-                log::info!("MIDI: Continue");
             }
 
             KeyCode::Char('c' | 'C') if key.modifiers.contains(KeyModifiers::CONTROL) => {
@@ -243,18 +202,7 @@ mod tests {
 
     fn controller_with_state() -> (TermController, Arc<AppState>) {
         let state = Arc::new(AppState::new());
-        (TermController::new(state.clone(), true), state)
-    }
-
-    #[test]
-    fn ready_line_mentions_midi_keys_only_when_enabled() {
-        let state = Arc::new(AppState::new());
-
-        let with_midi = TermController::new(state.clone(), true);
-        assert!(with_midi.ready_line_for_test().contains("S/X/R"));
-
-        let without_midi = TermController::new(state, false);
-        assert!(!without_midi.ready_line_for_test().contains("S/X/R"));
+        (TermController::new(state.clone()), state)
     }
 
     #[test]
@@ -313,69 +261,6 @@ mod tests {
         ));
 
         // The keep_running flag should now be false.
-        assert!(!state.keep_running.load(Ordering::Acquire));
-    }
-
-    #[test]
-    fn press_s_sends_start_and_resets_steps() {
-        let (controller, state) = controller_with_state();
-        state.midi_steps.store(9, Ordering::Release);
-
-        controller.handle_key_event(KeyEvent::new_with_kind(
-            KeyCode::Char('s'),
-            KeyModifiers::NONE,
-            KeyEventKind::Press,
-        ));
-
-        assert_eq!(
-            state.midi_last_transport.load(Ordering::Acquire),
-            MIDI_TRANSPORT_START
-        );
-        assert_eq!(state.midi_steps.load(Ordering::Acquire), 0);
-    }
-
-    #[test]
-    fn press_x_sends_stop() {
-        let (controller, state) = controller_with_state();
-
-        controller.handle_key_event(KeyEvent::new_with_kind(
-            KeyCode::Char('x'),
-            KeyModifiers::NONE,
-            KeyEventKind::Press,
-        ));
-
-        assert_eq!(
-            state.midi_last_transport.load(Ordering::Acquire),
-            MIDI_TRANSPORT_STOP
-        );
-    }
-
-    #[test]
-    fn press_r_sends_continue() {
-        let (controller, state) = controller_with_state();
-
-        controller.handle_key_event(KeyEvent::new_with_kind(
-            KeyCode::Char('r'),
-            KeyModifiers::NONE,
-            KeyEventKind::Press,
-        ));
-
-        assert_eq!(
-            state.midi_last_transport.load(Ordering::Acquire),
-            MIDI_TRANSPORT_CONTINUE
-        );
-    }
-
-    #[test]
-    fn ctrl_c_still_quits_and_is_not_shadowed_by_any_new_binding() {
-        let (controller, state) = controller_with_state();
-
-        controller.handle_key_event(KeyEvent::new_with_kind(
-            KeyCode::Char('c'),
-            KeyModifiers::CONTROL,
-            KeyEventKind::Press,
-        ));
-
         assert!(!state.keep_running.load(Ordering::Acquire));
     }
 

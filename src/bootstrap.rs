@@ -55,10 +55,6 @@ pub(crate) struct Bootstrapped {
     /// How the controller should wait for a shutdown signal, threaded through
     /// from `config.controller_mode`.
     pub(crate) controller_mode: ControllerMode,
-
-    /// Whether a MIDI input source was configured, threaded through to the
-    /// controller and the output workers.
-    pub(crate) midi_enabled: bool,
 }
 
 /// Resolves the given configuration into hardware handles, shared state, and
@@ -141,7 +137,6 @@ pub(crate) fn bootstrap(config: AppConfig) -> Result<Bootstrapped> {
             output_threads,
         ),
         controller_mode: config.controller_mode,
-        midi_enabled,
     })
 }
 

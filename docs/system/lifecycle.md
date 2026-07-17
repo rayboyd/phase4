@@ -127,9 +127,6 @@ stateDiagram-v2
 		state Running {
 			[*] --> Flags
 			Flags --> Flags: T key toggles is_active
-			Flags --> Flags: S key sets MIDI Start and resets midi_steps
-			Flags --> Flags: X key sets MIDI Stop
-			Flags --> Flags: R key sets MIDI Continue
 			Flags --> ExitRequested: Ctrl+C sets keep_running=false
 		}
 
