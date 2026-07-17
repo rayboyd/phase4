@@ -12,6 +12,7 @@
 
 use crate::app::AppState;
 use crate::config::TestSignal;
+use crate::managers::audio::Specs;
 use ringbuf::traits::Producer;
 use std::f32::consts::PI;
 use std::sync::atomic::Ordering;
@@ -25,6 +26,10 @@ pub struct Generator;
 /// Calibration signal level. -12 dBFS leaves plenty of headroom and keeps the
 /// visualiser at a comfortable level.
 const AMPLITUDE: f32 = 0.25;
+
+/// Duration of audio produced per loop iteration, matching the analyser's
+/// drain cadence.
+const CHUNK_MS: u32 = 10;
 
 /// Fills `buffer` with a sine-wave signal and returns the updated oscillator
 /// state as `(phase, lfo_phase)`.
@@ -78,8 +83,7 @@ impl Generator {
     /// Panics if the OS thread cannot be spawned.
     pub fn spawn<P>(
         signal: TestSignal,
-        sample_rate: u32,
-        channels: u16,
+        specs: Specs,
         mut analyse_tx: P,
         state: Arc<AppState>,
     ) -> JoinHandle<()>
@@ -92,14 +96,19 @@ impl Generator {
                 let mut phase = 0.0f32;
                 let mut lfo_phase = 0.0f32;
 
-                let chunk_duration = Duration::from_millis(10);
-                let chunk_size = (sample_rate as usize * channels as usize * 10) / 1000;
-                let mut buffer = vec![0.0f32; chunk_size];
+                let chunk_duration = Duration::from_millis(u64::from(CHUNK_MS));
+                let mut buffer = vec![0.0f32; specs.samples_for_ms(CHUNK_MS)];
                 let mut deadline = Instant::now() + chunk_duration;
 
                 while state.keep_running.load(Ordering::Acquire) {
-                    (phase, lfo_phase) =
-                        fill_buffer(&mut buffer, phase, lfo_phase, signal, sample_rate, channels);
+                    (phase, lfo_phase) = fill_buffer(
+                        &mut buffer,
+                        phase,
+                        lfo_phase,
+                        signal,
+                        specs.sample_rate,
+                        specs.channels,
+                    );
 
                     // Intentionally lossy. This is just a test signal.
                     let _ = analyse_tx.push_slice(&buffer);
