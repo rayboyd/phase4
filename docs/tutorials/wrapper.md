@@ -50,10 +50,26 @@ parse them to drive wrapper logic.
 
 ## stdout, reserved
 
-Phase4 writes nothing to stdout while serving (`--audio-list` output is the
+Phase4 writes nothing to stdout while serving (device-listing output is the
 exception, and a wrapper does not serve and list in the same invocation).
 Structured machine-readable events may be added on stdout in a future release,
 wrappers should leave the pipe connected and unread rather than closing it.
+
+## Device discovery
+
+Both listing commands have a machine-readable mode intended for wrappers:
+`--audio-list --audio-list-format json` and `--midi-list --midi-list-format
+json` each print a single JSON array on stdout, one object per device, and
+nothing else is written to stdout in these modes. Log lines still go to
+stderr, so the wrapper can parse stdout directly without filtering. A listing
+invocation exits immediately after printing, run it as a separate short-lived
+process before spawning the serving process.
+
+Each audio entry carries `index`, `name`, `sample_rate`, `channels`,
+`sample_format`, and `supported` (whether the device's default configuration
+is the f32 format phase4 requires); the three configuration fields are `null`
+when the hardware could not be queried. Each MIDI entry carries `index` and
+`name`.
 
 ## Readiness and data
 

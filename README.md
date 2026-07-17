@@ -52,6 +52,12 @@ When MIDI input is configured (`--test-midi-clock` or `--midi-device`),
 > [INFO] Ready. Press T to toggle engine, S/X/R for MIDI Start/Stop/Continue, Ctrl+C to exit.
 ```
 
+By default every hardware channel is analysed and broadcast. To analyse only specific channels, pass `--audio-analyse-channels` with comma-separated zero-based indices, or set `audio.analyse_channels` in `config.yaml`. Indices are validated against the device's channel count at startup.
+
+```sh
+./phase4 --audio-device "Duet 3" --ws-addr 127.0.0.1:8889 --audio-analyse-channels 0,1
+```
+
 No audio hardware to hand, calibration mode drives the full pipeline with a synthetic sine wave. See [docs/tutorials/calibration.md](docs/tutorials/calibration.md).
 
 ### Connect
@@ -79,6 +85,12 @@ See [docs/tutorials/osc.md](docs/tutorials/osc.md) for the full address referenc
 ### MIDI
 
 Phase4 can also attach MIDI transport and clock data to the existing WebSocket payload stream, using either a real MIDI input device or a synthetic test clock.
+
+List available MIDI input devices to find your device name.
+
+```sh
+./phase4 --midi-list
+```
 
 Use one of the following flags.
 

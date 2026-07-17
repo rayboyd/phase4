@@ -244,8 +244,7 @@ fn spawn_audio_input(
             log::info!("{}", calibration_announcement(signal));
             Ok(Some(Generator::spawn(
                 signal,
-                hw_specs.sample_rate,
-                hw_specs.channels,
+                hw_specs,
                 analyse_tx,
                 generator_state,
             )))
