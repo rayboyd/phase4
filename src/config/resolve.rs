@@ -12,25 +12,33 @@ impl TryFrom<&Args> for AppConfig {
     type Error = AppConfigError;
 
     fn try_from(args: &Args) -> Result<Self, Self::Error> {
-        let file_opt = load_file_config()?;
-        if file_opt.is_some() {
-            log::info!("Configuration loaded from config.yaml");
-        }
+        let file_opt = load_file_config(args.config.as_deref())?;
         resolve_config(args, file_opt.unwrap_or_default())
     }
 }
 
-/// Attempts to load and deserialise `config.yaml` from the current working
-/// directory.  Returns `Ok(None)` if the file does not exist.
-fn load_file_config() -> Result<Option<FileConfig>, AppConfigError> {
-    let path = Path::new("config.yaml");
+/// Attempts to load and deserialise a configuration file.
+///
+/// With an explicit path (`--config`), the file must exist; a missing file is
+/// an error, an explicitly requested configuration must never be silently
+/// ignored. With no explicit path, the optional default `config.yaml` in the
+/// current working directory is used, and `Ok(None)` is returned when it does
+/// not exist.
+fn load_file_config(explicit: Option<&Path>) -> Result<Option<FileConfig>, AppConfigError> {
+    let path = explicit.unwrap_or_else(|| Path::new("config.yaml"));
     if !path.exists() {
+        if explicit.is_some() {
+            return Err(AppConfigError::ConfigFileNotFound(
+                path.display().to_string(),
+            ));
+        }
         return Ok(None);
     }
     let content = std::fs::read_to_string(path)
         .map_err(|e| AppConfigError::ConfigFileParseError(e.to_string()))?;
     let config: FileConfig = serde_yaml::from_str(&content)
         .map_err(|e| AppConfigError::ConfigFileParseError(e.to_string()))?;
+    log::info!("Configuration loaded from {}", path.display());
     Ok(Some(config))
 }
 
@@ -600,6 +608,67 @@ mod tests {
         };
         let config = resolve_config(&args, file).unwrap();
         assert_eq!(config.midi_input, None);
+    }
+
+    /// Temp file that removes itself on drop, so a failing assertion cannot
+    /// leak files between test runs.
+    struct TempConfigFile(std::path::PathBuf);
+
+    impl TempConfigFile {
+        fn new(name: &str, content: &str) -> Self {
+            let path = std::env::temp_dir()
+                .join(format!("phase4-test-{name}-{}.yaml", std::process::id()));
+            std::fs::write(&path, content).expect("temp config file should be writable");
+            Self(path)
+        }
+    }
+
+    impl Drop for TempConfigFile {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_file(&self.0);
+        }
+    }
+
+    #[test]
+    #[allow(clippy::float_cmp)]
+    fn explicit_config_path_is_loaded() {
+        let file = TempConfigFile::new("explicit-load", "network:\n  broadcast_rate: 45.0\n");
+        let mut args = args_with_device(Some("test"));
+        args.config = Some(file.0.clone());
+        args.network.broadcast_rate = None;
+
+        let config = AppConfig::try_from(&args).unwrap();
+
+        assert_eq!(config.broadcast_rate, Some(45.0));
+    }
+
+    #[test]
+    fn explicit_config_path_that_does_not_exist_is_an_error() {
+        let mut args = args_with_device(Some("test"));
+        args.config = Some(std::path::PathBuf::from(
+            "a-path-no-real-machine-will-have.yaml",
+        ));
+
+        let result = AppConfig::try_from(&args);
+
+        assert!(
+            matches!(result, Err(AppConfigError::ConfigFileNotFound(_))),
+            "an explicitly requested config file must never be silently ignored"
+        );
+    }
+
+    #[test]
+    fn explicit_config_path_with_invalid_yaml_is_an_error() {
+        let file = TempConfigFile::new("invalid-yaml", "network: [not a mapping");
+        let mut args = args_with_device(Some("test"));
+        args.config = Some(file.0.clone());
+
+        let result = AppConfig::try_from(&args);
+
+        assert!(matches!(
+            result,
+            Err(AppConfigError::ConfigFileParseError(_))
+        ));
     }
 
     #[test]

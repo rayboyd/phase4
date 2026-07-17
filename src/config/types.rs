@@ -170,8 +170,11 @@ pub enum AppConfigError {
     #[error("Selected audio channel index {idx} is unavailable on this {channels}-channel device")]
     ChannelIndexOutOfRange { idx: u16, channels: u16 },
 
-    #[error("Failed to parse config.yaml: {0}")]
+    #[error("Failed to parse config file: {0}")]
     ConfigFileParseError(String),
+
+    #[error("Config file not found: {0}")]
+    ConfigFileNotFound(String),
 
     #[error(
         "Invalid vocoder configuration: Sample rate {sample_rate}Hz: \
@@ -312,6 +315,7 @@ pub(super) mod test_support {
 
     pub(in crate::config) fn args_with_device(device: Option<&str>) -> Args {
         Args {
+            config: None,
             input: InputArgs {
                 audio_device: device.map(str::to_string),
                 audio_list: false,

@@ -185,6 +185,12 @@ pub struct RuntimeArgs {
     about = "Phase4 is a fast, lightweight audio analysis tool built for real-time audio visualisation."
 )]
 pub struct Args {
+    /// Path to a YAML configuration file. When omitted, phase4 looks for an
+    /// optional config.yaml in the current working directory. When given, the
+    /// file must exist.
+    #[arg(long, value_name = "PATH")]
+    pub config: Option<std::path::PathBuf>,
+
     #[command(flatten)]
     pub calibration: CalibrationArgs,
 

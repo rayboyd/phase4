@@ -22,9 +22,11 @@ Pass `--controller-mode headless` explicitly. Phase4 never infers the mode from
 its environment, a wrapper that omits the flag gets term mode, which enables
 terminal raw mode and is wrong for a child process.
 
-Set the child's working directory explicitly. Phase4 reads `config.yaml` from
-the current working directory, not from the binary's location, so the wrapper
-controls which configuration is found by controlling where the child starts.
+Pass `--config` with an absolute path so the configuration file is unambiguous
+regardless of the child's working directory. Without `--config`, phase4 falls
+back to reading an optional `config.yaml` from the current working directory,
+not from the binary's location, so a wrapper relying on the fallback must set
+the child's working directory explicitly.
 
 ## stdin, the lifetime pipe
 

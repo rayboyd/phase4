@@ -1,6 +1,8 @@
 # Phase4 configuration file.
 #
-# Copy this file to config.yaml in the directory from which you run phase4.
+# Copy this file and pass its path via --config (e.g. --config digitone.yaml),
+# or name it config.yaml in the directory from which you run phase4 to have it
+# picked up automatically.
 # Any key may be omitted; absent keys inherit the hardcoded application default.
 # CLI flags always take priority over values set here.
 #
