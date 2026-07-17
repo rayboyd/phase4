@@ -42,6 +42,8 @@ Every message is a JSON object containing a `channels` array.
 | **`peak`** | `float` | The peak sample amplitude (0.0 to 1.0).                                        |
 | **`bins`** | `array` | Frequency magnitudes (compile-time, default 32 bands) mapped from low to high. |
 
+When MIDI input is configured (`--midi-device` or `--test-midi-clock`), each message may also carry a top-level `midi` object with transport and step-count data. See the [MIDI section of the README](../../README.md#midi) for the schema. When MIDI input is not configured the key is absent, so clients that only read `channels` are unaffected.
+
 ## JavaScript Example
 
 Copy this into a `.html` file, or check this [CodePen example](https://codepen.io/rayboyd/full/wBzOPPr) to see the data in action. No dependencies required.

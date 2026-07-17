@@ -1,6 +1,6 @@
 # Compiling
 
-Install Rust with `rustup` from [rustup.rs](https://rustup.rs/). This repository pins the stable toolchain and required components in [rust-toolchain.toml](rust-toolchain.toml), once `rustup` is installed, `cargo` will use the right toolchain automatically in this directory.
+Install Rust with `rustup` from [rustup.rs](https://rustup.rs/). This repository pins the stable toolchain and required components in [rust-toolchain.toml](../../rust-toolchain.toml), once `rustup` is installed, `cargo` will use the right toolchain automatically in this directory.
 
 Clone the repository, and build a release version of Phase4.
 

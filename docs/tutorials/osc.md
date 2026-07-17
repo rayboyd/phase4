@@ -7,7 +7,7 @@
 Pass `--osc-addr` with a `host:port` target when starting Phase4.
 
 ```sh
-./phase4 --device 0 --osc-addr 127.0.0.1:7000
+./phase4 --audio-device "Duet 3" --osc-addr 127.0.0.1:7000
 ```
 
 To avoid passing the flag on every invocation, set `osc_addr` in `config.yaml` instead.
@@ -60,7 +60,7 @@ When MIDI input is not configured, none of these four addresses are ever sent.
 
 ## TouchDesigner Integration
 
-Add an OSC In DAT to your network and set its Network Port to match the port given in `--osc-addr`. OSC In DAT unpacks OSC bundles, so all `/phase4/ch/{channel}/bin/{bin}` messages for a frame arrive together from the single UDP packet Phase4 sends. OSC In CHOP does not unpack bundles and will receive nothing from Phase4's output; use OSC In DAT instead.
+Add an OSC In DAT to your network and set its Network Port to match the port given in `--osc-addr`. OSC In DAT unpacks OSC bundles, so all `/phase4/ch/{channel}/bin/{bin}` messages for a frame arrive together from the single UDP packet Phase4 sends. OSC In CHOP does not unpack bundles, so it receives none of the bin data; only the individually sent `/phase4/midi/*` messages would arrive there. Use OSC In DAT instead.
 
 If you are receiving a large number of messages, check your receiving application for options to buffer or queue bursts of incoming messages rather than dropping them under load.
 

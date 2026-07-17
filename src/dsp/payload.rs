@@ -142,7 +142,8 @@ pub struct MidiSnapshot {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub transport: Option<&'static str>,
 
-    /// MIDI 1/16 note steps seen since the previous frame.
+    /// Absolute count of MIDI 1/16 note steps since the most recent Start
+    /// event. Monotonic across frames, reset only by Start.
     pub steps: u32,
 }
 
