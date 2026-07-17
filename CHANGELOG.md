@@ -2,6 +2,23 @@
 
 All notable changes to Phase4 will be documented in this file.
 
+## 0.0.11
+
+### Documentation
+
+- Fix stale OSC example flag, broken toolchain link, and midi steps doc drift ([81cd582](https://github.com/rayboyd/phase4/commit/81cd582ca8e6bce2901201d5e00c6c721c7fd20f))
+- Fix stale flags and broken links, document channel selection and JSON device listing ([7709652](https://github.com/rayboyd/phase4/commit/77096528bcebf722ea587ac02e8d0797c50ec530))
+
+### Features
+
+- Add --config flag for named configuration files ([e0c53b8](https://github.com/rayboyd/phase4/commit/e0c53b84b3e77d5536e4979281c3268addcf6b5d))
+
+### Refactor
+
+- Reuse Specs::samples_for_ms for chunk sizing ([29900e7](https://github.com/rayboyd/phase4/commit/29900e761dcda0698de9c8e92709fd1914bcc70f))
+- Remove S/X/R MIDI debug keys ([2c8ebe2](https://github.com/rayboyd/phase4/commit/2c8ebe22ed1aef7162eeb8c1c104262a116c2d6b))
+- Make --no-browser-origin CLI-only ([6bbdede](https://github.com/rayboyd/phase4/commit/6bbdede6d66e4167452a8cbc4a4a66eee99e85e3)), BREAKING:`network.no_browser_origin` in config.yaml is now ignored.
+
 ## 0.0.10
 
 ### Features
