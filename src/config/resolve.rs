@@ -56,11 +56,10 @@ fn resolve_config(args: &Args, file: FileConfig) -> Result<AppConfig, AppConfigE
         .or(file.network.broadcast_rate)
         .unwrap_or(DEFAULT_BROADCAST_RATE_HZ);
 
-    let no_browser_origin = if args.network.no_browser_origin {
-        true
-    } else {
-        file.network.no_browser_origin.unwrap_or(false)
-    };
+    // CLI-only. A presence-style bool flag has no "explicitly false" form, so
+    // offering it in config.yaml would break the CLI-overrides-file rule (a
+    // file `true` could never be switched off from the command line).
+    let no_browser_origin = args.network.no_browser_origin;
 
     let osc_addr = args.network.osc_addr.or(file.network.osc_addr);
 
@@ -511,16 +510,10 @@ mod tests {
     }
 
     #[test]
-    fn file_config_no_browser_origin_overrides_default() {
-        let args = args_with_device(Some("test"));
-        let file = FileConfig {
-            network: FileNetworkConfig {
-                no_browser_origin: Some(true),
-                ..Default::default()
-            },
-            ..Default::default()
-        };
-        let config = resolve_config(&args, file).unwrap();
+    fn cli_no_browser_origin_flag_is_forwarded() {
+        let mut args = args_with_device(Some("test"));
+        args.network.no_browser_origin = true;
+        let config = resolve_config(&args, FileConfig::default()).unwrap();
         let (_addr, _max_clients, no_browser_origin) = websocket_output(&config);
         assert!(no_browser_origin);
     }

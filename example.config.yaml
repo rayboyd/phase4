@@ -23,13 +23,6 @@ network:
   # default: 60.0
   broadcast_rate: 60.0
 
-  # Reject WebSocket clients that send a browser Origin header. Only
-  # meaningful when ws_addr is set.
-  # Only browsers are required by the Fetch spec to send Origin, so enabling
-  # this blocks browser connections while allowing native clients.
-  # default: false
-  no_browser_origin: false
-
   # OSC UDP target address. Phase4 sends to this address, it does not listen.
   # Omit to disable the OSC output.
   # Emits one float message per bin per channel each broadcast frame.

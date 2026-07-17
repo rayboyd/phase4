@@ -12,12 +12,11 @@ Phase4 streams real-time audio analysis data as a JSON broadcast. Any tool capab
 
 > Note: If you run Phase4 with the `--no-browser-origin` flag, standard browser-based connections will be rejected.
 
-The listen address and the `no_browser_origin` behaviour can be set persistently in `config.yaml` to avoid passing flags on every invocation.
+The listen address can be set persistently in `config.yaml` to avoid passing it on every invocation. `--no-browser-origin` is CLI-only.
 
 ```yaml
 network:
   ws_addr: "127.0.0.1:8889"
-  no_browser_origin: false
 ```
 
 See [example.config.yaml](../../example.config.yaml) for the full reference.

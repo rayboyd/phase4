@@ -255,7 +255,6 @@ pub struct FileNetworkConfig {
     pub ws_addr: Option<SocketAddr>,
     pub max_clients: Option<usize>,
     pub broadcast_rate: Option<f32>,
-    pub no_browser_origin: Option<bool>,
     pub osc_addr: Option<SocketAddr>,
 }
 
