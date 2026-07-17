@@ -75,6 +75,8 @@ struct OriginPolicyCallback {
 }
 
 impl Callback for OriginPolicyCallback {
+    // The Err type (ErrorResponse) and its size are fixed by tungstenite's
+    // Callback trait signature; boxing it is not an option here.
     #[allow(clippy::result_large_err)]
     fn on_request(
         self,

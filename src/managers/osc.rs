@@ -183,6 +183,8 @@ impl OscSender {
 /// Pre-built MIDI packets, one per address, updated in place each frame
 /// `midi_enabled` is true. `steps_packet` is sent every frame, the other
 /// three are sent only on the frame their transport event fired.
+// The shared _packet suffix cannot be dropped: `continue` is a reserved
+// keyword, so the transport fields need a suffix to stay consistent.
 #[allow(clippy::struct_field_names)]
 struct MidiOscPackets {
     /// Absolute step count, sent every frame.

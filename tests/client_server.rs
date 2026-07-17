@@ -54,6 +54,8 @@ async fn join_server_bounded(handle: std::thread::JoinHandle<()>) {
 
     let join_task = tokio::task::spawn_blocking(move || handle.join());
 
+    // timeout's Elapsed error carries no information beyond the fact of
+    // elapsing, which the panic message already states.
     #[allow(clippy::match_wild_err_arm)]
     match tokio::time::timeout(SHUTDOWN_BUDGET, join_task).await {
         Ok(Ok(Ok(()))) => {}
