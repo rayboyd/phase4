@@ -2,6 +2,12 @@
 
 All notable changes to Phase4 will be documented in this file.
 
+## 0.0.12
+
+### Features
+
+- Add --stdout-events json for wrapper readiness/failure signalling ([2e45b1f](https://github.com/rayboyd/phase4/commit/2e45b1fe2e2ef644466cb66daeaecac0ce99c5f4))
+
 ## 0.0.11
 
 ### Documentation
