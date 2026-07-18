@@ -120,7 +120,9 @@ When MIDI input is not configured, the `midi` key is absent, so clients that onl
 
 When MIDI input is configured, the OSC sender also transmits `/phase4/midi/steps` every frame, one `i` argument, the current absolute step count, and `/phase4/midi/start`, `/phase4/midi/stop`, `/phase4/midi/continue`, each one `i` argument (`1`), sent only on the frame their transport event fired.
 
-Embedding Phase4 in your own application is documented in [docs/tutorials/wrapper.md](docs/tutorials/wrapper.md).
+Pass `--stdout-events json` to have Phase4 emit structured, machine-readable `ready`/`fatal` events as NDJSON on stdout instead of leaving it silent, letting a wrapper process detect real readiness (and classify startup failures) without polling the WebSocket port.
+
+Embedding Phase4 in your own application, including the full `--stdout-events` contract, is documented in [docs/tutorials/wrapper.md](docs/tutorials/wrapper.md).
 
 ## Config
 
