@@ -68,6 +68,22 @@ fn app_new_succeeds_in_calibration_mode() {
     // and joins them. If anything panics or deadlocks, the test will fail.
 }
 
+// App::ws_bound_addr() must report the real OS-assigned port for `:0`, not
+// the configured placeholder, since it feeds the ready event's ws_addr.
+#[test]
+fn app_exposes_the_actually_bound_ws_port_not_the_configured_zero() {
+    let config = AppConfig {
+        input: ConfigInput::Calibration(TestSignal::FixedTone(440.0)),
+        outputs: ws_outputs("127.0.0.1:0".parse::<SocketAddr>().unwrap()),
+        ..AppConfig::default()
+    };
+
+    let app = App::new(config).expect("App::new() failed in calibration mode");
+    let bound_addr = app.ws_bound_addr().expect("WebSocket output is configured");
+
+    assert_ne!(bound_addr.port(), 0, "expected the real bound port");
+}
+
 // Calibration mode with a sweep should also initialise without error.
 #[test]
 fn app_new_succeeds_with_sweep() {

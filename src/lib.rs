@@ -11,6 +11,7 @@ mod bootstrap;
 pub mod config;
 pub mod controller;
 pub mod dsp;
+pub mod events;
 pub mod managers;
 pub mod worker;
 
@@ -40,6 +41,14 @@ pub enum ListFormat {
     /// A single JSON array on stdout, one object per device. Intended for a
     /// wrapper process to parse programmatically, nothing else is written to
     /// stdout in this mode.
+    Json,
+}
+
+/// Format for `--stdout-events`. Currently a single variant, kept as an enum
+/// so a future format can be added without an incompatible flag change.
+#[derive(clap::ValueEnum, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum EventFormat {
+    /// One JSON object per line (NDJSON). See docs/tutorials/wrapper.md.
     Json,
 }
 
@@ -134,6 +143,17 @@ pub struct NetworkArgs {
     /// address, it does not listen. Omit to disable the OSC output.
     #[arg(long)]
     pub osc_addr: Option<SocketAddr>,
+
+    /// Emit structured machine-readable events on stdout (for wrapper
+    /// processes). Currently the only format is json: one JSON object per
+    /// line. See docs/tutorials/wrapper.md.
+    ///
+    /// CLI-only, not readable from config.yaml, same policy as
+    /// `no_browser_origin` above: a presence-style flag has no "explicitly
+    /// false" form in a config file, so offering it there would break the
+    /// CLI-overrides-file rule.
+    #[arg(long, value_enum)]
+    pub stdout_events: Option<EventFormat>,
 }
 
 /// Vocoder filter bank tuning.

@@ -94,7 +94,7 @@ async fn client_receives_current_payload_immediately_on_connect() {
     let (_display_tx, display_rx) = watch::channel(payload);
     let state = Arc::new(AppState::new());
 
-    let handle = Server::new(address, false, DEFAULT_MAX_CLIENTS)
+    let (_bound_addr, handle) = Server::new(address, false, DEFAULT_MAX_CLIENTS)
         .spawn(display_rx, state.clone())
         .unwrap();
 
@@ -113,7 +113,7 @@ async fn server_sends_close_frame_on_shutdown() {
     let (_display_tx, display_rx) = watch::channel(payload);
     let state = Arc::new(AppState::new());
 
-    let handle = Server::new(address, false, DEFAULT_MAX_CLIENTS)
+    let (_bound_addr, handle) = Server::new(address, false, DEFAULT_MAX_CLIENTS)
         .spawn(display_rx, state.clone())
         .unwrap();
 
@@ -142,7 +142,7 @@ async fn shutdown_completes_well_under_the_old_accept_timeout() {
     let (display_tx, display_rx) = watch::channel(DisplayPayload::new(0));
     let state = Arc::new(AppState::new());
 
-    let handle = Server::new(address, false, DEFAULT_MAX_CLIENTS)
+    let (_bound_addr, handle) = Server::new(address, false, DEFAULT_MAX_CLIENTS)
         .spawn(display_rx, state.clone())
         .unwrap();
 
@@ -170,7 +170,7 @@ async fn multiple_clients_receive_close_frames_on_shutdown() {
     let (_display_tx, display_rx) = watch::channel(payload);
     let state = Arc::new(AppState::new());
 
-    let handle = Server::new(address, false, DEFAULT_MAX_CLIENTS)
+    let (_bound_addr, handle) = Server::new(address, false, DEFAULT_MAX_CLIENTS)
         .spawn(display_rx, state.clone())
         .unwrap();
 
@@ -205,7 +205,7 @@ async fn idle_tcp_client_is_closed_after_handshake_timeout() {
     let (_display_tx, display_rx) = watch::channel(DisplayPayload::new(0));
     let state = Arc::new(AppState::new());
 
-    let handle = Server::new(address, false, DEFAULT_MAX_CLIENTS)
+    let (_bound_addr, handle) = Server::new(address, false, DEFAULT_MAX_CLIENTS)
         .spawn(display_rx, state.clone())
         .unwrap();
 
@@ -245,7 +245,7 @@ async fn client_with_origin_header_is_rejected_when_flag_set() {
     let (_display_tx, display_rx) = watch::channel(DisplayPayload::new(0));
     let state = Arc::new(AppState::new());
 
-    let handle = Server::new(address, true, DEFAULT_MAX_CLIENTS)
+    let (_bound_addr, handle) = Server::new(address, true, DEFAULT_MAX_CLIENTS)
         .spawn(display_rx, state.clone())
         .unwrap();
 
@@ -292,7 +292,7 @@ async fn extra_client_is_refused_while_existing_clients_keep_working() {
     let (display_tx, display_rx) = watch::channel(initial_payload);
     let state = Arc::new(AppState::new());
 
-    let handle = Server::new(address, false, max_clients)
+    let (_bound_addr, handle) = Server::new(address, false, max_clients)
         .spawn(display_rx, state.clone())
         .unwrap();
 

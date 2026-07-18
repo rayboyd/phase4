@@ -18,11 +18,16 @@ use crate::managers::{
 use crate::worker::{OutputWorker, WorkerThreads};
 use crate::ControllerMode;
 use anyhow::Result;
+use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::sync::watch;
 
 /// Safety buffer for the analyse ringbuf, headroom for analysis accumulation.
 const ANALYSE_BUFFER_MS: u32 = 500;
+
+/// One spawned output transport worker's identity and thread handle, one
+/// entry per configured [`OutputConfig`].
+type OutputThreads = Vec<(OutputWorker, std::thread::JoinHandle<()>)>;
 
 /// Builds the calibration mode announcement for the given test signal.
 fn calibration_announcement(signal: TestSignal) -> String {
@@ -55,6 +60,12 @@ pub(crate) struct Bootstrapped {
     /// How the controller should wait for a shutdown signal, threaded through
     /// from `config.controller_mode`.
     pub(crate) controller_mode: ControllerMode,
+
+    /// The WebSocket listener's actually bound address, obtained from
+    /// `local_addr()` rather than the configured one, so a `:0` port
+    /// resolves to the real OS-assigned port. `None` when the WebSocket
+    /// output is not configured.
+    pub(crate) ws_bound_addr: Option<SocketAddr>,
 }
 
 /// Resolves the given configuration into hardware handles, shared state, and
@@ -118,7 +129,7 @@ pub(crate) fn bootstrap(config: AppConfig) -> Result<Bootstrapped> {
     // Spawns one worker per configured output transport. Each descriptor in
     // config.outputs matches to exactly one spawn arm in spawn_outputs,
     // adding a new transport means adding one variant and one arm there.
-    let output_threads = spawn_outputs(
+    let (ws_bound_addr, output_threads) = spawn_outputs(
         &config.outputs,
         &display_rx,
         display_channels,
@@ -137,11 +148,15 @@ pub(crate) fn bootstrap(config: AppConfig) -> Result<Bootstrapped> {
             output_threads,
         ),
         controller_mode: config.controller_mode,
+        ws_bound_addr,
     })
 }
 
 /// Spawns one worker thread per configured output transport, matching each
 /// [`OutputConfig`] descriptor to its spawn call.
+///
+/// Returns the WebSocket listener's actually bound address (`None` if no
+/// WebSocket output is configured) alongside the spawned thread handles.
 ///
 /// # Errors
 ///
@@ -153,8 +168,9 @@ fn spawn_outputs(
     display_channels: usize,
     state: &Arc<AppState>,
     midi_enabled: bool,
-) -> Result<Vec<(OutputWorker, std::thread::JoinHandle<()>)>> {
+) -> Result<(Option<SocketAddr>, OutputThreads)> {
     let mut output_threads = Vec::new();
+    let mut ws_bound_addr = None;
 
     for output in outputs.iter() {
         match output {
@@ -164,8 +180,9 @@ fn spawn_outputs(
                 no_browser_origin,
             } => {
                 let server = Server::new(*addr, *no_browser_origin, *max_clients);
-                let handle = server.spawn(display_rx.clone(), Arc::clone(state))?;
-                log::info!("WebSocket server listening on ws://{addr}");
+                let (bound_addr, handle) = server.spawn(display_rx.clone(), Arc::clone(state))?;
+                log::info!("WebSocket server listening on ws://{bound_addr}");
+                ws_bound_addr = Some(bound_addr);
                 output_threads.push((OutputWorker::WebSocket, handle));
             }
             OutputConfig::Osc { addr } => {
@@ -182,7 +199,7 @@ fn spawn_outputs(
         }
     }
 
-    Ok(output_threads)
+    Ok((ws_bound_addr, output_threads))
 }
 
 /// Validates that all channel indices are within the hardware's capacity.

@@ -1,7 +1,8 @@
 use anyhow::Result;
 use clap::Parser;
 use phase4::app::App;
-use phase4::config::AppConfig;
+use phase4::config::{AppConfig, OutputConfig};
+use phase4::events::{map_config_error, map_startup_error, Emitter, Event};
 use phase4::managers::audio::Input;
 use phase4::managers::MidiListener;
 use phase4::{Args, ControllerMode};
@@ -46,15 +47,43 @@ fn main() -> Result<()> {
         return Ok(());
     }
 
+    let emitter = Emitter::new(args.network.stdout_events);
+
     let config = match AppConfig::try_from(&args) {
         Ok(c) => c,
         Err(e) => {
+            emitter.emit(&Event::Fatal {
+                reason: map_config_error(&e),
+                detail: format!("{e}"),
+            });
             log::error!("{e}");
             std::process::exit(1);
         }
     };
 
-    let mut app = App::new(config)?;
+    let osc_addr = config.outputs.iter().find_map(|output| match output {
+        OutputConfig::Osc { addr } => Some(*addr),
+        OutputConfig::WebSocket { .. } => None,
+    });
+
+    let mut app = match App::new(config) {
+        Ok(app) => app,
+        Err(e) => {
+            emitter.emit(&Event::Fatal {
+                reason: map_startup_error(&e),
+                detail: format!("{e:#}"),
+            });
+            log::error!("{e:#}");
+            std::process::exit(1);
+        }
+    };
+
+    emitter.emit(&Event::Ready {
+        pid: std::process::id(),
+        ws_addr: app.ws_bound_addr(),
+        osc_addr,
+    });
+
     app.run_until_shutdown()?;
 
     Ok(())

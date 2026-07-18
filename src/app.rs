@@ -18,6 +18,7 @@ use crate::controller::Controller;
 use crate::managers::{Input, MIDI_TRANSPORT_NONE};
 use crate::worker::WorkerThreads;
 use anyhow::Result;
+use std::net::SocketAddr;
 use std::sync::{
     atomic::{AtomicBool, AtomicU32, AtomicU8, Ordering},
     Arc,
@@ -80,6 +81,12 @@ pub struct App {
 
     /// Tracks whether shutdown has already started, so drop remains idempotent.
     shutdown_started: bool,
+
+    /// The WebSocket listener's actually bound address, obtained from the
+    /// listener itself rather than the configured address so a `:0` port
+    /// resolves to the real one. `None` when the WebSocket output is not
+    /// configured.
+    ws_bound_addr: Option<SocketAddr>,
 }
 
 impl App {
@@ -104,7 +111,17 @@ impl App {
             workers: bootstrapped.workers,
             controller: Controller::new(bootstrapped.controller_mode, controller_state),
             shutdown_started: false,
+            ws_bound_addr: bootstrapped.ws_bound_addr,
         })
+    }
+
+    /// The WebSocket listener's actually bound address, obtained from
+    /// `local_addr()` rather than the configured address, so `--ws-addr
+    /// 127.0.0.1:0` reports the real OS-assigned port. `None` when the
+    /// WebSocket output is not configured.
+    #[must_use]
+    pub fn ws_bound_addr(&self) -> Option<SocketAddr> {
+        self.ws_bound_addr
     }
 
     /// Hands control to the interactive controller, blocking until shutdown.
@@ -194,6 +211,7 @@ mod tests {
             workers: WorkerThreads::new(generator_thread, None, None, None, Vec::new()),
             controller: Controller::new(ControllerMode::Term, state.clone()),
             shutdown_started: false,
+            ws_bound_addr: None,
         };
 
         app.shutdown();

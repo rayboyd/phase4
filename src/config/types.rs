@@ -328,6 +328,7 @@ pub(super) mod test_support {
                 broadcast_rate: Some(DEFAULT_BROADCAST_RATE_HZ),
                 no_browser_origin: false,
                 osc_addr: None,
+                stdout_events: None,
             },
             vocoder: crate::VocoderArgs {
                 attack_ms: Some(24.0),

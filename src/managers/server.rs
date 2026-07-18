@@ -205,6 +205,11 @@ impl Server {
 
     /// Spawns the WebSocket broadcast server on a dedicated OS thread.
     ///
+    /// Returns the address the listener actually bound to alongside the
+    /// thread handle. This is the configured address unless it used port 0,
+    /// in which case it's the OS-assigned port, obtained from the listener
+    /// itself rather than echoing back the configured value.
+    ///
     /// # Errors
     ///
     /// Returns an error if the TCP listener cannot bind to the configured
@@ -218,7 +223,7 @@ impl Server {
         self,
         display_rx: watch::Receiver<DisplayPayload>,
         state: Arc<AppState>,
-    ) -> Result<JoinHandle<()>> {
+    ) -> Result<(SocketAddr, JoinHandle<()>)> {
         // Bind eagerly so a port-in-use error is returned to the caller as a
         // Result, rather than panicking inside the spawned thread.
         let std_listener = std::net::TcpListener::bind(self.address)
@@ -226,6 +231,9 @@ impl Server {
         std_listener
             .set_nonblocking(true)
             .context("Failed to set listener to non-blocking")?;
+        let bound_addr = std_listener
+            .local_addr()
+            .context("Failed to read the bound WebSocket listener address")?;
 
         let no_browser_origin = self.no_browser_origin;
         let max_clients = self.max_clients;
@@ -240,7 +248,7 @@ impl Server {
             ),
         );
 
-        Ok(handle)
+        Ok((bound_addr, handle))
     }
 
     async fn run(

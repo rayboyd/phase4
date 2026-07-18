@@ -50,12 +50,56 @@ environment variable, defaulting to `info`. These lines are for humans and for
 the wrapper's log window, their exact wording is not a stable interface, do not
 parse them to drive wrapper logic.
 
-## stdout, reserved
+## stdout, structured events
 
-Phase4 writes nothing to stdout while serving (device-listing output is the
+Pass `--stdout-events json` to have phase4 emit NDJSON on stdout: one JSON
+object per line, flushed per event. Without the flag, stdout stays exactly
+as silent as it has always been (device-listing output is the only
 exception, and a wrapper does not serve and list in the same invocation).
-Structured machine-readable events may be added on stdout in a future release,
-wrappers should leave the pipe connected and unread rather than closing it.
+
+There are exactly two event types:
+
+```json
+{"v":1,"event":"ready","pid":34112,"ws_addr":"127.0.0.1:8889","osc_addr":null}
+{"v":1,"event":"fatal","reason":"port_in_use","detail":"Failed to bind WebSocket server to 127.0.0.1:8889"}
+```
+
+Field rules:
+
+- `v`: schema version integer, currently `1`. Evolution is additive only,
+  readers should ignore unknown fields.
+- `ready.ws_addr`: the address the WebSocket listener actually bound to,
+  read from the listener itself rather than echoing back the configured
+  value. This is what makes `--ws-addr 127.0.0.1:0` usable: bind a
+  kernel-assigned port and read the real one back from this field. `null`
+  when the WebSocket output is not configured.
+- `ready.osc_addr`: the configured OSC target, `null` when absent.
+- `ready.pid`: the process ID, matching `std::process::id()`.
+- `fatal.reason`: a closed, snake_case enum, see the table below.
+- `fatal.detail`: a human-readable error string. Informational only, its
+  wording is not a stable interface, do not parse it.
+
+Ordering contract:
+
+1. `ready` is emitted exactly once, after every configured output is
+   bound/started and before phase4 starts waiting for a shutdown signal (in
+   headless mode, before it begins waiting on stdin to close).
+2. On a startup failure, at most one `fatal` event is emitted, followed by a
+   non-zero exit. `ready` and `fatal` are never both emitted.
+3. A crash after `ready` emits nothing further. Phase4's release profile
+   aborts on panic (see "Crash behaviour" below), so a crash has no `fatal`
+   event, only the process exiting unexpectedly.
+
+`fatal.reason` is one of:
+
+| Reason | Meaning | Typical fix |
+|---|---|---|
+| `port_in_use` | The WebSocket bind address is already in use. | Free the port, or bind a different one (`127.0.0.1:0` sidesteps this entirely). |
+| `device_not_found` | The requested audio device wasn't found, the query was empty, or the device's format is unsupported. | Check `--audio-list`, pick another device. |
+| `device_unsupported` | Reserved for a future finer-grained split of `device_not_found` (not currently emitted; today all of the above map to `device_not_found`). | — |
+| `invalid_config` | A CLI flag, a `config.yaml` value, or their combination failed validation. | Fix the offending flag or file value. |
+| `no_output_configured` | Neither `--ws-addr` nor `--osc-addr` was set. | Configure at least one output. |
+| `startup_failed` | Any other startup failure. | Read `detail` for a hint. Treat this as the default case for any reason you don't otherwise handle, the enum evolves additively and new phase4 versions may add reasons a wrapper doesn't yet know about. |
 
 ## Device discovery
 
@@ -76,13 +120,26 @@ when the hardware could not be queried. Each MIDI entry carries `index` and
 ## Readiness and data
 
 WebSocket output is opt-in, pass `--ws-addr` (or set `network.ws_addr` in
-`config.yaml`) so the wrapper has an address to connect to. The listener is
-bound eagerly during startup, before the headless controller begins waiting on
-stdin, and startup failures (port in use, unknown device, invalid
-configuration, no output transport configured) exit with a non-zero code and
-an error line on stderr. The robust readiness check is therefore to poll a
-WebSocket connection to the configured address after spawning, retrying
-briefly until it accepts, rather than watching stderr for a particular line.
+`config.yaml`) so the wrapper has an address to connect to.
+
+With `--stdout-events json`, the `ready` event above is the primary readiness
+mechanism: it's emitted only once every configured output is actually bound,
+and `ready.ws_addr` carries the real bound address, which is what makes
+`--ws-addr 127.0.0.1:0` a practical default for a wrapper: bind an
+OS-assigned port and read it back from `ready`, sidestepping port conflicts
+entirely. A `fatal` event with a closed `reason` classifies startup failures
+(port in use, unknown device, invalid configuration, no output transport
+configured) instead of leaving them as an undifferentiated non-zero exit
+code with unstable log wording.
+
+Without `--stdout-events`, or against an older phase4 binary that predates
+it, fall back to polling a WebSocket connection to the configured address
+after spawning, retrying briefly until it accepts. This fallback has a real
+gap the event handshake fixes: a successful connect only proves "someone
+serves on this port", not "my child serves on this port", if a foreign
+process already holds the port, the child bind-fails and exits while the
+poll happily connects to the stranger. Prefer the event handshake whenever
+the wrapper can assume a recent enough binary.
 
 On connect, phase4 immediately sends the current snapshot, so a client renders
 without waiting for the next frame. Each message is a JSON object of the form
@@ -101,13 +158,17 @@ reason available in the captured log lines.
 ## Minimal pseudocode
 
     child = spawn("phase4",
-                  args: ["--audio-device", "Duet 3", "--ws-addr", "127.0.0.1:8889",
-                         "--controller-mode", "headless"],
+                  args: ["--audio-device", "Duet 3", "--ws-addr", "127.0.0.1:0",
+                         "--stdout-events", "json", "--controller-mode", "headless"],
                   cwd: config_dir,
                   stdin: pipe, stdout: pipe, stderr: pipe)
 
     forward_lines(child.stderr, log_window)
-    ws = connect_with_retry("ws://127.0.0.1:8889")
+
+    event = read_json_line(child.stdout)
+    if event.event == "fatal":
+        fail(event.reason, event.detail)
+    ws = connect("ws://" + event.ws_addr)
     render_frames(ws)
 
     # later, to stop:
