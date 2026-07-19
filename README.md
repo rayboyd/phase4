@@ -44,10 +44,9 @@ Launch Phase4 using your device name (e.g., Duet 3) and a WebSocket listen addre
 Press `T` to toggle the engine's active state.
 
 ```
-> [INFO] Welcome to phase4.
-> [INFO] Audio device resolved (exact match): Duet 3
-> [INFO] WebSocket server listening on ws://127.0.0.1:8889
-> [INFO] Ready. Press T to toggle engine, Ctrl+C to exit.
+[INFO] Audio device resolved (fuzzy match): Loopback Audio
+[INFO] WebSocket server listening on ws://127.0.0.1:8889
+[INFO] Ready. Press T to toggle engine, Ctrl+C to exit.
 ```
 
 By default every hardware channel is analysed and broadcast. To analyse only specific channels, pass `--audio-analyse-channels` with comma-separated zero-based indices, or set `audio.analyse_channels` in `config.yaml`. Indices are validated against the device's channel count at startup.
