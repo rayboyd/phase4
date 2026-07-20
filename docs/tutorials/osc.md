@@ -47,12 +47,12 @@ The bin count is set at compile time. The default is 32 bins. See [compile.md](c
 
 When MIDI input is configured (`--midi-device` or `--test-midi-clock`), the OSC sender also transmits four additional addresses alongside the bin data:
 
-| Address                 | Type | Value | Description                                                                |
-| :----------------------- | :--- | :---- | :--------------------------------------------------------------------------- |
-| `/phase4/midi/steps`     | `i`  | count | Absolute MIDI 1/16 note steps since the most recent Start. Sent every frame. |
-| `/phase4/midi/start`     | `i`  | `1`   | Sent only on the frame a Start transport event fired.                        |
-| `/phase4/midi/stop`      | `i`  | `1`   | Sent only on the frame a Stop transport event fired.                         |
-| `/phase4/midi/continue`  | `i`  | `1`   | Sent only on the frame a Continue transport event fired.                     |
+| Address                 | Type | Value | Description                                                                  |
+| :---------------------- | :--- | :---- | :--------------------------------------------------------------------------- |
+| `/phase4/midi/steps`    | `i`  | count | Absolute MIDI 1/16 note steps since the most recent Start. Sent every frame. |
+| `/phase4/midi/start`    | `i`  | `1`   | Sent only on the frame a Start transport event fired.                        |
+| `/phase4/midi/stop`     | `i`  | `1`   | Sent only on the frame a Stop transport event fired.                         |
+| `/phase4/midi/continue` | `i`  | `1`   | Sent only on the frame a Continue transport event fired.                     |
 
 `/phase4/midi/steps` behaves like the bin addresses: it is sent every frame, and clients detect new steps by comparing the current value to the previous frame. The three transport addresses instead follow an event model: each carries a conventional bang value (`1`) and is only sent on the frame its event actually happened, so an OSC In CHOP channel bound to `/phase4/midi/start` only receives a message when playback starts.
 
@@ -60,7 +60,7 @@ When MIDI input is not configured, none of these four addresses are ever sent.
 
 ## TouchDesigner Integration
 
-Add an OSC In DAT to your network and set its Network Port to match the port given in `--osc-addr`. OSC In DAT unpacks OSC bundles, so all `/phase4/ch/{channel}/bin/{bin}` messages for a frame arrive together from the single UDP packet Phase4 sends. OSC In CHOP does not unpack bundles, so it receives none of the bin data; only the individually sent `/phase4/midi/*` messages would arrive there. Use OSC In DAT instead.
+Add an [OSC In DAT](https://derivative.ca/UserGuide/OSC_In_DAT) to your network and set its Network Port to match the port given in `--osc-addr`. OSC In DAT unpacks OSC bundles, so all `/phase4/ch/{channel}/bin/{bin}` messages for a frame arrive together from the single UDP packet Phase4 sends. OSC In CHOP does not unpack bundles, so it receives none of the bin data; only the individually sent `/phase4/midi/*` messages would arrive there. Use OSC In DAT instead.
 
 If you are receiving a large number of messages, check your receiving application for options to buffer or queue bursts of incoming messages rather than dropping them under load.
 
