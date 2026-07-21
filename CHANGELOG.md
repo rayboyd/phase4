@@ -49,7 +49,7 @@ If you're using [OSC In CHOP](https://derivative.ca/UserGuide/OSC_In_CHOP) in To
 
 MIDI messages (`/phase4/midi/*`) are unaffected, they're still sent individually.
 
-If you route `--osc-addr` at a non-loopback destination, note the bundled packet can run over standard Ethernet's 1500 byte MTU at larger `display-bins-*` builds, which raises IP fragmentation risk. Fine on loopback, worth knowing if you ever send phase4's OSC output across a network.
+If you route `--osc-addr` at a non-loopback destination, note the bundled packet already runs over standard Ethernet's 1500 byte MTU at the default build (stereo, 32 bins), and grows further with larger `display-bins-*` builds, which raises IP fragmentation risk. Fine on loopback, worth knowing if you ever send phase4's OSC output across a network.
 
 ### Build
 
