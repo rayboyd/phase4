@@ -3,6 +3,7 @@ version = 2
 unmaintained = "all"
 
 [licenses]
+unused-allowed-license = "allow"
 version = 2
 allow = [
     "Apache-2.0",
