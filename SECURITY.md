@@ -25,13 +25,13 @@ Release artefacts are signed with [minisign](https://jedisct1.github.io/minisign
 Each signed artefact has a corresponding `.minisig` signature file included in the release assets.
 
 ```sh
-minisign -V -p minisign.pub -m  phase4-<version>-<target>.tar.gz.minisig
+minisign -V -p minisign.pub -m phase4-<version>-<target>.tar.gz
 ```
 
 If the signature file is not alongside it as `phase4-<version>-<target>.tar.gz.minisig`, you can download it and point to it explicitly with the `-x` flag.
 
 ```sh
-minisign -V -p minisign.pub -m  phase4-<version>-<target>.tar.gz -x phase4-<version>-<target>.tar.gz.minisig
+minisign -V -p minisign.pub -m phase4-<version>-<target>.tar.gz -x phase4-<version>-<target>.tar.gz.minisig
 ```
 
 A successful verification will show as.

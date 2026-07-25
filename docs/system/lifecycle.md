@@ -43,16 +43,16 @@ flowchart TD
 		L --> N[Spawn analyser thread]
 		M --> N
 		N --> O[Spawn mapper thread]
-		O --> P{--ws-addr configured?}
+		O --> O2{MIDI input configured?}
+		O2 -->|yes| O3[Spawn MIDI listener thread]
+		O2 -->|no| P
+		O3 --> P{--ws-addr configured?}
 		P -->|yes| P2[Spawn WebSocket server thread]
 		P -->|no| Q
 		P2 --> Q{--osc-addr configured?}
 		Q -->|yes| Q2[Spawn OSC sender thread]
-		Q -->|no| Q3
-		Q2 --> Q3{MIDI input configured?}
-		Q3 -->|yes| Q4[Spawn MIDI listener thread]
-		Q3 -->|no| R[Run controller loop until shutdown]
-		Q4 --> R
+		Q -->|no| R[Run controller loop until shutdown]
+		Q2 --> R
 		R --> S[Shutdown: drop input, signal keep_running=false, join workers with timeouts]
 ```
 

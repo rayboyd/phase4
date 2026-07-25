@@ -86,7 +86,10 @@ fn git_stdout<const N: usize>(args: [&str; N]) -> Option<String> {
 /// Resolves the active `display-bins-*` Cargo feature to a plain bin count
 /// string. Cargo sets `CARGO_FEATURE_<FEATURE>` for every enabled feature,
 /// with hyphens normalised to underscores and names uppercased. Falls back to
-/// `"64"` when no feature env var is set, which matches the default feature.
+/// `"32"` when no feature env var is set, which matches the crate's default
+/// feature (`display-bins-32`). The fallback is unreachable in a normal build,
+/// the compile-time checks in `src/dsp/payload.rs` require exactly one
+/// `display-bins-*` feature to be enabled.
 fn resolve_display_bins() -> &'static str {
     if env::var("CARGO_FEATURE_DISPLAY_BINS_4").is_ok() {
         "4"
@@ -96,11 +99,13 @@ fn resolve_display_bins() -> &'static str {
         "16"
     } else if env::var("CARGO_FEATURE_DISPLAY_BINS_32").is_ok() {
         "32"
+    } else if env::var("CARGO_FEATURE_DISPLAY_BINS_64").is_ok() {
+        "64"
     } else if env::var("CARGO_FEATURE_DISPLAY_BINS_128").is_ok() {
         "128"
     } else if env::var("CARGO_FEATURE_DISPLAY_BINS_256").is_ok() {
         "256"
     } else {
-        "64"
+        "32"
     }
 }
