@@ -76,7 +76,7 @@ pub(crate) struct Bootstrapped {
 /// Returns an error if the audio device cannot be opened, the input stream
 /// cannot be started, or a configured output transport cannot bind to its
 /// given address.
-pub(crate) fn bootstrap(config: AppConfig) -> Result<Bootstrapped> {
+pub(crate) fn bootstrap(config: &AppConfig) -> Result<Bootstrapped> {
     let state = Arc::new(AppState::new());
     let stream_state = Arc::clone(&state);
     let analyser_state = Arc::clone(&state);
@@ -84,17 +84,21 @@ pub(crate) fn bootstrap(config: AppConfig) -> Result<Bootstrapped> {
     let generator_state = Arc::clone(&state);
     let mut input_device = Input::new();
 
-    let (hw_specs, input_source) = resolve_audio_hardware(&config, &mut input_device)?;
-    let midi_source = resolve_midi_hardware(&config)?;
+    // `analyse_channels` only exists on the hardware input variant, so
+    // calibration mode structurally cannot carry a channel selection into
+    // the analyser (the generator always writes every hardware channel).
+    let resolved = resolve_audio_hardware(config, &mut input_device)?;
+    let (hw_specs, input_source) = (resolved.hw_specs, resolved.source);
+    let midi_source = resolve_midi_hardware(config)?;
     let midi_enabled = midi_source.is_some();
 
     // Validate. Must happen before ChannelMode::resolve below, which
-    // takes config.analyse_channels by value.
+    // takes the channel selection by value.
     validate_vocoder_sample_rate(config.vocoder_config.freq_high, hw_specs.sample_rate)?;
-    validate_audio_hardware(&config, hw_specs, &input_source)?;
+    validate_channel_selection(resolved.analyse_channels.as_deref(), hw_specs)?;
 
     let mut analyser_specs = hw_specs;
-    let analyse_mode = ChannelMode::resolve(config.analyse_channels, &mut analyser_specs);
+    let analyse_mode = ChannelMode::resolve(resolved.analyse_channels, &mut analyser_specs);
 
     let (analyse_tx, analyse_rx) =
         Input::create_audio_buffer_pair(analyser_specs, ANALYSE_BUFFER_MS);
@@ -203,36 +207,23 @@ fn spawn_outputs(
 }
 
 /// Validates that all channel indices are within the hardware's capacity.
-/// Does not apply in calibration mode, where no real device is involved.
+/// Calibration mode never has a selection (`ConfigInput::Calibration`
+/// cannot carry one), so `None` passes trivially.
 ///
 /// # Errors
 ///
 /// Returns an error if a requested channel index is at or beyond the
 /// resolved hardware's channel count.
-fn validate_audio_hardware(
-    config: &AppConfig,
-    hw_specs: Specs,
-    input_source: &InputSource,
-) -> Result<()> {
-    match input_source {
-        InputSource::Calibration(_) => Ok(()),
-        InputSource::Hardware(..) => {
-            if let Some(&idx) = config
-                .analyse_channels
-                .as_deref()
-                .map(<[u16]>::iter)
-                .and_then(Iterator::max)
-            {
-                if idx >= hw_specs.channels {
-                    anyhow::bail!(AppConfigError::ChannelIndexOutOfRange {
-                        idx,
-                        channels: hw_specs.channels,
-                    });
-                }
-            }
-            Ok(())
+fn validate_channel_selection(selection: Option<&[u16]>, hw_specs: Specs) -> Result<()> {
+    if let Some(&idx) = selection.map(<[u16]>::iter).and_then(Iterator::max) {
+        if idx >= hw_specs.channels {
+            anyhow::bail!(AppConfigError::ChannelIndexOutOfRange {
+                idx,
+                channels: hw_specs.channels,
+            });
         }
     }
+    Ok(())
 }
 
 /// Spawns the audio producer side of the pipeline: either a synthetic
@@ -276,24 +267,42 @@ fn spawn_audio_input(
     }
 }
 
-/// Returns hardware specs and a resolved [`InputSource`], either calibration-mode
-/// defaults or a real device handle.
+/// The fully resolved audio input: hardware specs, the input source, and the
+/// analyser channel selection. `analyse_channels` is `None` in calibration
+/// mode by construction, [`ConfigInput::Calibration`] has no field to carry
+/// one.
+struct ResolvedInput {
+    hw_specs: Specs,
+    source: InputSource,
+    analyse_channels: Option<Box<[u16]>>,
+}
+
+/// Returns the resolved audio input, either calibration-mode defaults or a
+/// real device handle.
 ///
 /// # Errors
 ///
 /// Returns an error if the device cannot be resolved or queried.
-fn resolve_audio_hardware(config: &AppConfig, input: &mut Input) -> Result<(Specs, InputSource)> {
+fn resolve_audio_hardware(config: &AppConfig, input: &mut Input) -> Result<ResolvedInput> {
     match &config.input {
-        ConfigInput::Calibration(signal) => Ok((
-            Specs {
+        ConfigInput::Calibration(signal) => Ok(ResolvedInput {
+            hw_specs: Specs {
                 sample_rate: 44100,
                 channels: 2,
             },
-            InputSource::Calibration(*signal),
-        )),
-        ConfigInput::Device(name_query) => {
-            let (device, stream_config, specs) = input.get_device(name_query)?;
-            Ok((specs, InputSource::Hardware(device, stream_config)))
+            source: InputSource::Calibration(*signal),
+            analyse_channels: None,
+        }),
+        ConfigInput::Device {
+            name,
+            analyse_channels,
+        } => {
+            let (device, stream_config, specs) = input.get_device(name)?;
+            Ok(ResolvedInput {
+                hw_specs: specs,
+                source: InputSource::Hardware(device, stream_config),
+                analyse_channels: analyse_channels.clone(),
+            })
         }
     }
 }
@@ -357,30 +366,53 @@ mod tests {
         };
         let mut input = Input::new();
 
-        let (specs, input_source) = resolve_audio_hardware(&config, &mut input)
+        let resolved = resolve_audio_hardware(&config, &mut input)
             .expect("resolve_audio_hardware should succeed in calibration mode");
 
-        assert_eq!(specs.sample_rate, 44100);
-        assert_eq!(specs.channels, 2);
+        assert_eq!(resolved.hw_specs.sample_rate, 44100);
+        assert_eq!(resolved.hw_specs.channels, 2);
         assert!(matches!(
-            input_source,
+            resolved.source,
             InputSource::Calibration(TestSignal::FixedTone(hz)) if (hz - 440.0).abs() < f32::EPSILON
         ));
+        assert!(
+            resolved.analyse_channels.is_none(),
+            "calibration mode can never carry a channel selection"
+        );
     }
 
     #[test]
-    fn validate_audio_hardware_skips_the_check_in_calibration_mode() {
-        let config = AppConfig {
-            analyse_channels: Some(vec![99].into_boxed_slice()),
-            ..AppConfig::default()
-        };
+    fn validate_channel_selection_accepts_none() {
         let hw_specs = Specs {
             sample_rate: 44100,
             channels: 2,
         };
-        let input_source = InputSource::Calibration(TestSignal::FixedTone(440.0));
 
-        assert!(validate_audio_hardware(&config, hw_specs, &input_source).is_ok());
+        assert!(validate_channel_selection(None, hw_specs).is_ok());
+    }
+
+    #[test]
+    fn validate_channel_selection_rejects_out_of_range_index() {
+        let hw_specs = Specs {
+            sample_rate: 44100,
+            channels: 2,
+        };
+
+        let result = validate_channel_selection(Some(&[0, 2]), hw_specs);
+        assert!(
+            result.is_err(),
+            "index 2 must be rejected on 2-channel hardware"
+        );
+    }
+
+    #[test]
+    fn validate_channel_selection_accepts_in_range_indices() {
+        let hw_specs = Specs {
+            sample_rate: 44100,
+            channels: 6,
+        };
+
+        assert!(validate_channel_selection(Some(&[0, 3, 5]), hw_specs).is_ok());
     }
 
     #[test]
