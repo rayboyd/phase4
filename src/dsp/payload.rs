@@ -1,13 +1,13 @@
-//! Two payload types flow through the DSP pipeline:
+//! Two payload types flow through the DSP pipeline.
 //!
-//! 1. **Raw**: [`RawChannelLevel`] / [`RawPayload`] carry the full-resolution
-//!    vocoder envelope levels ([`VOCODER_BANDS`] bands). These are
-//!    internal-only and never serialised.
+//! [`RawChannelLevel`] / [`RawPayload`] carry the full-resolution vocoder
+//! envelope levels ([`VOCODER_BANDS`] bands). These are internal-only and
+//! never serialised.
 //!
-//! 2. **Display**: [`DisplayChannelLevel`] / [`DisplayPayload`] carry a
-//!    [`DISPLAY_BINS`]-bin display mapping of those envelope levels and are
-//!    serialised to JSON for WebSocket broadcast. [`DisplayPayload`] also
-//!    carries an optional [`MidiSnapshot`] when MIDI input is configured.
+//! [`DisplayChannelLevel`] / [`DisplayPayload`] carry a
+//! [`DISPLAY_BINS`]-bin display mapping of those envelope levels and are
+//! serialised to JSON for WebSocket broadcast. [`DisplayPayload`] also
+//! carries an optional [`MidiSnapshot`] when MIDI input is configured.
 //!
 //! [`DISPLAY_BINS`] is set at compile time via a Cargo feature flag
 //! (`display-bins-4`, `display-bins-8`, `display-bins-16`,

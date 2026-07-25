@@ -3,8 +3,8 @@
 //! audio stream would use, making the rest of the pipeline fully operational
 //! without audio hardware attached.
 //!
-//! Two signal modes are supported: a fixed-frequency tone controlled by
-//! [`TestSignal::FixedTone`], and a logarithmic sine sweep driven by a sine LFO at
+//! Two signal modes are supported, a fixed-frequency tone controlled by
+//! [`TestSignal::FixedTone`] and a logarithmic sine sweep driven by a sine LFO at
 //! [`TestSignal::Sweep`] Hz that scans from 20 Hz to just below the Nyquist frequency
 //! (0.45 * sample rate) to avoid aliasing artefacts at the sweep ceiling.
 //! Output level is fixed at `AMPLITUDE` (approximately -12 dBFS) to leave
@@ -112,7 +112,7 @@ impl Generator {
                     );
 
                     // Intentionally lossy, this is just a test signal, but only
-                    // whole frames are committed: a torn frame in a full ring
+                    // whole frames are committed. A torn frame in a full ring
                     // would rotate the analyser's channel alignment (see the
                     // audio module docs).
                     let writable = analyse_tx.vacant_len() / channels * channels;

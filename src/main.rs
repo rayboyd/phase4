@@ -25,8 +25,8 @@ fn main() -> Result<()> {
     let args = Args::parse();
 
     // Defaults to "info" level, can be overridden via RUST_LOG env var. The line
-    // ending depends on the controller mode: \r keeps output aligned under raw mode
-    // in term mode, and is omitted in headless mode so wrapper processes receive
+    // ending depends on the controller mode. \r keeps output aligned under raw mode
+    // in term mode, and it is omitted in headless mode so wrapper processes receive
     // plain \n line endings.
     let line_ending = log_line_ending(args.runtime.controller_mode);
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
@@ -65,7 +65,7 @@ fn main() -> Result<()> {
     // would start the entire pipeline, then fail inside raw-mode setup with a
     // cryptic OS error (ENXIO) surfaced only after shutdown. Catch the
     // mismatch here, before any hardware is opened or ports are bound.
-    // Controller mode itself stays explicit: this never switches modes.
+    // Controller mode itself stays explicit, this check never switches modes.
     if matches!(config.controller_mode, ControllerMode::Term) && !std::io::stdin().is_terminal() {
         let detail = "Term mode requires an interactive terminal, but stdin is not a TTY. \
                       Pass --controller-mode headless when running under a pipe or wrapper.";

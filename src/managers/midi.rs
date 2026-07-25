@@ -44,7 +44,7 @@ const MIDI_POLL_INTERVAL_MS: u64 = 10;
 const MIDI_CLOCK_TICKS_PER_QUARTER_NOTE: f64 = 24.0;
 
 /// Raw MIDI clock ticks (0xF8 bytes) per 1/16 note step, phase4's fixed
-/// resolution: 24 ticks per quarter note divided by four.
+/// resolution of 24 ticks per quarter note divided by four.
 const MIDI_CLOCK_TICKS_PER_STEP: u8 = 6;
 
 /// Raw MIDI Real-Time status bytes `record_byte` matches against.
@@ -100,8 +100,8 @@ pub(crate) enum MidiInputSource {
     /// Synthetic clock, driven at the given BPM instead of a real device.
     TestClock(f32),
 
-    /// A resolved real device: the open input handle, its port, and the
-    /// resolved port name (input handle, port, resolved name).
+    /// A resolved real device, carrying the open input handle, its port,
+    /// and the resolved port name.
     Hardware(midir::MidiInput, midir::MidiInputPort, String),
 }
 
@@ -197,7 +197,7 @@ impl MidiListener {
 
 /// Resolves a real MIDI input device by name, synchronously, before any
 /// thread is spawned. Mirrors `App::resolve_audio_hardware`'s audio device
-/// resolution: a missing device is reported once, at startup, rather than
+/// resolution, so a missing device is reported once, at startup, rather than
 /// discovered later inside a running thread.
 ///
 /// # Errors

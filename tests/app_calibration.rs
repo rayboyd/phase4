@@ -4,11 +4,11 @@
 //! hardware. Calibration mode (via `ConfigInput::Calibration`) replaces the hardware device with
 //! a synthetic sine wave generator, making it safe to run in CI.
 //!
-//! Key things this covers end-to-end:
-//!   - `AppConfig` is constructed correctly from a test config
-//!   - All threads (analyser, mapper, generator) are spawned
-//!   - The WebSocket server successfully binds to its address
-//!   - `Drop` cleanly signals threads to stop when `app` goes out of scope
+//! End-to-end, this covers that `AppConfig` is constructed correctly from
+//! a test config, that all threads (analyser, mapper, generator) are
+//! spawned, that the WebSocket server successfully binds to its address,
+//! and that `Drop` cleanly signals threads to stop when `app` goes out of
+//! scope.
 
 use phase4::app::App;
 use phase4::config::DEFAULT_MAX_CLIENTS;

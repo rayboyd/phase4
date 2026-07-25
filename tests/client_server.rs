@@ -183,7 +183,7 @@ async fn multiple_clients_receive_close_frames_on_shutdown() {
     state.keep_running.store(false, Ordering::Release);
     join_server_bounded(handle).await;
 
-    // Sequential iteration is deliberate: a timeout on client_b after
+    // Sequential iteration is deliberate. A timeout on client_b after
     // client_a passed distinguishes "one client was cancelled" from a
     // full shutdown failure.
     for (label, client) in [("a", &mut client_a), ("b", &mut client_b)] {

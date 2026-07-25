@@ -1,7 +1,7 @@
 //! [`OscSender`] receives the mapped [`DisplayPayload`] over a watch channel
 //! and emits all bin messages for a frame as a single OSC bundle over UDP.
 //!
-//! Address scheme: `/phase4/ch/{channel}/bin/{bin}` with a single `f` (float)
+//! Addresses follow `/phase4/ch/{channel}/bin/{bin}` with a single `f` (float)
 //! argument in the range 0.0..=1.0. The receiver maps these to its own
 //! parameters using its OSC shortcut editor (e.g. `TouchDesigner` OSC In DAT,
 //! which unpacks bundles; OSC In CHOP does not and requires individual
@@ -12,7 +12,7 @@
 //! count. `/phase4/midi/start`, `/phase4/midi/stop`, and
 //! `/phase4/midi/continue` each carry one `i` argument (`1`, a conventional
 //! bang value) and are sent only on the frame their transport event fired.
-//! MIDI messages are sent individually, not folded into the bin bundle: they
+//! MIDI messages are sent individually, not folded into the bin bundle. They
 //! are low frequency and broadcast-channel based already, not the per-call
 //! cost the bundle exists to amortise.
 //!
@@ -159,7 +159,7 @@ impl OscSender {
         })
     }
 
-    /// Pre-builds the MIDI packet table: one steps packet and one bang packet
+    /// Pre-builds the MIDI packet table, one steps packet and one bang packet
     /// per transport event.
     fn build_midi_packets() -> MidiOscPackets {
         let bang = |addr: &str| {
@@ -183,7 +183,7 @@ impl OscSender {
 /// Pre-built MIDI packets, one per address, updated in place each frame
 /// `midi_enabled` is true. `steps_packet` is sent every frame, the other
 /// three are sent only on the frame their transport event fired.
-// The shared _packet suffix cannot be dropped: `continue` is a reserved
+// The shared _packet suffix cannot be dropped. `continue` is a reserved
 // keyword, so the transport fields need a suffix to stay consistent.
 #[allow(clippy::struct_field_names)]
 struct MidiOscPackets {
@@ -247,8 +247,8 @@ impl OscRuntime {
                 break;
             }
 
-            // Minimise the watch read-lock duration: update packet values and release
-            // the guard before any encoding or I/O work begins.
+            // Update packet values and release the guard before any encoding
+            // or I/O work begins, keeping the watch read-lock duration minimal.
             let midi_snapshot = {
                 let guard = self.display_rx.borrow_and_update();
                 let OscPacket::Bundle(bundle) = &mut self.bin_bundle else {
@@ -359,8 +359,9 @@ impl OscRuntime {
         }
     }
 
-    /// Describes a packet for warning logs: an address for a single message,
-    /// or a message count for a bundle, since a bundle has no single address.
+    /// Describes a packet for warning logs, giving an address for a single
+    /// message or a message count for a bundle, since a bundle has no single
+    /// address.
     fn describe_packet(packet: &OscPacket) -> String {
         match packet {
             OscPacket::Message(msg) => msg.addr.clone(),

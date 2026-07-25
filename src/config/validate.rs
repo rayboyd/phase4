@@ -82,7 +82,7 @@ mod tests {
     use super::super::types::AppConfig;
     use super::*;
 
-    // Review regression: attack times must remain strictly positive.
+    // Attack times must remain strictly positive (review regression).
     #[test]
     fn try_from_rejects_negative_vocoder_attack_ms() {
         let mut args = args_with_device(Some("test"));
@@ -91,7 +91,7 @@ mod tests {
         assert!(result.is_err(), "negative attack times should be rejected");
     }
 
-    // Review regression: release times must remain finite.
+    // Release times must remain finite (review regression).
     #[test]
     fn try_from_rejects_non_finite_vocoder_release_ms() {
         let mut args = args_with_device(Some("test"));
@@ -103,7 +103,7 @@ mod tests {
         );
     }
 
-    // Review regression: logarithmic band spacing requires strictly positive bounds.
+    // Logarithmic band spacing requires strictly positive bounds (review regression).
     #[test]
     fn try_from_rejects_non_positive_vocoder_low_frequency() {
         let mut args = args_with_device(Some("test"));
@@ -115,7 +115,7 @@ mod tests {
         );
     }
 
-    // Review regression: the high bound must remain above the low bound.
+    // The high bound must remain above the low bound (review regression).
     #[test]
     fn try_from_rejects_vocoder_high_frequency_below_low_frequency() {
         let mut args = args_with_device(Some("test"));
@@ -128,7 +128,7 @@ mod tests {
         );
     }
 
-    // Review regression: the filter Q must be strictly positive.
+    // The filter Q must be strictly positive (review regression).
     #[test]
     fn try_from_rejects_non_positive_vocoder_filter_q() {
         let mut args = args_with_device(Some("test"));

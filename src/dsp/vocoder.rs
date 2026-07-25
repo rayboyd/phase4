@@ -1,6 +1,6 @@
-//! A cheap alternative to an FFT-based spectrum analyser: a bank of fixed
-//! bandpass filters, one per band, each followed by an envelope follower
-//! that tracks the band's amplitude over time. This is the classic analogue
+//! A cheap alternative to an FFT-based spectrum analyser, built from a bank
+//! of fixed bandpass filters, one per band, each followed by an envelope
+//! follower that tracks the band's amplitude over time. This is the classic analogue
 //! vocoder architecture, filter then rectify then smooth, run per audio
 //! sample rather than per FFT window.
 //!
@@ -31,7 +31,7 @@ impl EnvelopeFollower {
     /// Moves `value` a fraction of the way towards `rectified`, using
     /// `attack` while rising and `release` while falling.
     ///
-    /// This is the standard one-pole follower: `value += coeff * (input -
+    /// The standard one-pole follower is `value += coeff * (input -
     /// value)`. Using a smaller coefficient while falling than while rising
     /// (or vice versa) is what gives the follower its asymmetric attack and
     /// release shape, the same behaviour as a hardware envelope follower or
@@ -52,7 +52,7 @@ impl EnvelopeFollower {
 }
 
 /// Converts a time constant in milliseconds to a per-sample one-pole
-/// coefficient: `coeff = 1 - exp(-1 / (tau * sample_rate))`.
+/// coefficient, `coeff = 1 - exp(-1 / (tau * sample_rate))`.
 ///
 /// This is the standard RC step-response formula. Feeding a one-pole
 /// follower a constant target with this coefficient reaches roughly 63
@@ -112,7 +112,7 @@ impl VocoderAnalyser {
                 let t = i as f32 / (VOCODER_BANDS as f32 - 1.0);
                 let centre = (log_low + t * (log_high - log_low)).exp();
 
-                // filter_q sets the bandpass width: higher Q narrows the
+                // filter_q sets the bandpass width. Higher Q narrows the
                 // band around centre, lower Q widens it.
                 let coefficients = Coefficients::<f32>::from_params(
                     Type::BandPass,

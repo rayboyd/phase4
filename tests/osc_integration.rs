@@ -232,7 +232,7 @@ async fn sender_forwards_midi_steps_and_transport_when_enabled() {
 
     // One bin bundle datagram (DISPLAY_BINS addresses), plus separate
     // /phase4/midi/steps and /phase4/midi/start datagrams, not /stop or
-    // /continue, on this frame: 3 datagrams total.
+    // /continue, on this frame, giving 3 datagrams in total.
     let addresses = receive_addresses(&receiver, 3).await;
     assert!(addresses.contains(&"/phase4/midi/steps".to_string()));
     assert!(addresses.contains(&"/phase4/midi/start".to_string()));

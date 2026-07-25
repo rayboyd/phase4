@@ -75,9 +75,9 @@ struct State {
     analysers: Vec<VocoderAnalyser>,
 
     /// Whether the dropped-mapper warning has been logged. A watch receiver
-    /// never comes back once dropped, so this latches: one line instead of
-    /// one per analysis frame (~100 Hz), matching the once-per-streak
-    /// logging discipline used by the output workers.
+    /// never comes back once dropped, so this latches, producing one line
+    /// instead of one per analysis frame (~100 Hz) and matching the
+    /// once-per-streak logging discipline used by the output workers.
     mapper_gone_logged: bool,
 }
 
@@ -276,15 +276,15 @@ mod tests {
         (state, rx)
     }
 
-    // A chunk ending mid-frame must not rotate channel alignment: the partial
+    // A chunk ending mid-frame must not rotate channel alignment. The partial
     // frame is carried, and the next chunk's samples continue from it.
     #[test]
     #[allow(clippy::float_cmp)]
     fn process_carries_partial_frames_across_chunks() {
         let (mut state, rx) = make_state(2);
 
-        // Stereo stream with constant per-channel levels: L=0.25, R=0.75.
-        // First chunk delivers 3 samples: one whole frame plus a dangling L.
+        // Stereo stream with constant per-channel levels, L=0.25 and R=0.75.
+        // The first chunk delivers 3 samples, one whole frame plus a dangling L.
         state.transfer_buffer[..3].copy_from_slice(&[0.25, 0.75, 0.25]);
         state.process(3);
         assert_eq!(state.pending, 1);
@@ -297,7 +297,7 @@ mod tests {
         assert_eq!(state.pending, 0);
 
         // Without the carry, the second chunk would be read R-first and the
-        // channels would swap: L peak would report 0.75.
+        // channels would swap, making the L peak report 0.75.
         let payload = rx.borrow();
         assert_eq!(payload.channels[0].peak, 0.25);
         assert_eq!(payload.channels[1].peak, 0.75);
@@ -313,7 +313,7 @@ mod tests {
         state.transfer_buffer[0] = 0.5;
         state.process(1);
         assert_eq!(state.pending, 1);
-        // Nothing analysed yet: the published payload is still the zeroed seed.
+        // Nothing has been analysed yet, so the published payload is still the zeroed seed.
         assert_eq!(rx.borrow().channels[0].peak, 0.0);
 
         state.transfer_buffer[1] = 0.9;
@@ -324,7 +324,7 @@ mod tests {
     }
 
     // The transfer buffer is frame-aligned even at rates where a 10 ms chunk
-    // is not: 22050 Hz stereo yields 441 samples, which must round up to 442.
+    // is not. 22050 Hz stereo yields 441 samples, which must round up to 442.
     #[test]
     fn transfer_buffer_is_a_whole_frame_multiple() {
         let specs = Specs {
@@ -337,7 +337,7 @@ mod tests {
         assert_eq!(state.transfer_buffer.len(), 442);
     }
 
-    // Mono buffer: every sample belongs to channel 0.
+    // In a mono buffer every sample belongs to channel 0.
     #[test]
     #[allow(clippy::float_cmp)]
     fn peak_mono() {
@@ -345,7 +345,7 @@ mod tests {
         assert_eq!(interleaved_peak(&buffer, 0, 1), 0.5);
     }
 
-    // Stereo buffer: channels are interleaved [L, R, L, R, ...].
+    // In a stereo buffer the channels are interleaved [L, R, L, R, ...].
     #[test]
     #[allow(clippy::float_cmp)]
     fn peak_stereo_channel_isolation() {
@@ -381,7 +381,7 @@ mod tests {
         assert_eq!(interleaved_peak(&buffer, 0, 1), 0.0);
     }
 
-    // Three channels: stride of 3 reaches only the correct samples.
+    // With three channels, a stride of 3 reaches only the correct samples.
     #[test]
     #[allow(clippy::float_cmp)]
     fn peak_three_channels() {

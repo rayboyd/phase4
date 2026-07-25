@@ -67,13 +67,13 @@ pub struct Emitter {
     /// Latched on the first stdout write failure; further emits become
     /// no-ops. The realistic failure is EPIPE, the wrapper holding the read
     /// end died, so there is nobody left to receive events and nothing to
-    /// gain from panicking: the process still exits normally via stdin EOF.
+    /// gain from panicking, and the process still exits normally via stdin EOF.
     failed: std::sync::atomic::AtomicBool,
 }
 
 impl Emitter {
-    /// Constructs an emitter from the CLI flag's value: enabled when a
-    /// format was requested, a no-op otherwise.
+    /// Constructs an emitter from the CLI flag's value, enabled when a
+    /// format was requested and a no-op otherwise.
     #[must_use]
     pub fn new(format: Option<EventFormat>) -> Self {
         Self {
@@ -163,9 +163,9 @@ fn map_device_error(e: &DeviceError) -> FatalReason {
 /// Classifies an `App::new` startup failure into a [`FatalReason`] by
 /// walking its error chain.
 ///
-/// Checks, in order: an `io::Error` with `AddrInUse` anywhere in the chain
-/// (a WebSocket bind failure), an `AppConfigError` anywhere in the chain
-/// (bootstrap re-validation, e.g. channel index or Nyquist checks), then a
+/// The chain is checked first for an `io::Error` with `AddrInUse` (a
+/// WebSocket bind failure), then for an `AppConfigError` (bootstrap
+/// re-validation, e.g. channel index or Nyquist checks), then for a
 /// typed [`DeviceError`] (device resolution and stream start). Anything
 /// else falls back to `startup_failed`, the closed-enum contract's
 /// deliberate escape hatch.

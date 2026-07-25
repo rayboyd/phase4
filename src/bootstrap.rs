@@ -1,9 +1,9 @@
 //! Resolves an [`AppConfig`] into running workers and shared state.
 //!
 //! [`bootstrap`] is the first half of what `App::new` used to do in one
-//! function: query hardware, validate it, size the ringbufs, and spawn every
-//! worker thread. `App::new` calls it once, then assembles the [`App`](crate::app::App)
-//! value from the result.
+//! function. It queries hardware, validates it, sizes the ringbufs, and
+//! spawns every worker thread. `App::new` calls it once, then assembles the
+//! [`App`](crate::app::App) value from the result.
 
 use crate::app::AppState;
 use crate::config::{
@@ -226,8 +226,8 @@ fn validate_channel_selection(selection: Option<&[u16]>, hw_specs: Specs) -> Res
     Ok(())
 }
 
-/// Spawns the audio producer side of the pipeline: either a synthetic
-/// [`Generator`] thread in calibration mode, or a real hardware input
+/// Spawns the audio producer side of the pipeline, either a synthetic
+/// [`Generator`] thread in calibration mode or a real hardware input
 /// stream started in place on `input_device`.
 ///
 /// # Errors
@@ -267,8 +267,8 @@ fn spawn_audio_input(
     }
 }
 
-/// The fully resolved audio input: hardware specs, the input source, and the
-/// analyser channel selection. `analyse_channels` is `None` in calibration
+/// The fully resolved audio input, carrying hardware specs, the input
+/// source, and the analyser channel selection. `analyse_channels` is `None` in calibration
 /// mode by construction, [`ConfigInput::Calibration`] has no field to carry
 /// one.
 struct ResolvedInput {
