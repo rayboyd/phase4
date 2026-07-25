@@ -102,8 +102,8 @@ Ordering contract:
 | Reason | Meaning | Typical fix |
 |---|---|---|
 | `port_in_use` | The WebSocket bind address is already in use. | Free the port, or bind a different one (`127.0.0.1:0` sidesteps this entirely). |
-| `device_not_found` | The requested audio device wasn't found, the query was empty, or the device's format is unsupported. | Check `--audio-list`, pick another device. |
-| `device_unsupported` | Reserved for a future finer-grained split of `device_not_found` (not currently emitted; today all of the above map to `device_not_found`). | — |
+| `device_not_found` | The requested audio device wasn't found, or the query was empty. | Check `--audio-list`, pick another device. |
+| `device_unsupported` | The device was found but its native sample format is not f32. | Check `--audio-list` for a device marked as supported. |
 | `invalid_config` | A CLI flag, a `config.yaml` value, or their combination failed validation. | Fix the offending flag or file value. |
 | `no_output_configured` | Neither `--ws-addr` nor `--osc-addr` was set. | Configure at least one output. |
 | `startup_failed` | Any other startup failure. | Read `detail` for a hint. Treat this as the default case for any reason you don't otherwise handle, the enum evolves additively and new phase4 versions may add reasons a wrapper doesn't yet know about. |

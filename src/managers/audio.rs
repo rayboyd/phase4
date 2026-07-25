@@ -21,6 +21,35 @@ use ringbuf::traits::{Producer, Split};
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
+/// Typed device-resolution failures, so `map_startup_error` in
+/// `src/events.rs` can classify them by downcast instead of message
+/// sniffing. `UnsupportedFormat` maps to the `device_unsupported` fatal
+/// reason; the other variants map to `device_not_found`.
+///
+/// Message texts are part of the user-facing (not machine-read) surface:
+/// each one names the fix and points at `--audio-list`.
+#[derive(Debug, thiserror::Error)]
+pub enum DeviceError {
+    /// The device query was empty or whitespace-only.
+    #[error("Device query must not be empty. Run with --audio-list to see available devices.")]
+    EmptyQuery,
+
+    /// No device matched the query, exactly or as a substring.
+    #[error(
+        "No input device matched \"{query}\". phase4 will not fall back to the \
+         system default. Run with --audio-list to see available devices."
+    )]
+    NoMatch { query: String },
+
+    /// The device's native sample format is not f32.
+    #[error(
+        "Device reports {format} sample format; phase4 requires f32 input. \
+         Most professional audio interfaces deliver f32 natively. \
+         Run with --audio-list to see available devices."
+    )]
+    UnsupportedFormat { format: String },
+}
+
 /// Captured hardware info used for buffer sizing logic.
 #[derive(Clone, Copy)]
 pub struct Specs {
@@ -332,9 +361,7 @@ impl Input {
         name_query: &str,
     ) -> Result<(cpal::Device, cpal::SupportedStreamConfig, Specs)> {
         if name_query.trim().is_empty() {
-            anyhow::bail!(
-                "Device query must not be empty. Run with --audio-list to see available devices."
-            );
+            return Err(DeviceError::EmptyQuery.into());
         }
 
         let host = cpal::default_host();
@@ -372,10 +399,10 @@ impl Input {
 
         // No default fallback: in a professional audio setup the system default may be
         // a live input, so silently capturing it is unsafe. Device selection must be explicit.
-        anyhow::bail!(
-            "No input device matched \"{name_query}\". phase4 will not fall back to the \
-             system default. Run with --audio-list to see available devices."
-        );
+        Err(DeviceError::NoMatch {
+            query: name_query.to_string(),
+        }
+        .into())
     }
 
     /// Queries the default input configuration for `device` and assembles a `Specs` block.
@@ -415,12 +442,10 @@ impl Input {
         P: Producer<Item = f32> + Send + 'static,
     {
         if config.sample_format() != SampleFormat::F32 {
-            anyhow::bail!(
-                "Device reports {} sample format; phase4 requires f32 input. \
-                 Most professional audio interfaces deliver f32 natively. \
-                 Run with --audio-list to see available devices.",
-                config.sample_format()
-            );
+            return Err(DeviceError::UnsupportedFormat {
+                format: config.sample_format().to_string(),
+            }
+            .into());
         }
 
         let error_state = Arc::clone(state);
