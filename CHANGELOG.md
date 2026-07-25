@@ -2,6 +2,38 @@
 
 All notable changes to Phase4 will be documented in this file.
 
+## 0.0.13
+
+### Bug Fixes
+
+- Keep the analyse pipeline frame-aligned under ring overflow ([d2b87f3](https://github.com/rayboyd/phase4/commit/d2b87f32042378304f5856288825ec92a215fdb2))
+- Fail fast when term mode runs without a TTY ([0d7cc6c](https://github.com/rayboyd/phase4/commit/0d7cc6cdb3b770fe1470414889449ac7744699a7))
+- Make calibration mode unable to carry a channel selection ([41c0b24](https://github.com/rayboyd/phase4/commit/41c0b244da3e3797a69d99b87172437d90df3880))
+
+### CI/CD
+
+- Add build targets ([7495d48](https://github.com/rayboyd/phase4/commit/7495d48eb1476c54bb2f31494e87241b3afe1ebc))
+- Allow unused licence ([4e90130](https://github.com/rayboyd/phase4/commit/4e90130160a0cd5ac2063111746cf5277515f34e))
+
+### Documentation
+
+- Readkme ([1332db3](https://github.com/rayboyd/phase4/commit/1332db3d4a872be738b198dc706a1095a91c99d9))
+- Add link to TD OSC docs ([901281f](https://github.com/rayboyd/phase4/commit/901281f7a621b93defb487fd8c176b59b1780464))
+- Correct 0.0.9 MTU note, default build already exceeds 1500 bytes ([7acdeb4](https://github.com/rayboyd/phase4/commit/7acdeb45f86f3f323d4ddda23336a58022b62492))
+- Fix minisign example, MIDI spawn order in lifecycle diagram, display-bins fallback ([b954194](https://github.com/rayboyd/phase4/commit/b954194463e8ee73bd71c8a337ea7c5269bafbd2))
+- Document that SIGTERM/SIGINT bypass graceful shutdown ([e2dea09](https://github.com/rayboyd/phase4/commit/e2dea09a8f36642ec91f21061d7e523591258efc))
+- Update roadmap ([be52f53](https://github.com/rayboyd/phase4/commit/be52f53ce95fb3483e896c26d4b4d50d26e9dd17))
+
+### Features
+
+- Type device errors, make device_unsupported real, degrade on EPIPE ([4d9aecd](https://github.com/rayboyd/phase4/commit/4d9aecdcc55dc5b7ca0ac64c016f6b11d711fe81)), Emitter::emit no longer panics when the wrapper dies before ready is, written:a stdout write failure logs once and latches further events
+  off, and the process still exits cleanly via stdin EOF.
+
+### Styling
+
+- Rewrite colon-separator comments as declarative prose ([891dc1d](https://github.com/rayboyd/phase4/commit/891dc1dff8a6fe7a09f3b6904aaa434a38020e4f))
+- Extend colon-separator cleanup to docs and log strings ([674692c](https://github.com/rayboyd/phase4/commit/674692c016683ee43a65eeb20ffccd7c394378b2))
+
 ## 0.0.12
 
 ### Features
