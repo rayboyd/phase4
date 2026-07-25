@@ -54,7 +54,15 @@ struct State {
     channels: usize,
 
     /// Scratch buffer the analyser thread pops ringbuf samples into each iteration.
+    /// Sized to a whole frame multiple so a full pop stays frame-aligned.
     transfer_buffer: Vec<f32>,
+
+    /// Number of samples of a trailing partial frame carried over at the front
+    /// of `transfer_buffer` from the previous chunk. Always less than
+    /// `channels`. The producers only commit whole frames, so this stays 0 in
+    /// practice; it is a second line of defence keeping one torn chunk from
+    /// rotating the channel alignment of every chunk after it.
+    pending: usize,
 
     /// Pre-allocated payload buffer, reused every frame to avoid per-call heap allocation.
     /// Published via swap into the watch channel gives us no clones or allocations.
@@ -83,14 +91,32 @@ impl State {
 
         Self {
             channels,
-            transfer_buffer: vec![0.0f32; specs.samples_for_ms(CHUNK_SIZE_MS)],
+            transfer_buffer: vec![0.0f32; specs.frame_aligned_samples_for_ms(CHUNK_SIZE_MS)],
+            pending: 0,
             frame_data,
             raw_tx,
             analysers,
         }
     }
 
-    fn process(&mut self, count: usize) {
+    /// Absorbs `popped` new samples (appended after any carried partial
+    /// frame), analyses the whole-frame prefix, and carries any trailing
+    /// partial frame to the front of the buffer for the next chunk.
+    fn process(&mut self, popped: usize) {
+        let total = self.pending + popped;
+        let aligned = total - (total % self.channels);
+
+        if aligned > 0 {
+            self.analyse(aligned);
+        }
+
+        self.transfer_buffer.copy_within(aligned..total, 0);
+        self.pending = total - aligned;
+    }
+
+    /// Runs per-channel peak and vocoder analysis over the first `count`
+    /// samples of the transfer buffer. `count` must be a frame multiple.
+    fn analyse(&mut self, count: usize) {
         let active_buffer = &self.transfer_buffer[..count];
 
         for ch in 0..self.channels {
@@ -182,7 +208,10 @@ impl Processor {
 
                             if !is_active {
                                 // Drain hardware samples so the ring buffer does not back up.
+                                // Any carried partial frame is stale once we discard, so drop
+                                // it too; the next active chunk starts frame-aligned.
                                 while consumer.pop_slice(&mut dsp_state.transfer_buffer) > 0 {}
+                                dsp_state.pending = 0;
                                 thread::sleep(Duration::from_millis(100));
                                 was_active = false;
                                 continue;
@@ -197,8 +226,10 @@ impl Processor {
                             was_active = true;
 
                             // Drain the ringbuf, or sleep briefly when empty to avoid  spinning the CPU
-                            // with nothing to process.
-                            let samples = consumer.pop_slice(&mut dsp_state.transfer_buffer);
+                            // with nothing to process. New samples land after any carried
+                            // partial frame so processing stays frame-aligned.
+                            let samples = consumer
+                                .pop_slice(&mut dsp_state.transfer_buffer[dsp_state.pending..]);
                             if samples > 0 {
                                 dsp_state.process(samples);
                             } else if state.keep_running.load(Ordering::Acquire) {
@@ -219,6 +250,80 @@ impl Processor {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn make_state(channels: u16) -> (State, watch::Receiver<RawPayload>) {
+        let specs = Specs {
+            sample_rate: 48_000,
+            channels,
+        };
+        let (tx, rx) = watch::channel(RawPayload::new(
+            channels as usize,
+            crate::dsp::vocoder::VOCODER_BANDS,
+        ));
+        let state = State::new(specs, tx, &VocoderConfig::default());
+        (state, rx)
+    }
+
+    // A chunk ending mid-frame must not rotate channel alignment: the partial
+    // frame is carried, and the next chunk's samples continue from it.
+    #[test]
+    #[allow(clippy::float_cmp)]
+    fn process_carries_partial_frames_across_chunks() {
+        let (mut state, rx) = make_state(2);
+
+        // Stereo stream with constant per-channel levels: L=0.25, R=0.75.
+        // First chunk delivers 3 samples: one whole frame plus a dangling L.
+        state.transfer_buffer[..3].copy_from_slice(&[0.25, 0.75, 0.25]);
+        state.process(3);
+        assert_eq!(state.pending, 1);
+        assert_eq!(state.transfer_buffer[0], 0.25);
+
+        // Second chunk delivers the matching R plus one more frame, appended
+        // after the carried sample as the analyser loop does.
+        state.transfer_buffer[1..4].copy_from_slice(&[0.75, 0.25, 0.75]);
+        state.process(3);
+        assert_eq!(state.pending, 0);
+
+        // Without the carry, the second chunk would be read R-first and the
+        // channels would swap: L peak would report 0.75.
+        let payload = rx.borrow();
+        assert_eq!(payload.channels[0].peak, 0.25);
+        assert_eq!(payload.channels[1].peak, 0.75);
+    }
+
+    // A chunk smaller than one frame is carried in full and analysed only
+    // once enough samples arrive to complete a frame.
+    #[test]
+    #[allow(clippy::float_cmp)]
+    fn process_holds_back_sub_frame_chunks() {
+        let (mut state, rx) = make_state(2);
+
+        state.transfer_buffer[0] = 0.5;
+        state.process(1);
+        assert_eq!(state.pending, 1);
+        // Nothing analysed yet: the published payload is still the zeroed seed.
+        assert_eq!(rx.borrow().channels[0].peak, 0.0);
+
+        state.transfer_buffer[1] = 0.9;
+        state.process(1);
+        assert_eq!(state.pending, 0);
+        assert_eq!(rx.borrow().channels[0].peak, 0.5);
+        assert_eq!(rx.borrow().channels[1].peak, 0.9);
+    }
+
+    // The transfer buffer is frame-aligned even at rates where a 10 ms chunk
+    // is not: 22050 Hz stereo yields 441 samples, which must round up to 442.
+    #[test]
+    fn transfer_buffer_is_a_whole_frame_multiple() {
+        let specs = Specs {
+            sample_rate: 22_050,
+            channels: 2,
+        };
+        let (tx, _rx) = watch::channel(RawPayload::new(2, crate::dsp::vocoder::VOCODER_BANDS));
+        let state = State::new(specs, tx, &VocoderConfig::default());
+        assert_eq!(state.transfer_buffer.len() % 2, 0);
+        assert_eq!(state.transfer_buffer.len(), 442);
+    }
 
     // Mono buffer: every sample belongs to channel 0.
     #[test]

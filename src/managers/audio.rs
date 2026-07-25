@@ -3,9 +3,11 @@
 //! starting a stream, and [`Input::start_stream`], which binds the device to
 //! an SPSC ringbuf producer for the analyser.
 //!
-//! The stream callback pushes f32 frames to the analyser producer. Dropped
-//! analysis frames are intentionally tolerated as a missed frame is invisible
-//! to the user.
+//! The stream callback pushes f32 frames to the analyser producer. When the
+//! ring buffer is full, whole frames are dropped rather than partially
+//! committed: a torn frame would rotate the channel alignment of every
+//! subsequent frame the analyser reads, silently corrupting per-channel
+//! analysis, whereas a dropped whole frame is invisible to the user.
 //!
 //! [`Specs`] carries the hardware's native channel count and sample rate and
 //! is used throughout the pipeline for buffer sizing.
@@ -37,6 +39,21 @@ impl Specs {
         // Each as usize cast widens the u32/u16 inputs to 64-bit before the multiply.
         // Without that, 192000_u32 * 16_u32 * 3_600_000_u32 would overflow u32::MAX (4,294,967,295).
         (self.sample_rate as usize * self.channels as usize * ms as usize) / 1000
+    }
+
+    /// Like [`samples_for_ms`], rounded up to a whole frame multiple.
+    ///
+    /// Stride-based consumers (the analyser) and frame-writing producers (the
+    /// generator) require buffers whose length is a multiple of the channel
+    /// count, otherwise a chunk can end mid-frame and rotate the channel
+    /// alignment of everything that follows. `samples_for_ms` alone does not
+    /// guarantee this: 22050 Hz stereo at 10 ms yields 441 samples.
+    ///
+    /// [`samples_for_ms`]: Specs::samples_for_ms
+    #[must_use]
+    pub fn frame_aligned_samples_for_ms(&self, ms: u32) -> usize {
+        let channels = self.channels as usize;
+        self.samples_for_ms(ms).div_ceil(channels) * channels
     }
 }
 
@@ -111,22 +128,41 @@ pub struct StreamSink<P> {
 impl<P: Producer<Item = f32>> StreamSink<P> {
     /// Pushes audio data into the sink, applying the channel selection mode.
     ///
-    /// `hw_channels` is the total interleaved channel count from cpal. It is
-    /// only used in the `Selected` path to stride across frames.
+    /// `hw_channels` is the total interleaved channel count from cpal, used to
+    /// stride across frames in both modes.
     ///
-    /// Returns `true` if any sample could not be written to the ring buffer. In
-    /// the `All` path this means the slice was only partially accepted. In the
-    /// `Selected` path it means at least one `try_push` failed.
+    /// Only whole frames are ever committed. When the ring buffer cannot
+    /// accept a complete frame, that frame is dropped in its entirety: a
+    /// partially committed frame would rotate the channel alignment of every
+    /// subsequent frame the analyser reads. In the `All` path this means the
+    /// ring's item count stays a frame multiple; in the `Selected` path a
+    /// frame's worth is `indices.len()` items, not `hw_channels`.
+    ///
+    /// Returns `true` if any frame was dropped.
     pub fn push(&mut self, data: &[f32], hw_channels: usize) -> bool {
         match &self.mode {
-            ChannelMode::All => self.tx.push_slice(data) < data.len(),
+            ChannelMode::All => {
+                // Truncate both the input (defensively, cpal delivers whole
+                // frames) and the writable span to whole frame multiples.
+                let len = data.len() / hw_channels * hw_channels;
+                let writable = self.tx.vacant_len() / hw_channels * hw_channels;
+                let n = len.min(writable);
+                self.tx.push_slice(&data[..n]);
+                n < len
+            }
             ChannelMode::Selected(indices) => {
+                let per_frame = indices.len();
                 let mut dropped = false;
                 for frame in data.chunks_exact(hw_channels) {
+                    // All-or-nothing per frame. `vacant_len` is conservative
+                    // on the producer side (the consumer can only grow it),
+                    // so once it admits a frame the pushes cannot fail.
+                    if self.tx.vacant_len() < per_frame {
+                        dropped = true;
+                        continue;
+                    }
                     for &idx in indices {
-                        if self.tx.try_push(frame[idx as usize]).is_err() {
-                            dropped = true;
-                        }
+                        let _ = self.tx.try_push(frame[idx as usize]);
                     }
                 }
                 dropped
@@ -544,6 +580,29 @@ mod tests {
         check_samples_for_ms(176_400, 2, 1, 352);
     }
 
+    // Frame alignment: rates that divide evenly are unchanged, rates that
+    // land mid-frame round up to the next whole frame.
+    #[test]
+    fn frame_aligned_samples_for_ms_rounds_up_to_whole_frames() {
+        let aligned = |sample_rate, channels, ms| {
+            Specs {
+                channels,
+                sample_rate,
+            }
+            .frame_aligned_samples_for_ms(ms)
+        };
+
+        // Already frame multiples: unchanged.
+        assert_eq!(aligned(48_000, 2, 10), 960);
+        assert_eq!(aligned(44_100, 2, 10), 882);
+        assert_eq!(aligned(44_100, 6, 10), 2_646);
+
+        // 22050 Hz stereo at 10 ms is 441 samples, mid-frame: rounds to 442.
+        assert_eq!(aligned(22_050, 2, 10), 442);
+        // 22050 Hz 6ch at 10 ms is 1323 samples: rounds to 1326.
+        assert_eq!(aligned(22_050, 6, 10), 1_326);
+    }
+
     // 192 kHz, 16 channels, 1 hour. The intermediate product exceeds u32::MAX,
     // confirming the usize widening is necessary on 64-bit targets.
     #[test]
@@ -621,6 +680,29 @@ mod tests {
         sink.push(&[1.0, 2.0], 2);
         let dropped = sink.push(&[3.0, 4.0], 2);
         assert!(dropped);
+    }
+
+    // All mode never commits a partial frame: with room for 3 samples but
+    // 2-channel frames, only one whole frame goes in. A torn frame here would
+    // rotate the analyser's channel alignment for every later frame.
+    #[test]
+    fn push_all_commits_whole_frames_only() {
+        let (mut sink, c) = make_sink_with_consumer(3, ChannelMode::All);
+        let dropped = sink.push(&[1.0, 2.0, 3.0, 4.0], 2);
+        assert!(dropped);
+        assert_eq!(drain(c), &[1.0, 2.0]);
+    }
+
+    // Selected mode drops a frame entirely when the ring cannot hold all of
+    // that frame's selected samples, rather than committing part of it.
+    #[test]
+    fn push_selected_drops_whole_frames_when_short_of_space() {
+        // Room for 3 samples, 2 selected samples per frame: frame 1 fits,
+        // frame 2 must be dropped in full, not split.
+        let (mut sink, c) = make_sink_with_consumer(3, ChannelMode::Selected(Box::new([0, 1])));
+        let dropped = sink.push(&[1.0, 2.0, 3.0, 4.0], 2);
+        assert!(dropped);
+        assert_eq!(drain(c), &[1.0, 2.0]);
     }
 
     // Selected([0]) extracts only channel 0 from each frame of a 4-channel stream.
