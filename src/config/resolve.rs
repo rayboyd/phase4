@@ -115,16 +115,7 @@ fn resolve_config(args: &Args, file: FileConfig) -> Result<AppConfig, AppConfigE
         .or(file.vocoder.filter_q)
         .unwrap_or(voc_def.filter_q);
 
-    // Input resolution. Calibration flags take priority over a device name,
-    // and clap guarantees at most one calibration flag is set.
-    let input = if let Some(lfo_rate) = args.calibration.test_sweep {
-        ConfigInput::Calibration(TestSignal::Sweep(lfo_rate))
-    } else if let Some(hz) = args.calibration.test_hz {
-        ConfigInput::Calibration(TestSignal::FixedTone(hz))
-    } else {
-        ConfigInput::Device(raw_device.ok_or(AppConfigError::MissingDevice)?)
-    };
-
+    let input = resolve_input(args, raw_device, raw_channels.as_deref())?;
     let midi_input = resolve_midi_input(args, &file.midi)?;
 
     // Validation.
@@ -171,9 +162,46 @@ fn resolve_config(args: &Args, file: FileConfig) -> Result<AppConfig, AppConfigE
             filter_q,
         },
         broadcast_rate: Some(broadcast_rate),
-        analyse_channels: normalise_channel_selection(raw_channels.as_deref())?,
         controller_mode: args.runtime.controller_mode,
     })
+}
+
+/// Resolves the audio input intent. Calibration flags take priority over a
+/// device name, and clap guarantees at most one calibration flag is set.
+///
+/// The channel selection is validated eagerly in both branches (an empty
+/// selection is always a config error), but only the hardware variant
+/// carries it: the calibration generator writes a fixed stereo signal, so a
+/// selection has nothing to select from and is deliberately dropped with a
+/// note rather than silently mis-striding the analyser.
+fn resolve_input(
+    args: &Args,
+    raw_device: Option<String>,
+    raw_channels: Option<&[u16]>,
+) -> Result<ConfigInput, AppConfigError> {
+    let analyse_channels = normalise_channel_selection(raw_channels)?;
+
+    let calibration_signal = if let Some(lfo_rate) = args.calibration.test_sweep {
+        Some(TestSignal::Sweep(lfo_rate))
+    } else {
+        args.calibration.test_hz.map(TestSignal::FixedTone)
+    };
+
+    match calibration_signal {
+        Some(signal) => {
+            if analyse_channels.is_some() {
+                log::warn!(
+                    "Ignoring the analyse channel selection: calibration mode generates \
+                     its own signal, all generated channels are analysed"
+                );
+            }
+            Ok(ConfigInput::Calibration(signal))
+        }
+        None => Ok(ConfigInput::Device {
+            name: raw_device.ok_or(AppConfigError::MissingDevice)?,
+            analyse_channels,
+        }),
+    }
 }
 
 /// Deduplicates and sorts a channel index slice, returning `None` when the
@@ -235,7 +263,7 @@ mod tests {
         let config = AppConfig::try_from(&args).unwrap();
         assert!(matches!(
             config.input,
-            ConfigInput::Device(ref name) if name == "Focusrite 2i2"
+            ConfigInput::Device { ref name, .. } if name == "Focusrite 2i2"
         ));
     }
 
@@ -394,22 +422,57 @@ mod tests {
         assert!(matches!(result, Err(AppConfigError::EmptyChannelSelection)));
     }
 
+    /// Extracts the channel selection from a hardware input, panicking on a
+    /// calibration input. Tests asserting on the selection only make sense
+    /// against the `Device` variant, which is the only place it can live.
+    fn device_channels(config: &AppConfig) -> Option<&[u16]> {
+        match &config.input {
+            ConfigInput::Device {
+                analyse_channels, ..
+            } => analyse_channels.as_deref(),
+            ConfigInput::Calibration(_) => panic!("expected a hardware input"),
+        }
+    }
+
     #[test]
     fn try_from_normalises_channel_selection() {
         let mut args = args_with_device(Some("test"));
         args.input.audio_analyse_channels = Some(vec![3, 1, 1, 0]);
         let config = AppConfig::try_from(&args).unwrap();
-        assert_eq!(
-            config.analyse_channels.as_deref(),
-            Some([0u16, 1, 3].as_slice())
-        );
+        assert_eq!(device_channels(&config), Some([0u16, 1, 3].as_slice()));
     }
 
     #[test]
     fn try_from_defaults_channel_selection_to_none() {
         let args = args_with_device(Some("test"));
         let config = AppConfig::try_from(&args).unwrap();
-        assert!(config.analyse_channels.is_none());
+        assert!(device_channels(&config).is_none());
+    }
+
+    // Calibration mode generates its own signal, so a channel selection has
+    // nothing to select from: it is dropped (with a logged note), and the
+    // resolved input is a plain calibration variant with no way to carry it.
+    #[test]
+    fn calibration_mode_drops_channel_selection() {
+        let mut args = args_with_device(None);
+        args.calibration.test_hz = Some(440.0);
+        args.input.audio_analyse_channels = Some(vec![0, 3]);
+        let config = AppConfig::try_from(&args).unwrap();
+        assert_eq!(
+            config.input,
+            ConfigInput::Calibration(TestSignal::FixedTone(440.0))
+        );
+    }
+
+    // An empty selection is a config error in every mode: it is validated
+    // eagerly, before the calibration branch discards the selection.
+    #[test]
+    fn calibration_mode_still_rejects_empty_channel_selection() {
+        let mut args = args_with_device(None);
+        args.calibration.test_hz = Some(440.0);
+        args.input.audio_analyse_channels = Some(vec![]);
+        let result = AppConfig::try_from(&args);
+        assert!(matches!(result, Err(AppConfigError::EmptyChannelSelection)));
     }
 
     #[test]
@@ -498,7 +561,7 @@ mod tests {
         let config = resolve_config(&args, file).unwrap();
         assert!(matches!(
             config.input,
-            ConfigInput::Device(ref name) if name == "Focusrite 2i2"
+            ConfigInput::Device { ref name, .. } if name == "Focusrite 2i2"
         ));
     }
 

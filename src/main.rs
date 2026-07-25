@@ -82,7 +82,7 @@ fn main() -> Result<()> {
         OutputConfig::WebSocket { .. } => None,
     });
 
-    let mut app = match App::new(config) {
+    let mut app = match App::new(&config) {
         Ok(app) => app,
         Err(e) => {
             emitter.emit(&Event::Fatal {

@@ -101,7 +101,7 @@ impl App {
     /// # Panics
     ///
     /// Panics if worker thread startup fails internally.
-    pub fn new(config: AppConfig) -> Result<Self> {
+    pub fn new(config: &AppConfig) -> Result<Self> {
         let bootstrapped = bootstrap(config)?;
         let controller_state = Arc::clone(&bootstrapped.state);
 

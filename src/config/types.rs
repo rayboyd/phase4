@@ -27,13 +27,25 @@ pub enum TestSignal {
 /// The resolved input intent, built exactly once in `resolve_config`. Replaces
 /// the loose `device_name_match`, `test_hz`, and `test_sweep` fields so that
 /// hardware mode without a device name is unrepresentable.
+///
+/// The analyser channel selection lives on the `Device` variant, not on
+/// `AppConfig`: it only means something against real hardware channels, and
+/// carrying it here makes "calibration mode with a channel selection"
+/// unrepresentable rather than silently mis-striding the generator's output.
 #[derive(Debug, Clone, PartialEq)]
 pub enum ConfigInput {
     /// Synthetic calibration signal, no hardware involved.
     Calibration(TestSignal),
 
     /// Hardware device resolved by name match (exact first, then substring).
-    Device(String),
+    Device {
+        /// Device name query, matched exactly first, then as a substring.
+        name: String,
+
+        /// Sorted, deduplicated hardware channel indices for the analyser.
+        /// None means forward all channels.
+        analyse_channels: Option<Box<[u16]>>,
+    },
 }
 
 /// The resolved MIDI input intent, independent of the audio `ConfigInput`, both
@@ -218,10 +230,6 @@ pub struct AppConfig {
     /// direct struct construction in tests.
     pub broadcast_rate: Option<f32>,
 
-    /// Sorted, deduplicated hardware channel indices for the analyser.
-    /// None means forward all channels.
-    pub analyse_channels: Option<Box<[u16]>>,
-
     /// How phase4 waits for a shutdown signal.
     pub controller_mode: ControllerMode,
 }
@@ -243,7 +251,6 @@ impl Default for AppConfig {
             midi_input: None,
             vocoder_config: VocoderConfig::default(),
             broadcast_rate: Some(DEFAULT_BROADCAST_RATE_HZ),
-            analyse_channels: None,
             controller_mode: ControllerMode::Term,
         }
     }

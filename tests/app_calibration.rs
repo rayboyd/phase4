@@ -39,7 +39,7 @@ fn app_new_returns_error_on_port_collision() {
         ..AppConfig::default()
     };
 
-    let result = App::new(config);
+    let result = App::new(&config);
 
     // Verify it returns an error cleanly.
     assert!(
@@ -61,7 +61,7 @@ fn app_new_succeeds_in_calibration_mode() {
         ..AppConfig::default()
     };
 
-    let result = App::new(config);
+    let result = App::new(&config);
     assert!(result.is_ok(), "App::new() failed: {:?}", result.err());
 
     // When `app` drops here, the `Drop` impl signals all threads to stop
@@ -78,7 +78,7 @@ fn app_exposes_the_actually_bound_ws_port_not_the_configured_zero() {
         ..AppConfig::default()
     };
 
-    let app = App::new(config).expect("App::new() failed in calibration mode");
+    let app = App::new(&config).expect("App::new() failed in calibration mode");
     let bound_addr = app.ws_bound_addr().expect("WebSocket output is configured");
 
     assert_ne!(bound_addr.port(), 0, "expected the real bound port");
@@ -93,7 +93,7 @@ fn app_new_succeeds_with_sweep() {
         ..AppConfig::default()
     };
 
-    let result = App::new(config);
+    let result = App::new(&config);
     assert!(result.is_ok(), "App::new() failed: {:?}", result.err());
 }
 
@@ -115,7 +115,7 @@ async fn drop_joins_all_threads_within_deadline() {
                 ..AppConfig::default()
             };
 
-            let app = App::new(config).expect("App::new() failed in calibration mode");
+            let app = App::new(&config).expect("App::new() failed in calibration mode");
             drop(app);
         }),
     )

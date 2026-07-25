@@ -73,6 +73,12 @@ struct State {
 
     /// One vocoder analyser per channel, same order as `channels`.
     analysers: Vec<VocoderAnalyser>,
+
+    /// Whether the dropped-mapper warning has been logged. A watch receiver
+    /// never comes back once dropped, so this latches: one line instead of
+    /// one per analysis frame (~100 Hz), matching the once-per-streak
+    /// logging discipline used by the output workers.
+    mapper_gone_logged: bool,
 }
 
 impl State {
@@ -96,6 +102,7 @@ impl State {
             frame_data,
             raw_tx,
             analysers,
+            mapper_gone_logged: false,
         }
     }
 
@@ -132,7 +139,12 @@ impl State {
         }
 
         if self.raw_tx.is_closed() {
-            log::warn!("Mapper receiver has dropped, analysis frames will be discarded");
+            if !self.mapper_gone_logged {
+                log::warn!(
+                    "Mapper receiver has dropped, analysis frames will be discarded from here on"
+                );
+                self.mapper_gone_logged = true;
+            }
             return;
         }
 
