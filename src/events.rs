@@ -8,6 +8,7 @@
 //! startup can fail into the closed [`FatalReason`] enum.
 
 use crate::config::AppConfigError;
+use crate::managers::audio::DeviceError;
 use crate::EventFormat;
 use serde::Serialize;
 use std::io::Write;
@@ -62,6 +63,12 @@ struct Envelope<'a> {
 /// check keeps stdout byte-for-byte silent without `--stdout-events`.
 pub struct Emitter {
     enabled: bool,
+
+    /// Latched on the first stdout write failure; further emits become
+    /// no-ops. The realistic failure is EPIPE, the wrapper holding the read
+    /// end died, so there is nobody left to receive events and nothing to
+    /// gain from panicking: the process still exits normally via stdin EOF.
+    failed: std::sync::atomic::AtomicBool,
 }
 
 impl Emitter {
@@ -71,20 +78,23 @@ impl Emitter {
     pub fn new(format: Option<EventFormat>) -> Self {
         Self {
             enabled: format.is_some(),
+            failed: std::sync::atomic::AtomicBool::new(false),
         }
     }
 
     /// Serialises `event`, writes it as one line to stdout, and flushes.
     ///
+    /// A write or flush failure is logged once and latches the emitter off;
+    /// it does not panic or otherwise interrupt shutdown.
+    ///
     /// # Panics
     ///
-    /// Panics if serialisation or the stdout write fails. Serialisation of
-    /// these types cannot fail in practice (no maps, no non-finite floats),
-    /// and a stdout write failure here is treated the same as the codebase's
-    /// existing `println!` call sites: a programmer/environment error, not a
-    /// recoverable condition.
+    /// Panics if serialisation fails, which cannot happen in practice for
+    /// these types (no maps, no non-finite floats).
     pub fn emit(&self, event: &Event) {
-        if !self.enabled {
+        use std::sync::atomic::Ordering;
+
+        if !self.enabled || self.failed.load(Ordering::Relaxed) {
             return;
         }
 
@@ -94,9 +104,17 @@ impl Emitter {
         };
         let json = serde_json::to_string(&envelope).expect("event serialisation cannot fail");
 
+        if let Err(error) = Self::write_line(&json) {
+            self.failed.store(true, Ordering::Relaxed);
+            log::warn!("Failed writing event to stdout, further events are disabled: {error}");
+        }
+    }
+
+    /// Writes one NDJSON line to stdout and flushes it.
+    fn write_line(json: &str) -> std::io::Result<()> {
         let mut stdout = std::io::stdout().lock();
-        writeln!(stdout, "{json}").expect("failed writing event to stdout");
-        stdout.flush().expect("failed flushing stdout");
+        writeln!(stdout, "{json}")?;
+        stdout.flush()
     }
 }
 
@@ -131,13 +149,16 @@ pub fn map_config_error(e: &AppConfigError) -> FatalReason {
     }
 }
 
-/// Distinctive substring shared by every device-resolution failure message
-/// in `Input::get_device` (src/managers/audio.rs): the empty-query check,
-/// the no-match error, and the non-f32 sample format error. None of these
-/// errors are typed, so this is the only handle available to classify them
-/// without over-fitting a distinction (not-found vs unsupported) the error
-/// type doesn't actually carry.
-const DEVICE_RESOLUTION_MARKER: &str = "--audio-list";
+/// Maps every [`DeviceError`] variant to a [`FatalReason`].
+///
+/// Exhaustive on purpose, matching `map_config_error`: a new `DeviceError`
+/// variant forces a mapping decision here.
+fn map_device_error(e: &DeviceError) -> FatalReason {
+    match e {
+        DeviceError::EmptyQuery | DeviceError::NoMatch { .. } => FatalReason::DeviceNotFound,
+        DeviceError::UnsupportedFormat { .. } => FatalReason::DeviceUnsupported,
+    }
+}
 
 /// Classifies an `App::new` startup failure into a [`FatalReason`] by
 /// walking its error chain.
@@ -145,8 +166,9 @@ const DEVICE_RESOLUTION_MARKER: &str = "--audio-list";
 /// Checks, in order: an `io::Error` with `AddrInUse` anywhere in the chain
 /// (a WebSocket bind failure), an `AppConfigError` anywhere in the chain
 /// (bootstrap re-validation, e.g. channel index or Nyquist checks), then a
-/// device-resolution failure by message marker. Anything else falls back to
-/// `startup_failed`, the closed-enum contract's deliberate escape hatch.
+/// typed [`DeviceError`] (device resolution and stream start). Anything
+/// else falls back to `startup_failed`, the closed-enum contract's
+/// deliberate escape hatch.
 #[must_use]
 pub fn map_startup_error(e: &anyhow::Error) -> FatalReason {
     for cause in e.chain() {
@@ -160,8 +182,8 @@ pub fn map_startup_error(e: &anyhow::Error) -> FatalReason {
             return map_config_error(config_err);
         }
 
-        if cause.to_string().contains(DEVICE_RESOLUTION_MARKER) {
-            return FatalReason::DeviceNotFound;
+        if let Some(device_err) = cause.downcast_ref::<DeviceError>() {
+            return map_device_error(device_err);
         }
     }
 
@@ -372,13 +394,30 @@ mod tests {
     }
 
     #[test]
-    fn map_startup_error_detects_device_resolution_failures() {
-        let err = anyhow::anyhow!(
-            "No input device matched \"Duet 3\". phase4 will not fall back to the \
-             system default. Run with --audio-list to see available devices."
-        );
+    fn map_startup_error_maps_no_match_to_device_not_found() {
+        let err = anyhow::Error::new(DeviceError::NoMatch {
+            query: "Duet 3".to_string(),
+        })
+        .context("Failed to resolve audio input device");
 
         assert_eq!(map_startup_error(&err), FatalReason::DeviceNotFound);
+    }
+
+    #[test]
+    fn map_startup_error_maps_empty_query_to_device_not_found() {
+        let err = anyhow::Error::new(DeviceError::EmptyQuery);
+
+        assert_eq!(map_startup_error(&err), FatalReason::DeviceNotFound);
+    }
+
+    #[test]
+    fn map_startup_error_maps_unsupported_format_to_device_unsupported() {
+        let err = anyhow::Error::new(DeviceError::UnsupportedFormat {
+            format: "I16".to_string(),
+        })
+        .context("Failed to start hardware input stream");
+
+        assert_eq!(map_startup_error(&err), FatalReason::DeviceUnsupported);
     }
 
     #[test]
