@@ -10,7 +10,7 @@ Phase4 streams real-time audio analysis data as a JSON broadcast. Any tool capab
 - **Protocol:** Standard WebSocket
 - **Format:** JSON (UTF-8)
 
-> Note: If you run Phase4 with the `--no-browser-origin` flag, standard browser-based connections will be rejected.
+> Running Phase4 with the `--no-browser-origin` flag rejects standard browser-based connections.
 
 The listen address can be set persistently in `config.yaml` to avoid passing it on every invocation. `--no-browser-origin` is CLI-only.
 

@@ -171,7 +171,7 @@ fn resolve_config(args: &Args, file: FileConfig) -> Result<AppConfig, AppConfigE
 ///
 /// The channel selection is validated eagerly in both branches (an empty
 /// selection is always a config error), but only the hardware variant
-/// carries it: the calibration generator writes a fixed stereo signal, so a
+/// carries it. The calibration generator writes a fixed stereo signal, so a
 /// selection has nothing to select from and is deliberately dropped with a
 /// note rather than silently mis-striding the analyser.
 fn resolve_input(
@@ -191,7 +191,7 @@ fn resolve_input(
         Some(signal) => {
             if analyse_channels.is_some() {
                 log::warn!(
-                    "Ignoring the analyse channel selection: calibration mode generates \
+                    "Ignoring the analyse channel selection. Calibration mode generates \
                      its own signal, all generated channels are analysed"
                 );
             }
@@ -450,7 +450,7 @@ mod tests {
     }
 
     // Calibration mode generates its own signal, so a channel selection has
-    // nothing to select from: it is dropped (with a logged note), and the
+    // nothing to select from. It is dropped (with a logged note), and the
     // resolved input is a plain calibration variant with no way to carry it.
     #[test]
     fn calibration_mode_drops_channel_selection() {
@@ -464,7 +464,7 @@ mod tests {
         );
     }
 
-    // An empty selection is a config error in every mode: it is validated
+    // An empty selection is a config error in every mode. It is validated
     // eagerly, before the calibration branch discards the selection.
     #[test]
     fn calibration_mode_still_rejects_empty_channel_selection() {

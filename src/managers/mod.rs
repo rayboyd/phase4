@@ -1,14 +1,13 @@
 //! Each submodule owns a distinct stage of the processing pipeline and exposes
 //! a type that is re-exported here for use by [`crate::app`].
 //!
-//! Submodules:
-//! - [`analyser`]: DSP analysis thread consuming the analyse ringbuf.
-//! - [`audio`]: CPAL audio input device and stream management.
-//! - [`generator`]: Synthetic signal generator for calibration mode.
-//! - [`mapper`]: Display payload mapper reducing raw vocoder bins to [`crate::dsp::DISPLAY_BINS`] bins.
-//! - [`midi`]: MIDI input listener writing transport and clock state atomics.
-//! - [`osc`]: OSC UDP sender broadcasting bin values to a configured target address.
-//! - [`server`]: WebSocket server broadcasting pre-serialised JSON to clients.
+//! [`analyser`] runs the DSP analysis thread consuming the analyse ringbuf.
+//! [`audio`] manages the CPAL audio input device and stream. [`generator`]
+//! produces the synthetic signal for calibration mode. [`mapper`] reduces
+//! raw vocoder bins to [`crate::dsp::DISPLAY_BINS`] display bins. [`midi`]
+//! listens to MIDI input and writes transport and clock state atomics.
+//! [`osc`] broadcasts bin values over UDP to a configured target address.
+//! [`server`] broadcasts pre-serialised JSON to WebSocket clients.
 
 use std::future::Future;
 use std::thread::{self, JoinHandle};

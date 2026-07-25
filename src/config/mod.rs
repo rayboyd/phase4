@@ -1,12 +1,11 @@
-//! Configuration: types, resolution, and validation.
+//! Configuration types, resolution, and validation.
 //!
-//! Submodules:
-//! - [`types`]: config types and errors, [`AppConfig`], [`AppConfigError`],
-//!   and the resolved and file-layer structs each field passes through.
-//! - [`resolve`]: merges the CLI, file, and default layers into an
-//!   [`AppConfig`].
-//! - [`validate`]: standalone validation, each function takes
-//!   already-resolved values and returns `Result<(), AppConfigError>`.
+//! [`types`] holds the config types and errors, [`AppConfig`],
+//! [`AppConfigError`], and the resolved and file-layer structs each field
+//! passes through. [`resolve`] merges the CLI, file, and default layers
+//! into an [`AppConfig`]. [`validate`] holds standalone validation, where
+//! each function takes already-resolved values and returns
+//! `Result<(), AppConfigError>`.
 
 mod resolve;
 mod types;

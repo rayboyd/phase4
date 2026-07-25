@@ -54,7 +54,7 @@ When MIDI input is configured (`--midi-device` or `--test-midi-clock`), the OSC 
 | `/phase4/midi/stop`     | `i`  | `1`   | Sent only on the frame a Stop transport event fired.                         |
 | `/phase4/midi/continue` | `i`  | `1`   | Sent only on the frame a Continue transport event fired.                     |
 
-`/phase4/midi/steps` behaves like the bin addresses: it is sent every frame, and clients detect new steps by comparing the current value to the previous frame. The three transport addresses instead follow an event model: each carries a conventional bang value (`1`) and is only sent on the frame its event actually happened, so an OSC In CHOP channel bound to `/phase4/midi/start` only receives a message when playback starts.
+`/phase4/midi/steps` behaves like the bin addresses. It is sent every frame, and clients detect new steps by comparing the current value to the previous frame. The three transport addresses instead follow an event model, each carrying a conventional bang value (`1`) that is only sent on the frame its event actually happened, so an OSC In CHOP channel bound to `/phase4/midi/start` only receives a message when playback starts.
 
 When MIDI input is not configured, none of these four addresses are ever sent.
 

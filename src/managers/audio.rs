@@ -1,12 +1,12 @@
-//! [`Input`] wraps a `cpal::Stream` and provides two methods:
-//! [`Input::get_device`], which queries the hardware configuration without
-//! starting a stream, and [`Input::start_stream`], which binds the device to
+//! [`Input`] wraps a `cpal::Stream` and provides two methods.
+//! [`Input::get_device`] queries the hardware configuration without
+//! starting a stream, and [`Input::start_stream`] binds the device to
 //! an SPSC ringbuf producer for the analyser.
 //!
 //! The stream callback pushes f32 frames to the analyser producer. When the
 //! ring buffer is full, whole frames are dropped rather than partially
-//! committed: a torn frame would rotate the channel alignment of every
-//! subsequent frame the analyser reads, silently corrupting per-channel
+//! committed. A torn frame would rotate the channel alignment of every
+//! subsequent frame the analyser reads and silently corrupt per-channel
 //! analysis, whereas a dropped whole frame is invisible to the user.
 //!
 //! [`Specs`] carries the hardware's native channel count and sample rate and
@@ -26,8 +26,8 @@ use std::sync::Arc;
 /// sniffing. `UnsupportedFormat` maps to the `device_unsupported` fatal
 /// reason; the other variants map to `device_not_found`.
 ///
-/// Message texts are part of the user-facing (not machine-read) surface:
-/// each one names the fix and points at `--audio-list`.
+/// Message texts are part of the user-facing (not machine-read) surface.
+/// Each one names the fix and points at `--audio-list`.
 #[derive(Debug, thiserror::Error)]
 pub enum DeviceError {
     /// The device query was empty or whitespace-only.
@@ -76,7 +76,7 @@ impl Specs {
     /// generator) require buffers whose length is a multiple of the channel
     /// count, otherwise a chunk can end mid-frame and rotate the channel
     /// alignment of everything that follows. `samples_for_ms` alone does not
-    /// guarantee this: 22050 Hz stereo at 10 ms yields 441 samples.
+    /// guarantee this. 22050 Hz stereo at 10 ms yields 441 samples.
     ///
     /// [`samples_for_ms`]: Specs::samples_for_ms
     #[must_use]
@@ -161,7 +161,7 @@ impl<P: Producer<Item = f32>> StreamSink<P> {
     /// stride across frames in both modes.
     ///
     /// Only whole frames are ever committed. When the ring buffer cannot
-    /// accept a complete frame, that frame is dropped in its entirety: a
+    /// accept a complete frame, that frame is dropped in its entirety. A
     /// partially committed frame would rotate the channel alignment of every
     /// subsequent frame the analyser reads. In the `All` path this means the
     /// ring's item count stays a frame multiple; in the `Selected` path a
@@ -342,10 +342,10 @@ impl Input {
 
     /// Retrieves a concrete handle to the device and its default configuration.
     ///
-    /// Resolution attempts two matching strategies in order:
-    /// 1. Exact match: picks the first device whose name matches `name_query` exactly.
-    /// 2. Fuzzy match: if no exact match, picks the first device whose name contains
-    ///    `name_query` as a case-insensitive substring.
+    /// Resolution attempts two matching strategies in order. The first
+    /// device whose name matches `name_query` exactly wins. Failing that,
+    /// the first device whose name contains `name_query` as a
+    /// case-insensitive substring wins.
     ///
     /// If neither strategy matches, an error is returned. There is no fallback to the
     /// system default input device, as in a professional audio setup it may be a live
@@ -376,19 +376,19 @@ impl Input {
                 .description()
                 .map_or_else(|_| "Unknown Device".to_string(), |d| d.name().to_string());
 
-            // Tier 1: exact name match.
+            // An exact name match wins immediately.
             if name == name_query {
                 log::info!("Audio device resolved (exact match): {name}");
                 return Self::build_device_specs(device);
             }
 
-            // Tier 2: record the first case-insensitive substring match.
+            // Record the first case-insensitive substring match as a fallback.
             if fuzzy_candidate.is_none() && name.to_lowercase().contains(&query_lower) {
                 fuzzy_candidate = Some(device);
             }
         }
 
-        // Tier 2: use the fuzzy candidate if one was found.
+        // Fall back to the recorded substring match if one was found.
         if let Some(device) = fuzzy_candidate {
             let name = device
                 .description()
@@ -397,8 +397,9 @@ impl Input {
             return Self::build_device_specs(device);
         }
 
-        // No default fallback: in a professional audio setup the system default may be
-        // a live input, so silently capturing it is unsafe. Device selection must be explicit.
+        // There is deliberately no fallback to the system default input. In a
+        // professional audio setup it may be a live input, and silently capturing
+        // it would be unsafe. Device selection must be explicit.
         Err(DeviceError::NoMatch {
             query: name_query.to_string(),
         }
@@ -605,8 +606,8 @@ mod tests {
         check_samples_for_ms(176_400, 2, 1, 352);
     }
 
-    // Frame alignment: rates that divide evenly are unchanged, rates that
-    // land mid-frame round up to the next whole frame.
+    // Rates that divide evenly are unchanged; rates that land mid-frame
+    // round up to the next whole frame.
     #[test]
     fn frame_aligned_samples_for_ms_rounds_up_to_whole_frames() {
         let aligned = |sample_rate, channels, ms| {
@@ -617,14 +618,14 @@ mod tests {
             .frame_aligned_samples_for_ms(ms)
         };
 
-        // Already frame multiples: unchanged.
+        // Counts already on a frame boundary pass through unchanged.
         assert_eq!(aligned(48_000, 2, 10), 960);
         assert_eq!(aligned(44_100, 2, 10), 882);
         assert_eq!(aligned(44_100, 6, 10), 2_646);
 
-        // 22050 Hz stereo at 10 ms is 441 samples, mid-frame: rounds to 442.
+        // 22050 Hz stereo at 10 ms is 441 samples, mid-frame, and rounds up to 442.
         assert_eq!(aligned(22_050, 2, 10), 442);
-        // 22050 Hz 6ch at 10 ms is 1323 samples: rounds to 1326.
+        // 22050 Hz 6ch at 10 ms is 1323 samples and rounds up to 1326.
         assert_eq!(aligned(22_050, 6, 10), 1_326);
     }
 
@@ -707,7 +708,7 @@ mod tests {
         assert!(dropped);
     }
 
-    // All mode never commits a partial frame: with room for 3 samples but
+    // All mode never commits a partial frame. With room for 3 samples but
     // 2-channel frames, only one whole frame goes in. A torn frame here would
     // rotate the analyser's channel alignment for every later frame.
     #[test]
@@ -722,8 +723,8 @@ mod tests {
     // that frame's selected samples, rather than committing part of it.
     #[test]
     fn push_selected_drops_whole_frames_when_short_of_space() {
-        // Room for 3 samples, 2 selected samples per frame: frame 1 fits,
-        // frame 2 must be dropped in full, not split.
+        // With room for 3 samples and 2 selected samples per frame, frame 1
+        // fits and frame 2 must be dropped in full, not split.
         let (mut sink, c) = make_sink_with_consumer(3, ChannelMode::Selected(Box::new([0, 1])));
         let dropped = sink.push(&[1.0, 2.0, 3.0, 4.0], 2);
         assert!(dropped);
@@ -733,7 +734,7 @@ mod tests {
     // Selected([0]) extracts only channel 0 from each frame of a 4-channel stream.
     #[test]
     fn push_selected_extracts_first_channel() {
-        // 2 frames * 4 channels: [ch0, ch1, ch2, ch3, ch0, ch1, ch2, ch3]
+        // 2 frames * 4 channels, interleaved as [ch0, ch1, ch2, ch3, ch0, ch1, ch2, ch3].
         let data = [1.0_f32, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0];
         let (mut sink, c) = make_sink_with_consumer(16, ChannelMode::Selected(Box::new([0])));
         let dropped = sink.push(&data, 4);
@@ -775,10 +776,10 @@ mod tests {
     }
 
     // Remainder samples (data.len() not a multiple of hw_channels) are silently ignored.
-    // This is cpal's contract: the callback always delivers complete frames.
+    // cpal's contract guarantees the callback always delivers complete frames.
     #[test]
     fn push_selected_ignores_partial_trailing_frame() {
-        // 9 samples with hw_channels=4: 2 full frames + 1 orphan sample.
+        // 9 samples with hw_channels=4 is 2 full frames plus 1 orphan sample.
         let data = [1.0_f32, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0];
         let (mut sink, c) = make_sink_with_consumer(16, ChannelMode::Selected(Box::new([0])));
         sink.push(&data, 4);

@@ -119,7 +119,7 @@ fn ready_event_carries_the_real_bound_port_and_precedes_a_clean_exit() {
         panic!("should be able to connect to the bound ws_addr {ws_addr}: {e}")
     });
 
-    // Close stdin: the wrapper contract's stop signal in headless mode.
+    // Closing stdin is the wrapper contract's stop signal in headless mode.
     drop(child.stdin.take());
 
     let status = wait_with_timeout(&mut child, WAIT_TIMEOUT);
