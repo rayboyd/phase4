@@ -43,6 +43,14 @@ All OSC message structures (addresses and argument slots) are built once before 
 
 The bin count is set at compile time. The default is 32 bins. See [compile.md](compile.md) for how to change it.
 
+## Noise Floor
+
+Bin values reach exactly `0.0` only when the input is digitally silent. Any device with a live analogue input stage has a noise floor, so with nothing playing the bins still carry small non-zero values, typically between -90 and -100 dBFS (roughly `0.00001` to `0.00003`).
+
+This is hardware behaviour, not an artefact of the analysis. Patches that map bin values to a fixed range can ignore it. It matters as soon as anything normalises or auto-gains, because during silence the running maximum collapses to the noise floor and every bin normalises to near full scale.
+
+Apply an absolute floor before any normalisation, starting around `0.0001` (-80 dBFS). See [Noise Floor](websockets.md#noise-floor) in the WebSocket API documentation for the full explanation and the reasoning behind that value.
+
 ## MIDI Address Scheme
 
 When MIDI input is configured (`--midi-device` or `--test-midi-clock`), the OSC sender also transmits four additional addresses alongside the bin data:
