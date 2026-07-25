@@ -2,11 +2,11 @@ use anyhow::Result;
 use clap::Parser;
 use phase4::app::App;
 use phase4::config::{AppConfig, OutputConfig};
-use phase4::events::{map_config_error, map_startup_error, Emitter, Event};
+use phase4::events::{map_config_error, map_startup_error, Emitter, Event, FatalReason};
 use phase4::managers::audio::Input;
 use phase4::managers::MidiListener;
 use phase4::{Args, ControllerMode};
-use std::io::Write;
+use std::io::{IsTerminal, Write};
 
 /// Returns the line ending appended to each log line for the given controller mode.
 ///
@@ -60,6 +60,22 @@ fn main() -> Result<()> {
             std::process::exit(1);
         }
     };
+
+    // Term mode drives the keyboard through the terminal. Without a TTY it
+    // would start the entire pipeline, then fail inside raw-mode setup with a
+    // cryptic OS error (ENXIO) surfaced only after shutdown. Catch the
+    // mismatch here, before any hardware is opened or ports are bound.
+    // Controller mode itself stays explicit: this never switches modes.
+    if matches!(config.controller_mode, ControllerMode::Term) && !std::io::stdin().is_terminal() {
+        let detail = "Term mode requires an interactive terminal, but stdin is not a TTY. \
+                      Pass --controller-mode headless when running under a pipe or wrapper.";
+        emitter.emit(&Event::Fatal {
+            reason: FatalReason::InvalidConfig,
+            detail: detail.to_string(),
+        });
+        log::error!("{detail}");
+        std::process::exit(1);
+    }
 
     let osc_addr = config.outputs.iter().find_map(|output| match output {
         OutputConfig::Osc { addr } => Some(*addr),

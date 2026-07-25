@@ -97,7 +97,8 @@ impl Generator {
                 let mut lfo_phase = 0.0f32;
 
                 let chunk_duration = Duration::from_millis(u64::from(CHUNK_MS));
-                let mut buffer = vec![0.0f32; specs.samples_for_ms(CHUNK_MS)];
+                let mut buffer = vec![0.0f32; specs.frame_aligned_samples_for_ms(CHUNK_MS)];
+                let channels = specs.channels as usize;
                 let mut deadline = Instant::now() + chunk_duration;
 
                 while state.keep_running.load(Ordering::Acquire) {
@@ -110,8 +111,13 @@ impl Generator {
                         specs.channels,
                     );
 
-                    // Intentionally lossy. This is just a test signal.
-                    let _ = analyse_tx.push_slice(&buffer);
+                    // Intentionally lossy, this is just a test signal, but only
+                    // whole frames are committed: a torn frame in a full ring
+                    // would rotate the analyser's channel alignment (see the
+                    // audio module docs).
+                    let writable = analyse_tx.vacant_len() / channels * channels;
+                    let n = buffer.len().min(writable);
+                    let _ = analyse_tx.push_slice(&buffer[..n]);
 
                     // Sleep only the remaining time until the next deadline to absorb
                     // scheduling jitter and keep the long-term sample rate accurate.
