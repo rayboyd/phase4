@@ -206,6 +206,53 @@ fn fatal_event_reports_invalid_config_for_a_missing_config_file() {
     assert_no_further_lines(&rx);
 }
 
+// Term mode (the default) requires a TTY on stdin. Under piped stdio it must
+// fail fast with an actionable fatal event, before opening any hardware,
+// rather than starting the pipeline and dying in raw-mode setup with a
+// cryptic OS error after shutdown.
+#[test]
+fn fatal_event_reports_invalid_config_when_term_mode_has_no_tty() {
+    let mut child = spawn_phase4(&[
+        "--stdout-events",
+        "json",
+        "--test-hz",
+        "440",
+        "--ws-addr",
+        "127.0.0.1:0",
+    ]);
+    let stdout = child.stdout.take().expect("stdout should be piped");
+    let (rx, reader_handle) = spawn_line_reader(stdout);
+
+    let first_line = rx
+        .recv_timeout(WAIT_TIMEOUT)
+        .expect("expected a fatal line on stdout");
+    let event: Value = serde_json::from_str(&first_line).expect("stdout line should be valid JSON");
+
+    assert_eq!(event["v"], 1);
+    assert_eq!(event["event"], "fatal");
+    assert_eq!(event["reason"], "invalid_config");
+    assert!(
+        event["detail"]
+            .as_str()
+            .expect("detail should be a string")
+            .contains("--controller-mode headless"),
+        "detail should point the user at headless mode: {}",
+        event["detail"]
+    );
+
+    drop(child.stdin.take());
+    let status = wait_with_timeout(&mut child, WAIT_TIMEOUT);
+    assert!(
+        !status.success(),
+        "term mode without a TTY must exit non-zero"
+    );
+
+    reader_handle
+        .join()
+        .expect("stdout reader thread should not panic");
+    assert_no_further_lines(&rx);
+}
+
 #[test]
 fn stdout_stays_silent_without_the_flag_on_a_clean_run() {
     let mut child = spawn_phase4(&[
