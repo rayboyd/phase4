@@ -37,3 +37,15 @@ stdout-events review.
   `docs/tutorials/wrapper.md` as unsupported (stdin close is the shutdown
   path). Revisit only if a real deployment needs signal-driven shutdown,
   e.g. running under a process supervisor that can't hold a pipe.
+
+## Related, separate repo (phase4-macos wrapper)
+
+Tracked in the wrapper repo, listed here because they consume phase4's wire
+contract:
+
+- Event-based readiness probe using `ready` / `fatal.reason` (replaces
+  timing-based startup detection); depends on the typed-errors pass above
+  for `device_unsupported`.
+- Default to `--ws-addr 127.0.0.1:0` and read the bound port from the
+  `ready` event, eliminating the port race.
+- Release plan: signed artefact downloads, gh-pages style.
