@@ -10,9 +10,9 @@ message marker, a real `device_unsupported` fatal reason, and the
 ## Low
 
 - **`WorkerThreads` storage consolidation** (`src/worker.rs`). Three storage
-  strategies for one concept: a fixed pipeline array indexed by enum with a
-  manually-synced `COUNT`, a special-cased `midi_input` field, and a `Vec`
-  of output workers. A single ordered `Vec<(WorkerSpec, JoinHandle)>`
+  strategies exist for one concept, a fixed pipeline array indexed by enum
+  with a manually-synced `COUNT`, a special-cased `midi_input` field, and a
+  `Vec` of output workers. A single ordered `Vec<(WorkerSpec, JoinHandle)>`
   preserves shutdown order.
 
 - **`payload.rs` mutual-exclusion cfg block** (`src/dsp/payload.rs`). The 21
@@ -35,4 +35,4 @@ contract:
   real, so this is unblocked.
 - Default to `--ws-addr 127.0.0.1:0` and read the bound port from the
   `ready` event, eliminating the port race.
-- Release plan: signed artefact downloads, gh-pages style.
+- Release plan uses signed artefact downloads, gh-pages style.

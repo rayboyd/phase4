@@ -191,7 +191,7 @@ fn resolve_input(
         Some(signal) => {
             if analyse_channels.is_some() {
                 log::warn!(
-                    "Ignoring the analyse channel selection: calibration mode generates \
+                    "Ignoring the analyse channel selection. Calibration mode generates \
                      its own signal, all generated channels are analysed"
                 );
             }
