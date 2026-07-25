@@ -42,6 +42,13 @@ so after closing stdin the wrapper can expect the process to exit within a few
 seconds even in a worst case. A wrapper may add its own kill timeout as a final
 backstop, but should treat needing it as a bug worth reporting.
 
+Phase4 installs no signal handlers in headless mode. Closing stdin is the only
+graceful shutdown path: a `SIGTERM` or `SIGINT` (`kill <pid>`) terminates the
+process abruptly at the OS default, with no worker joins, no WebSocket close
+frames to connected clients, and no final events on stdout. A wrapper that
+kills the process directly should do so only as the backstop described above,
+after closing stdin and waiting.
+
 ## stderr, the log pipe
 
 All logging goes to stderr as plain lines in the form `[LEVEL] message`, with
