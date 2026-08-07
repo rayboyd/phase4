@@ -2,11 +2,21 @@
 
 All notable changes to Phase4 will be documented in this file.
 
-## Unreleased
+## 0.014
 
-### Breaking Changes
+### Breaking Change
 
-- Phase4 now requires an interactive terminal. Non-interactive and embedded process operation are no longer supported.
+#### Removal of headless and wrapper support
+
+Phase4 now requires an interactive terminal. Non-interactive and embedded process operation are no longer supported.
+
+### Documentation
+
+- Document the input noise floor for both transports ([7a0e258](https://github.com/rayboyd/phase4/commit/7a0e25802e38e530a3201f4f74ce732364138b19))
+
+### Features
+
+- Remove headless and wrapper support ([d36f193](https://github.com/rayboyd/phase4/commit/d36f193961a1f747634e365822e185df6b213d94))
 
 ## 0.0.13
 
