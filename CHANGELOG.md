@@ -2,12 +2,18 @@
 
 All notable changes to Phase4 will be documented in this file.
 
+## Unreleased
+
+### Breaking Changes
+
+- Phase4 now requires an interactive terminal. Non-interactive and embedded process operation are no longer supported.
+
 ## 0.0.13
 
 ### Bug Fixes
 
 - Keep the analyse pipeline frame-aligned under ring overflow ([d2b87f3](https://github.com/rayboyd/phase4/commit/d2b87f32042378304f5856288825ec92a215fdb2))
-- Fail fast when term mode runs without a TTY ([0d7cc6c](https://github.com/rayboyd/phase4/commit/0d7cc6cdb3b770fe1470414889449ac7744699a7))
+- Fail fast when Phase4 runs without a TTY ([0d7cc6c](https://github.com/rayboyd/phase4/commit/0d7cc6cdb3b770fe1470414889449ac7744699a7))
 - Make calibration mode unable to carry a channel selection ([41c0b24](https://github.com/rayboyd/phase4/commit/41c0b244da3e3797a69d99b87172437d90df3880))
 
 ### CI/CD
@@ -21,24 +27,16 @@ All notable changes to Phase4 will be documented in this file.
 - Add link to TD OSC docs ([901281f](https://github.com/rayboyd/phase4/commit/901281f7a621b93defb487fd8c176b59b1780464))
 - Correct 0.0.9 MTU note, default build already exceeds 1500 bytes ([7acdeb4](https://github.com/rayboyd/phase4/commit/7acdeb45f86f3f323d4ddda23336a58022b62492))
 - Fix minisign example, MIDI spawn order in lifecycle diagram, display-bins fallback ([b954194](https://github.com/rayboyd/phase4/commit/b954194463e8ee73bd71c8a337ea7c5269bafbd2))
-- Document that SIGTERM/SIGINT bypass graceful shutdown ([e2dea09](https://github.com/rayboyd/phase4/commit/e2dea09a8f36642ec91f21061d7e523591258efc))
 - Update roadmap ([be52f53](https://github.com/rayboyd/phase4/commit/be52f53ce95fb3483e896c26d4b4d50d26e9dd17))
 
 ### Features
 
-- Type device errors, make device_unsupported real, degrade on EPIPE ([4d9aecd](https://github.com/rayboyd/phase4/commit/4d9aecdcc55dc5b7ca0ac64c016f6b11d711fe81)), Emitter::emit no longer panics when the wrapper dies before ready is, written:a stdout write failure logs once and latches further events
-  off, and the process still exits cleanly via stdin EOF.
+- Add typed audio device errors ([4d9aecd](https://github.com/rayboyd/phase4/commit/4d9aecdcc55dc5b7ca0ac64c016f6b11d711fe81))
 
 ### Styling
 
 - Rewrite colon-separator comments as declarative prose ([891dc1d](https://github.com/rayboyd/phase4/commit/891dc1dff8a6fe7a09f3b6904aaa434a38020e4f))
 - Extend colon-separator cleanup to docs and log strings ([674692c](https://github.com/rayboyd/phase4/commit/674692c016683ee43a65eeb20ffccd7c394378b2))
-
-## 0.0.12
-
-### Features
-
-- Add --stdout-events json for wrapper readiness/failure signalling ([2e45b1f](https://github.com/rayboyd/phase4/commit/2e45b1fe2e2ef644466cb66daeaecac0ce99c5f4))
 
 ## 0.0.11
 
@@ -137,7 +135,6 @@ If you route `--osc-addr` at a non-loopback destination, note the bundled packet
 
 ### Documentation
 
-- Add embedding guide for wrapper processes ([fd7d7c2](https://github.com/rayboyd/phase4/commit/fd7d7c2470be007b9c3de0750865191886b24422))
 - Describe the reachable case in the ConfigOutputs comment ([f9c2a04](https://github.com/rayboyd/phase4/commit/f9c2a04f5de9c87287225d39aba1336c8ac694f0))
 
 ### Features
@@ -181,7 +178,6 @@ If you route `--osc-addr` at a non-loopback destination, note the bundled packet
 
 ### Bug Fixes
 
-- Omit carriage return from log lines in headless mode ([f26be8d](https://github.com/rayboyd/phase4/commit/f26be8d2b246935d88a18a3aacb9ae77122797a4))
 - Send unconnected so no-listener packets are silently dropped ([7301153](https://github.com/rayboyd/phase4/commit/7301153df75ee76e5948b5df1f55043a1320add6))
 
 ### Build
@@ -212,7 +208,6 @@ If you route `--osc-addr` at a non-loopback destination, note the bundled packet
 
 ### Features
 
-- Add explicit --controller-mode flag and headless controller ([f79da47](https://github.com/rayboyd/phase4/commit/f79da47b90f136724457689bb89f6a220f0dc1ce))
 - Add JSON output format for --list ([4c696c7](https://github.com/rayboyd/phase4/commit/4c696c7dc966d79c4f12100b066e1fb1d299739a))
 
 ### Performance

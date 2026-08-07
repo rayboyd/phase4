@@ -16,7 +16,6 @@ use crate::managers::{
     Generator, Input, Mapper, MidiInputSource, MidiListener, OscSender, Processor, Server, Specs,
 };
 use crate::worker::{OutputWorker, WorkerThreads};
-use crate::ControllerMode;
 use anyhow::Result;
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -56,10 +55,6 @@ pub(crate) struct Bootstrapped {
 
     /// All worker threads owned by the application runtime.
     pub(crate) workers: WorkerThreads,
-
-    /// How the controller should wait for a shutdown signal, threaded through
-    /// from `config.controller_mode`.
-    pub(crate) controller_mode: ControllerMode,
 
     /// The WebSocket listener's actually bound address, obtained from
     /// `local_addr()` rather than the configured one, so a `:0` port
@@ -151,7 +146,6 @@ pub(crate) fn bootstrap(config: &AppConfig) -> Result<Bootstrapped> {
             midi_thread,
             output_threads,
         ),
-        controller_mode: config.controller_mode,
         ws_bound_addr,
     })
 }

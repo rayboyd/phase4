@@ -1,5 +1,4 @@
 use crate::dsp::units::{Hertz, Milliseconds};
-use crate::ControllerMode;
 use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
 use thiserror::Error;
@@ -229,9 +228,6 @@ pub struct AppConfig {
     /// the resolved rate in `Some`. The `None` variant is only reachable through
     /// direct struct construction in tests.
     pub broadcast_rate: Option<f32>,
-
-    /// How phase4 waits for a shutdown signal.
-    pub controller_mode: ControllerMode,
 }
 
 impl Default for AppConfig {
@@ -251,7 +247,6 @@ impl Default for AppConfig {
             midi_input: None,
             vocoder_config: VocoderConfig::default(),
             broadcast_rate: Some(DEFAULT_BROADCAST_RATE_HZ),
-            controller_mode: ControllerMode::Term,
         }
     }
 }
@@ -335,7 +330,6 @@ pub(super) mod test_support {
                 broadcast_rate: Some(DEFAULT_BROADCAST_RATE_HZ),
                 no_browser_origin: false,
                 osc_addr: None,
-                stdout_events: None,
             },
             vocoder: crate::VocoderArgs {
                 attack_ms: Some(24.0),
@@ -353,9 +347,6 @@ pub(super) mod test_support {
                 midi_device: None,
                 midi_list: false,
                 midi_list_format: crate::ListFormat::Text,
-            },
-            runtime: crate::RuntimeArgs {
-                controller_mode: ControllerMode::Term,
             },
         }
     }
