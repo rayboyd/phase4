@@ -109,7 +109,7 @@ impl App {
             input_device: Some(bootstrapped.input_device),
             state: bootstrapped.state,
             workers: bootstrapped.workers,
-            controller: Controller::new(bootstrapped.controller_mode, controller_state),
+            controller: Controller::new(controller_state),
             shutdown_started: false,
             ws_bound_addr: bootstrapped.ws_bound_addr,
         })
@@ -183,7 +183,6 @@ impl Drop for App {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ControllerMode;
     use std::sync::{
         atomic::{AtomicUsize, Ordering},
         Arc,
@@ -209,7 +208,7 @@ mod tests {
             input_device: None,
             state: state.clone(),
             workers: WorkerThreads::new(generator_thread, None, None, None, Vec::new()),
-            controller: Controller::new(ControllerMode::Term, state.clone()),
+            controller: Controller::new(state.clone()),
             shutdown_started: false,
             ws_bound_addr: None,
         };

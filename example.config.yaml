@@ -32,11 +32,9 @@ network:
   # default: (disabled)
   # osc_addr: "127.0.0.1:7000"
 
-  # --no-browser-origin and --stdout-events stay CLI-only and are never read
-  # from this file: both are presence-style flags with no "explicitly off"
-  # form, so offering them here would break the rule that a CLI flag always
-  # overrides a file value. See docs/tutorials/wrapper.md for
-  # --stdout-events.
+  # --no-browser-origin stays CLI-only and is never read from this file. It is
+  # a presence-style flag with no "explicitly off" form, so offering it here
+  # would break the rule that a CLI flag always overrides a file value.
 
 audio:
   # Partial or full name of the audio input device to use.

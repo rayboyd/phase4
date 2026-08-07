@@ -27,7 +27,9 @@ flowchart TD
 		C -->|yes| D[List input devices and exit]
 		C -->|no| C2{--midi-list?}
 		C2 -->|yes| D2[List MIDI input devices and exit]
-		C2 -->|no| E2[Load config.yaml if present]
+		C2 -->|no| C3{Interactive terminal?}
+		C3 -->|no| C4[Exit with interactive-terminal error, non-zero]
+		C3 -->|yes| E2[Load config.yaml if present]
 		E2 --> E[Build AppConfig: CLI overrides file, file overrides defaults]
 		E --> E3{At least one of --ws-addr, --osc-addr configured?}
 		E3 -->|no| E4[Exit: NoOutputConfigured, non-zero]
@@ -51,7 +53,7 @@ flowchart TD
 		P -->|no| Q
 		P2 --> Q{--osc-addr configured?}
 		Q -->|yes| Q2[Spawn OSC sender thread]
-		Q -->|no| R[Run controller loop until shutdown]
+		Q -->|no| R[Run interactive controller loop until shutdown]
 		Q2 --> R
 		R --> S[Shutdown: drop input, signal keep_running=false, join workers with timeouts]
 ```

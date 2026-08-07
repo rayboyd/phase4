@@ -119,10 +119,6 @@ When MIDI input is not configured, the `midi` key is absent, so clients that onl
 
 When MIDI input is configured, the OSC sender also transmits `/phase4/midi/steps` every frame, one `i` argument, the current absolute step count, and `/phase4/midi/start`, `/phase4/midi/stop`, `/phase4/midi/continue`, each one `i` argument (`1`), sent only on the frame their transport event fired.
 
-Pass `--stdout-events json` to have Phase4 emit structured, machine-readable `ready`/`fatal` events as NDJSON on stdout instead of leaving it silent, letting a wrapper process detect real readiness (and classify startup failures) without polling the WebSocket port.
-
-Embedding Phase4 in your own application, including the full `--stdout-events` contract, is documented in [docs/tutorials/wrapper.md](docs/tutorials/wrapper.md).
-
 ## Config
 
 Instead of passing flags on every invocation you can put them in a YAML file. Phase4 reads it at startup and applies a three-tier priority rule. CLI flags override file values, file values override hardcoded defaults. Any key may be omitted, and absent keys inherit the default.
@@ -135,8 +131,6 @@ Pass `--config` with a path to name the file explicitly, which makes it easy to 
 ```
 
 With `--config`, the file must exist; a missing file is a startup error. Without it, Phase4 falls back to looking for an optional `config.yaml` in the current working directory, that is, wherever the Phase4 process is launched from, not where the binary itself lives on disk.
-
-If you embed Phase4 as a child process, pass `--config` with an absolute path (or set the child process working directory explicitly so `config.yaml` is found where you expect). Phase4 does not infer the location from the binary path.
 
 Copy the bundled example as a starting point.
 

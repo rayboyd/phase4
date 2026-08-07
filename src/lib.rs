@@ -11,25 +11,11 @@ mod bootstrap;
 pub mod config;
 pub mod controller;
 pub mod dsp;
-pub mod events;
 pub mod managers;
 pub mod worker;
 
 use clap::Parser;
 use std::net::SocketAddr;
-
-/// Runtime controller selection.
-#[derive(clap::ValueEnum, Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum ControllerMode {
-    /// Interactive terminal control (raw mode, keyboard driven). The default,
-    /// unchanged behaviour for running phase4 directly from a shell.
-    #[default]
-    Term,
-
-    /// Headless mode blocks until stdin closes, with no keyboard handling. Wrapper
-    /// processes should always pass this explicitly.
-    Headless,
-}
 
 /// Output format for device listing commands (`--audio-list-format`, `--midi-list-format`).
 #[derive(clap::ValueEnum, Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -38,17 +24,8 @@ pub enum ListFormat {
     #[default]
     Text,
 
-    /// A single JSON array on stdout, one object per device. Intended for a
-    /// wrapper process to parse programmatically, nothing else is written to
-    /// stdout in this mode.
-    Json,
-}
-
-/// Format for `--stdout-events`. Currently a single variant, kept as an enum
-/// so a future format can be added without an incompatible flag change.
-#[derive(clap::ValueEnum, Clone, Copy, Debug, PartialEq, Eq)]
-pub enum EventFormat {
-    /// One JSON object per line (NDJSON). See docs/tutorials/wrapper.md.
+    /// A single JSON array on stdout, one object per device. Nothing else is
+    /// written to stdout in this mode, making the output suitable for scripts.
     Json,
 }
 
@@ -143,17 +120,6 @@ pub struct NetworkArgs {
     /// address, it does not listen. Omit to disable the OSC output.
     #[arg(long)]
     pub osc_addr: Option<SocketAddr>,
-
-    /// Emit structured machine-readable events on stdout (for wrapper
-    /// processes). Currently the only format is json, one JSON object per
-    /// line. See docs/tutorials/wrapper.md.
-    ///
-    /// CLI-only, not readable from config.yaml, same policy as
-    /// `no_browser_origin` above. A presence-style flag has no "explicitly
-    /// false" form in a config file, so offering it there would break the
-    /// CLI-overrides-file rule.
-    #[arg(long, value_enum)]
-    pub stdout_events: Option<EventFormat>,
 }
 
 /// Vocoder filter bank tuning.
@@ -179,15 +145,6 @@ pub struct VocoderArgs {
     /// Vocoder bandpass filter Q factor. Higher is narrower. Defaults to 8.
     #[arg(long = "vocoder-filter-q")]
     pub filter_q: Option<f32>,
-}
-
-/// Runtime controller behaviour.
-#[derive(clap::Args)]
-#[command(next_help_heading = "Runtime")]
-pub struct RuntimeArgs {
-    /// How phase4 waits for a shutdown signal.
-    #[arg(long, value_enum, default_value_t = ControllerMode::Term)]
-    pub controller_mode: ControllerMode,
 }
 
 #[derive(Parser)]
@@ -225,14 +182,31 @@ pub struct Args {
 
     #[command(flatten)]
     pub vocoder: VocoderArgs,
-
-    #[command(flatten)]
-    pub runtime: RuntimeArgs,
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn controller_mode_flag_is_rejected() {
+        let result = Args::try_parse_from(["phase4", "--controller-mode", "headless"]);
+
+        assert!(
+            result.is_err(),
+            "--controller-mode must not remain in the CLI"
+        );
+    }
+
+    #[test]
+    fn stdout_events_flag_is_rejected() {
+        let result = Args::try_parse_from(["phase4", "--stdout-events", "json"]);
+
+        assert!(
+            result.is_err(),
+            "--stdout-events must not remain in the CLI"
+        );
+    }
 
     #[test]
     fn test_hz_and_test_sweep_conflict() {

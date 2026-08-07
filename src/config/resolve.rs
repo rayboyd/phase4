@@ -162,7 +162,6 @@ fn resolve_config(args: &Args, file: FileConfig) -> Result<AppConfig, AppConfigE
             filter_q,
         },
         broadcast_rate: Some(broadcast_rate),
-        controller_mode: args.runtime.controller_mode,
     })
 }
 

@@ -21,10 +21,7 @@ use ringbuf::traits::{Producer, Split};
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
-/// Typed device-resolution failures, so `map_startup_error` in
-/// `src/events.rs` can classify them by downcast instead of message
-/// sniffing. `UnsupportedFormat` maps to the `device_unsupported` fatal
-/// reason; the other variants map to `device_not_found`.
+/// Typed device-resolution failures with user-facing messages.
 ///
 /// Message texts are part of the user-facing (not machine-read) surface.
 /// Each one names the fix and points at `--audio-list`.
@@ -302,8 +299,7 @@ impl Input {
     /// Structured device listing as a single JSON array on stdout.
     ///
     /// Nothing else is written to stdout in this mode, `log` output continues to
-    /// go to stderr as normal, so a wrapper process can read stdout directly
-    /// without filtering out anything else.
+    /// go to stderr as normal, so scripts can parse stdout without filtering.
     fn list_devices_json() -> Result<()> {
         let host = cpal::default_host();
         let devices = host
