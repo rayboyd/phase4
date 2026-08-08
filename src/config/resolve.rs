@@ -813,6 +813,48 @@ mod tests {
     }
 
     #[test]
+    fn explicit_config_path_with_unknown_top_level_key_is_an_error() {
+        let file = TempConfigFile::new(
+            "unknown-top-level-key",
+            "netwrok:\n  ws_addr: 127.0.0.1:8889\n",
+        );
+
+        let result = load_file_config(Some(&file.0));
+
+        match result {
+            Err(AppConfigError::ConfigFileParseError(message)) => {
+                assert!(message.contains("unknown field `netwrok`"));
+            }
+            other => panic!("unknown top-level key should be rejected, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn explicit_config_path_with_unknown_nested_key_is_an_error() {
+        for (section, unknown_key) in [
+            ("network", "ws_adrr"),
+            ("audio", "device_name_macth"),
+            ("midi", "device_name_macth"),
+            ("vocoder", "attack_sm"),
+        ] {
+            let content = format!("{section}:\n  {unknown_key}: true\n");
+            let file = TempConfigFile::new(&format!("unknown-{section}-key"), &content);
+
+            let result = load_file_config(Some(&file.0));
+
+            match result {
+                Err(AppConfigError::ConfigFileParseError(message)) => {
+                    assert!(
+                        message.contains(&format!("unknown field `{unknown_key}`")),
+                        "unexpected parse error for {section}: {message}"
+                    );
+                }
+                other => panic!("unknown key in {section} should be rejected, got {other:?}"),
+            }
+        }
+    }
+
+    #[test]
     fn try_from_rejects_when_no_output_configured() {
         let mut args = args_with_device(Some("test"));
         args.network.ws_addr = None;

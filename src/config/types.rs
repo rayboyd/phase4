@@ -282,6 +282,7 @@ impl Default for AppConfig {
 /// All fields are `Option<T>` so users can omit any subset; absent keys fall
 /// back to the hardcoded application defaults.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
 pub struct FileNetworkConfig {
     pub ws_addr: Option<SocketAddr>,
     pub max_clients: Option<usize>,
@@ -291,6 +292,7 @@ pub struct FileNetworkConfig {
 
 /// Audio-layer fields that may be set via `config.yaml`.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
 pub struct FileAudioConfig {
     pub device_name_match: Option<String>,
     pub analyse_channels: Option<Vec<u16>>,
@@ -298,12 +300,14 @@ pub struct FileAudioConfig {
 
 /// MIDI-layer fields that may be set via `config.yaml`.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
 pub struct FileMidiConfig {
     pub device_name_match: Option<String>,
 }
 
 /// Vocoder filter-bank fields that may be set via `config.yaml`.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
 pub struct FileVocoderConfig {
     pub attack_ms: Option<f32>,
     pub release_ms: Option<f32>,
@@ -316,6 +320,7 @@ pub struct FileVocoderConfig {
 /// `config.yaml`.  Each sub-block is independently optional; a missing file
 /// or missing key falls back to the hardcoded application default.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
 pub struct FileConfig {
     #[serde(default)]
     pub network: FileNetworkConfig,

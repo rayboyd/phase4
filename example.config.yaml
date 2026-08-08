@@ -4,6 +4,7 @@
 # or name it config.yaml in the directory from which you run phase4 to have it
 # picked up automatically.
 # Any key may be omitted; absent keys inherit the hardcoded application default.
+# Unknown keys are rejected so misspelled settings cannot be silently ignored.
 # CLI flags always take priority over values set here.
 #
 # Default values are shown in each comment.
