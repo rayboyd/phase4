@@ -105,15 +105,12 @@ Use one of the following flags.
 The synthetic clock tempo must be finite and positive, and its MIDI tick interval must be representable and non-zero.
 A real MIDI device is opened during startup. If the selected device disappears or cannot be opened, Phase4 exits before starting any workers.
 
-When MIDI input is configured, each display frame may include a top-level `midi` key:
+When MIDI input is configured, every display frame also includes a top-level `midi` object. Its value has this shape:
 
 ```json
 {
-  "channels": [{ "peak": 0.38, "bins": [0.0, 0.1, 0.2, 0.3] }],
-  "midi": {
-    "transport": "start",
-    "steps": 24
-  }
+  "transport": "start",
+  "steps": 24
 }
 ```
 
