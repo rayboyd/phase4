@@ -2,9 +2,9 @@
 
 All notable changes to Phase4 will be documented in this file.
 
-## Unreleased
+## 0.0.15
 
-### Breaking Change
+[4464e5b](https://github.com/rayboyd/phase4/compare/4464e5badb64058d13964695d5f4b70079e186cc...3e3ac6c55de11dfcf275cef23802c185c0ebc6bc)
 
 ### Bug Fixes
 
@@ -21,6 +21,7 @@ All notable changes to Phase4 will be documented in this file.
 ### Documentation
 
 - Align fixed data contract examples ([767dd8b](https://github.com/rayboyd/phase4/commit/767dd8b18c59d7254a5644a0e4fcaee898e4a4af))
+- Restructure docs folder, slim readme, remove wrapper docs ([84456e8](https://github.com/rayboyd/phase4/commit/84456e8f82bb1d11cf08397e2507320e66135999))
 
 ### Features
 
