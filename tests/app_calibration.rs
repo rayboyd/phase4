@@ -13,7 +13,14 @@
 use phase4::app::App;
 use phase4::config::DEFAULT_MAX_CLIENTS;
 use phase4::config::{AppConfig, ConfigInput, ConfigOutputs, OutputConfig, TestSignal};
-use std::net::SocketAddr;
+use std::io::ErrorKind;
+use std::net::{SocketAddr, UdpSocket};
+use std::thread;
+use std::time::Duration;
+
+const FAILED_STARTUP_SHUTDOWN_GRACE: Duration = Duration::from_millis(250);
+const POST_FAILURE_OBSERVATION_TIMEOUT: Duration = Duration::from_millis(250);
+const OSC_TEST_RECEIVE_BUFFER_BYTES: usize = 32 * 1024;
 
 /// Builds a single-entry `ConfigOutputs` with a WebSocket transport listening
 /// on `addr`, for tests that only care about exercising `App::new`.
@@ -48,6 +55,69 @@ fn app_new_returns_error_on_port_collision() {
     );
 
     // The listener is dropped here, freeing the port
+}
+
+#[test]
+fn app_new_failure_stops_already_started_workers() {
+    let osc_receiver = UdpSocket::bind("127.0.0.1:0").expect("failed to bind OSC receiver");
+    let osc_address = osc_receiver
+        .local_addr()
+        .expect("failed to read OSC receiver address");
+
+    let occupied_listener =
+        std::net::TcpListener::bind("127.0.0.1:0").expect("failed to occupy WebSocket address");
+    let occupied_address = occupied_listener
+        .local_addr()
+        .expect("failed to read occupied WebSocket address");
+
+    let outputs = ConfigOutputs::new(vec![
+        OutputConfig::Osc { addr: osc_address },
+        OutputConfig::WebSocket {
+            addr: occupied_address,
+            max_clients: DEFAULT_MAX_CLIENTS,
+            no_browser_origin: false,
+        },
+    ])
+    .expect("the output set is non-empty");
+    let config = AppConfig {
+        input: ConfigInput::Calibration(TestSignal::FixedTone(440.0)),
+        outputs,
+        ..AppConfig::default()
+    };
+
+    let result = App::new(&config);
+    assert!(result.is_err(), "the occupied WebSocket port should fail");
+
+    thread::sleep(FAILED_STARTUP_SHUTDOWN_GRACE);
+
+    osc_receiver
+        .set_nonblocking(true)
+        .expect("failed to make OSC receiver non-blocking");
+    let mut buffer = vec![0u8; OSC_TEST_RECEIVE_BUFFER_BYTES];
+    loop {
+        match osc_receiver.recv_from(&mut buffer) {
+            Ok(_) => {}
+            Err(error) if error.kind() == ErrorKind::WouldBlock => break,
+            Err(error) => panic!("failed while draining queued OSC datagrams: {error}"),
+        }
+    }
+
+    osc_receiver
+        .set_nonblocking(false)
+        .expect("failed to restore blocking OSC receiver");
+    osc_receiver
+        .set_read_timeout(Some(POST_FAILURE_OBSERVATION_TIMEOUT))
+        .expect("failed to set OSC receive timeout");
+
+    let receive_result = osc_receiver.recv_from(&mut buffer);
+    assert!(
+        matches!(
+            receive_result,
+            Err(ref error)
+                if matches!(error.kind(), ErrorKind::WouldBlock | ErrorKind::TimedOut)
+        ),
+        "an OSC worker kept transmitting after App::new returned an error: {receive_result:?}"
+    );
 }
 
 // App::new() should succeed in calibration mode. No audio hardware required.

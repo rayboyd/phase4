@@ -181,9 +181,17 @@ fn resolve_input(
     let analyse_channels = normalise_channel_selection(raw_channels)?;
 
     let calibration_signal = if let Some(lfo_rate) = args.calibration.test_sweep {
+        if !lfo_rate.is_finite() {
+            return Err(AppConfigError::InvalidTestSweepRate { value: lfo_rate });
+        }
         Some(TestSignal::Sweep(lfo_rate))
+    } else if let Some(frequency) = args.calibration.test_hz {
+        if !frequency.is_finite() {
+            return Err(AppConfigError::InvalidTestFrequency { value: frequency });
+        }
+        Some(TestSignal::FixedTone(frequency))
     } else {
-        args.calibration.test_hz.map(TestSignal::FixedTone)
+        None
     };
 
     match calibration_signal {
@@ -286,6 +294,25 @@ mod tests {
             config.input,
             ConfigInput::Calibration(TestSignal::Sweep(0.1))
         );
+    }
+
+    #[test]
+    fn try_from_rejects_non_finite_calibration_values() {
+        for non_finite_value in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+            let mut fixed_tone_args = args_with_device(None);
+            fixed_tone_args.calibration.test_hz = Some(non_finite_value);
+            assert!(
+                AppConfig::try_from(&fixed_tone_args).is_err(),
+                "--test-hz should reject {non_finite_value}"
+            );
+
+            let mut sweep_args = args_with_device(None);
+            sweep_args.calibration.test_sweep = Some(non_finite_value);
+            assert!(
+                AppConfig::try_from(&sweep_args).is_err(),
+                "--test-sweep should reject {non_finite_value}"
+            );
+        }
     }
 
     #[test]

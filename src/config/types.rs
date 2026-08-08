@@ -172,6 +172,12 @@ pub enum AppConfigError {
     #[error("Invalid MIDI test tempo: must be a finite value greater than 0 bpm, got {value}")]
     InvalidMidiTempo { value: f32 },
 
+    #[error("Invalid --test-hz value: must be finite, got {value}")]
+    InvalidTestFrequency { value: f32 },
+
+    #[error("Invalid --test-sweep value: must be finite, got {value}")]
+    InvalidTestSweepRate { value: f32 },
+
     #[error("Invalid max clients: must be greater than 0")]
     InvalidMaxClients,
 

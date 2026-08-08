@@ -181,6 +181,53 @@ async fn sender_transmits_bin_values_matching_display_payload() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn sender_transmits_to_ipv6_target() {
+    const IPV6_RECEIVE_TIMEOUT: Duration = Duration::from_millis(500);
+
+    let receiver = UdpSocket::bind("[::1]:0")
+        .await
+        .expect("failed to bind IPv6 OSC receiver");
+    let receiver_address = receiver
+        .local_addr()
+        .expect("failed to read IPv6 receiver address");
+    let channels = 1usize;
+    let (display_tx, display_rx) = watch::channel(DisplayPayload::new(channels));
+    let state = Arc::new(AppState::new());
+
+    let handle = OscSender::new(receiver_address)
+        .spawn(display_rx, channels, state.clone(), false)
+        .expect("OSC sender should bind its local socket");
+
+    let mut payload = DisplayPayload::new(channels);
+    payload.channels[0].bins[0] = 0.5;
+    display_tx
+        .send(payload)
+        .expect("update should reach the OSC sender");
+
+    let mut buffer = vec![0u8; MAX_DATAGRAM_BYTES];
+    let receive_result = timeout(IPV6_RECEIVE_TIMEOUT, receiver.recv_from(&mut buffer)).await;
+
+    state.keep_running.store(false, Ordering::Release);
+    drop(display_tx);
+    join_sender_bounded(handle).await;
+
+    let (length, source_address) = receive_result
+        .expect("timed out waiting for an OSC bundle on the IPv6 target")
+        .expect("failed to receive an OSC bundle on the IPv6 target");
+    assert!(
+        source_address.is_ipv6(),
+        "expected the OSC bundle to originate from an IPv6 socket, got {source_address}"
+    );
+
+    let (_remainder, packet) =
+        rosc::decoder::decode_udp(&buffer[..length]).expect("failed to decode OSC packet");
+    let OscPacket::Bundle(bundle) = packet else {
+        panic!("expected an OSC bundle, got a single message");
+    };
+    assert_eq!(bundle.content.len(), DISPLAY_BINS);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn sender_exits_promptly_once_the_display_channel_closes() {
     let (_receiver, receiver_address) = bind_receiver().await;
     let channels = 1usize;

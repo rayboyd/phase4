@@ -25,5 +25,6 @@ A sweep exercises every display bin in turn, which makes it the quickest way to 
 ## Notes
 
 - The two flags are mutually exclusive. Passing both is rejected at argument parsing with a non-zero exit code.
+- Both values must be finite. `NaN`, positive infinity, and negative infinity are rejected during configuration.
 - The signal level is fixed at approximately -12 dBFS, leaving headroom so the display output sits at a comfortable level without clipping.
 - WebSocket and OSC output behave exactly as they do with a hardware device, so `--ws-addr`, `--osc-addr`, `--broadcast-rate`, and the rest of the network options apply unchanged. At least one of `--ws-addr` or `--osc-addr` must be given, both are opt-in.

@@ -10,7 +10,9 @@
 //!
 //! Connected clients receive the current payload immediately after handshake,
 //! then subsequent updates as the mapper publishes them. Connected clients
-//! receive an RFC 6455 close frame on graceful shutdown.
+//! receive an RFC 6455 close frame on graceful shutdown. Phase4 services Ping,
+//! Pong, and Close control frames but rejects inbound Text and Binary messages,
+//! preserving the outbound-only application protocol.
 //!
 //! When `no_browser_origin` is set, the server rejects handshakes that carry
 //! an `Origin` header. This blocks browsers (which the Fetch spec requires to
@@ -20,7 +22,7 @@
 use crate::app::AppState;
 use crate::dsp::DisplayPayload;
 use anyhow::{Context, Result};
-use futures_util::SinkExt;
+use futures_util::{SinkExt, StreamExt};
 use std::net::SocketAddr;
 use std::sync::{atomic::Ordering, Arc};
 use std::thread::JoinHandle;
@@ -29,6 +31,7 @@ use tokio::sync::{mpsc, oneshot, watch, Notify, OwnedSemaphorePermit, Semaphore}
 use tokio::task::JoinSet;
 use tokio_tungstenite::tungstenite::{
     handshake::server::{Callback, ErrorResponse, Request, Response},
+    protocol::{frame::coding::CloseCode, CloseFrame, WebSocketConfig},
     Message, Utf8Bytes,
 };
 
@@ -43,6 +46,16 @@ const HANDSHAKE_TIMEOUT_MS: u64 = 1_000;
 /// How long to wait for in-flight client tasks to flush a close frame
 /// before the server thread exits.
 const CLIENT_SHUTDOWN_TIMEOUT_MS: u64 = 500;
+
+/// RFC 6455 limits control-frame payloads to 125 bytes. Phase4 accepts no
+/// application messages, so this also bounds client-controlled data before it
+/// is rejected without restricting valid Ping, Pong, or Close frames.
+const MAX_INBOUND_FRAME_BYTES: usize = 125;
+
+/// Close reason returned when a client violates the outbound-only application
+/// protocol by sending a Text or Binary message.
+const INBOUND_APPLICATION_MESSAGE_CLOSE_REASON: &str =
+    "Phase4 does not accept application messages";
 
 /// Number of `serialised_rx` handles the server retains for itself. The
 /// accept loop holds exactly one receiver, which it clones for each new
@@ -457,12 +470,17 @@ impl Server {
     ) {
         let handshake = tokio::time::timeout(
             Duration::from_millis(HANDSHAKE_TIMEOUT_MS),
-            tokio_tungstenite::accept_hdr_async(
+            tokio_tungstenite::accept_hdr_async_with_config(
                 stream,
                 OriginPolicyCallback {
                     addr,
                     reject_browser_origin: no_browser_origin,
                 },
+                Some(
+                    WebSocketConfig::default()
+                        .max_message_size(Some(MAX_INBOUND_FRAME_BYTES))
+                        .max_frame_size(Some(MAX_INBOUND_FRAME_BYTES)),
+                ),
             ),
         )
         .await;
@@ -489,21 +507,54 @@ impl Server {
             tokio::select! {
                 biased;
                 () = shutdown.notified() => break,
+                incoming = ws_stream.next() => {
+                    match incoming {
+                        Some(Ok(Message::Ping(_))) => {
+                            if ws_stream.flush().await.is_err() {
+                                log::debug!("WebSocket client disconnected: {addr}");
+                                return;
+                            }
+                        }
+                        Some(Ok(Message::Pong(_) | Message::Frame(_))) => {}
+                        Some(Ok(Message::Close(_))) => {
+                            ws_stream.flush().await.ok();
+                            return;
+                        }
+                        Some(Ok(Message::Text(_) | Message::Binary(_))) => {
+                            log::warn!(
+                                "WebSocket application message rejected from {addr}"
+                            );
+                            let close_frame = CloseFrame {
+                                code: CloseCode::Policy,
+                                reason: Utf8Bytes::from_static(
+                                    INBOUND_APPLICATION_MESSAGE_CLOSE_REASON,
+                                ),
+                            };
+                            ws_stream.send(Message::Close(Some(close_frame))).await.ok();
+                            return;
+                        }
+                        Some(Err(error)) => {
+                            log::debug!("WebSocket client disconnected: {addr}, {error}");
+                            return;
+                        }
+                        None => return,
+                    }
+                }
                 changed = watch_rx.changed() => {
                     if changed.is_err() {
                         break;
                     }
+
+                    // The mapper has already serialised the payload to JSON. Clone the
+                    // shared text buffer and forward it directly.
+                    let json: Utf8Bytes = watch_rx.borrow_and_update().clone();
+                    let msg = Message::Text(json);
+
+                    if ws_stream.send(msg).await.is_err() {
+                        log::debug!("WebSocket client disconnected: {addr}");
+                        return;
+                    }
                 }
-            }
-
-            // The mapper has already serialised the payload to JSON. Clone the
-            // shared text buffer and forward it directly.
-            let json: Utf8Bytes = watch_rx.borrow_and_update().clone();
-            let msg = Message::Text(json);
-
-            if ws_stream.send(msg).await.is_err() {
-                log::debug!("WebSocket client disconnected: {addr}");
-                return;
             }
         }
 

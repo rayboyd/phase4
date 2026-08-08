@@ -10,6 +10,12 @@ Pass `--osc-addr` with a `host:port` target when starting Phase4.
 ./phase4 --audio-device "Duet 3" --osc-addr 127.0.0.1:7000
 ```
 
+IPv6 targets use bracketed address notation.
+
+```sh
+./phase4 --audio-device "Duet 3" --osc-addr '[::1]:7000'
+```
+
 To avoid passing the flag on every invocation, set `osc_addr` in `config.yaml` instead.
 
 ```yaml
@@ -17,7 +23,7 @@ network:
   osc_addr: "127.0.0.1:7000"
 ```
 
-Phase4 binds an ephemeral local UDP port and sends to the specified target. OSC output shares the same rate-limit gate as the WebSocket broadcast, so `--broadcast-rate` applies to both.
+Phase4 binds an ephemeral local UDP port using the target's IPv4 or IPv6 address family, then sends to the specified target. OSC output shares the same rate-limit gate as the WebSocket broadcast, so `--broadcast-rate` applies to both.
 
 ## Address Scheme
 
@@ -79,5 +85,5 @@ Bin messages for a frame are combined into one OSC bundle per UDP packet. At the
 ## Notes
 
 - OSC output is disabled by default. Omitting `--osc-addr` adds no overhead to the pipeline.
-- The UDP socket is bound eagerly at startup. If the bind fails, Phase4 exits with an error before spawning any threads.
+- The UDP socket is bound eagerly at startup. If the bind fails, Phase4 stops any workers already started during construction before returning the error.
 - The OSC sender runs on a dedicated background thread with its own single-threaded Tokio runtime, matching the pattern of the WebSocket server.
