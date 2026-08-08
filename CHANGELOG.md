@@ -2,6 +2,45 @@
 
 All notable changes to Phase4 will be documented in this file.
 
+## Unreleased
+
+### Breaking Change
+
+### Bug Fixes
+
+- Reset steps before publishing start ([81caaac](https://github.com/rayboyd/phase4/commit/81caaac38418e933dea65a5fde31e43623ab0055))
+- Prefer exact device name matches ([043fd9d](https://github.com/rayboyd/phase4/commit/043fd9de2f73adca08ae917ed2480a29eaef6dfa))
+- Reap completed client tasks ([8ae7c2c](https://github.com/rayboyd/phase4/commit/8ae7c2cf315261f91fefa2ddf5d636ebdc0ec0ae))
+- Refresh snapshot before client startup ([0e1229a](https://github.com/rayboyd/phase4/commit/0e1229a66d45c3f4d4acd6e07f8305ec9a6a9af7))
+- Reject non-finite calibration values ([2c1ae24](https://github.com/rayboyd/phase4/commit/2c1ae240fe4fc3971d644da006a7676f25da7f89))
+- Fix(app): stop workers after failed startup ([963fad7](https://github.com/rayboyd/phase4/commit/963fad7545cd64b2c63aa8b15c942a9c92b23765))
+- Reject unsafe numeric extremes ([d1aba0a](https://github.com/rayboyd/phase4/commit/d1aba0a14dccaf9033ab1c312aca069cb850e787))
+- Reject unknown YAML keys ([e405d5a](https://github.com/rayboyd/phase4/commit/e405d5ac474bf5ab8bcb5c3e139300c64023b7cc))
+- Validate configs and connect MIDI eagerly ([c11614b](https://github.com/rayboyd/phase4/commit/c11614b45837a039cdea2a8a68e3da912a782970))
+
+### Documentation
+
+- Align fixed data contract examples ([767dd8b](https://github.com/rayboyd/phase4/commit/767dd8b18c59d7254a5644a0e4fcaee898e4a4af))
+
+### Features
+
+- Define fixed 32-band 60 hz output contract ([1540254](https://github.com/rayboyd/phase4/commit/1540254462942be14ca70c89eae69a45304ea90c))
+
+### Refactor
+
+- Collapse fixed band payload types ([a8d34b9](https://github.com/rayboyd/phase4/commit/a8d34b97c4850bf34c02005ed2ea5b472a506cdd))
+
+### Testing
+
+- Demonstrate retained completed client tasks ([2d6d5b5](https://github.com/rayboyd/phase4/commit/2d6d5b5a357866372372d275a2d5459f18d191c5))
+- Demonstrate inconsistent start snapshot ([3fac393](https://github.com/rayboyd/phase4/commit/3fac3935b77d4896115ee7c2e1c071101c5fcf55))
+- Demonstrate exact match precedence ([9366f19](https://github.com/rayboyd/phase4/commit/9366f199b6ff9ad1f1b06c18d9d68f2f8e402345))
+- Demonstrate stale first client snapshot ([d8f9259](https://github.com/rayboyd/phase4/commit/d8f9259f8b8d5e818a99bea01c74ab0cb7c59d97))
+- Demonstrate workers surviving failed startup ([31e5fcb](https://github.com/rayboyd/phase4/commit/31e5fcb4175fa86c0d1d0002e71d9670e5dcc2df))
+- Demonstrate unhandled client control frames ([701474c](https://github.com/rayboyd/phase4/commit/701474c3b1bc2e134d9d72417e4fea85ee53a9dc))
+- Demonstrate IPv6 delivery failure ([e79af89](https://github.com/rayboyd/phase4/commit/e79af89986070716ff050ef55166743d9a459ed4))
+- Demonstrate non-finite calibration acceptance ([3d13073](https://github.com/rayboyd/phase4/commit/3d13073e578a899be131a9d798c6c16c009492d5))
+
 ## 0.0.14
 
 ### Breaking Change
