@@ -4,7 +4,20 @@ All notable changes to Phase4 will be documented in this file.
 
 ## 0.0.15
 
-[4464e5b](https://github.com/rayboyd/phase4/compare/4464e5badb64058d13964695d5f4b70079e186cc...3e3ac6c55de11dfcf275cef23802c185c0ebc6bc)
+### Breaking Change
+
+#### Docs folder restructure
+
+`docs/tutorials/` and `docs/system/` are gone, docs now sit flat under `docs/`. Any bookmarked or linked path under the old layout breaks:
+
+- `docs/tutorials/compile.md` → `docs/compile.md`
+- `docs/tutorials/calibration.md` → `docs/calibration.md`
+- `docs/tutorials/osc.md` → `docs/osc.md`
+- `docs/tutorials/websockets.md` → `docs/websockets.md`
+- `docs/system/lifecycle.md` → `docs/lifecycle.md`
+- `docs/tutorials/wrapper.md` is gone, nothing replaces it
+
+`README.md`'s `MIDI` and `OSC` sections no longer carry the inline JSON schema and OSC address table, those moved to new `docs/midi.md` and `docs/config.md` (also new). Anything linking to `README.md#midi` for the WebSocket `midi` payload shape should link to `docs/midi.md` instead.
 
 ### Bug Fixes
 
