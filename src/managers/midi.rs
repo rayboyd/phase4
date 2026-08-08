@@ -60,6 +60,24 @@ pub(crate) const MIDI_TRANSPORT_START: u8 = 1;
 pub(crate) const MIDI_TRANSPORT_STOP: u8 = 2;
 pub(crate) const MIDI_TRANSPORT_CONTINUE: u8 = 3;
 
+#[cfg(test)]
+type MidiStartPublishedObserver = Option<Box<dyn Fn(&AppState)>>;
+
+#[cfg(test)]
+thread_local! {
+    static MIDI_START_PUBLISHED_OBSERVER: std::cell::RefCell<MidiStartPublishedObserver> =
+        std::cell::RefCell::new(None);
+}
+
+#[cfg(test)]
+fn observe_published_midi_start(state: &AppState) {
+    MIDI_START_PUBLISHED_OBSERVER.with(|observer| {
+        if let Some(observer) = observer.borrow().as_ref() {
+            observer(state);
+        }
+    });
+}
+
 /// Matches a single raw MIDI status byte against the four Real-Time codes
 /// phase4 cares about. Start, Stop, and Continue update `AppState` directly.
 /// Clock ticks accumulate privately in `ticks_since_step` and are only
@@ -73,6 +91,8 @@ fn record_byte(byte: u8, state: &AppState, ticks_since_step: &mut u8) {
             state
                 .midi_last_transport
                 .store(MIDI_TRANSPORT_START, Ordering::Release);
+            #[cfg(test)]
+            observe_published_midi_start(state);
             *ticks_since_step = 0;
             state.midi_steps.store(0, Ordering::Release);
         }
@@ -308,6 +328,31 @@ mod tests {
             state.midi_last_transport.load(Ordering::Acquire),
             MIDI_TRANSPORT_START
         );
+    }
+
+    #[test]
+    fn record_byte_publishes_start_with_reset_step_count() {
+        const PREVIOUS_STEP_COUNT: u32 = 12;
+
+        let state = AppState::new();
+        state
+            .midi_steps
+            .store(PREVIOUS_STEP_COUNT, Ordering::Release);
+        MIDI_START_PUBLISHED_OBSERVER.with(|observer| {
+            *observer.borrow_mut() = Some(Box::new(|observed_state| {
+                assert_eq!(
+                    observed_state.midi_steps.load(Ordering::Acquire),
+                    0,
+                    "MIDI Start must not become observable before its step count has reset"
+                );
+            }));
+        });
+
+        record_byte(MIDI_STATUS_START, &state, &mut 0u8);
+
+        MIDI_START_PUBLISHED_OBSERVER.with(|observer| {
+            observer.borrow_mut().take();
+        });
     }
 
     #[test]
