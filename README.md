@@ -122,7 +122,7 @@ When MIDI input is configured, the OSC sender also transmits `/phase4/midi/steps
 
 ## Config
 
-Instead of passing flags on every invocation you can put them in a YAML file. Phase4 reads it at startup and applies a three-tier priority rule. CLI flags override file values, file values override hardcoded defaults. Any key may be omitted, and absent keys inherit the default.
+Instead of passing flags on every invocation you can put them in a YAML file. Phase4 reads it at startup and applies a three-tier priority rule. CLI flags override file values, file values override hardcoded defaults. Any key may be omitted, and absent keys inherit the default. Unknown keys are rejected as startup errors so misspelled settings cannot be silently ignored.
 
 Pass `--config` with a path to name the file explicitly, which makes it easy to keep one config per setup:
 
