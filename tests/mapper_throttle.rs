@@ -104,7 +104,7 @@ async fn first_frame_is_broadcast_immediately() {
         display_tx,
         channels,
         state.clone(),
-        Some(2.0),
+        Some(Duration::from_millis(500)),
         false,
     );
 
@@ -141,7 +141,7 @@ async fn throttle_suppresses_intermediate_frames() {
         display_tx,
         channels,
         state.clone(),
-        Some(5.0),
+        Some(Duration::from_millis(200)),
         false,
     );
 
@@ -186,7 +186,14 @@ async fn midi_steps_reports_the_current_value_across_a_throttled_cycle() {
     state.midi_steps.store(5, Ordering::Release);
 
     // A low rate (2 Hz) so the second frame is throttled.
-    let handle = Mapper::spawn(raw_rx, display_tx, channels, state.clone(), Some(2.0), true);
+    let handle = Mapper::spawn(
+        raw_rx,
+        display_tx,
+        channels,
+        state.clone(),
+        Some(Duration::from_millis(500)),
+        true,
+    );
 
     sleep(Duration::from_millis(50)).await;
     send_frame(&raw_tx, channels, 0.1);

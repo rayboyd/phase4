@@ -5,6 +5,6 @@ echo "- pre-push: check"
 cargo check --all-targets
 
 echo "- pre-push: test"
-cargo test
+cargo test -- --quiet
 
 echo "- pre-push passed"

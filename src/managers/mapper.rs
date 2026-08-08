@@ -29,6 +29,8 @@ pub struct Mapper;
 
 impl Mapper {
     /// Spawns the mapper on a dedicated background thread.
+    /// `broadcast_interval` is resolved and validated before worker startup.
+    /// `None` disables throttling.
     ///
     /// # Panics
     ///
@@ -39,12 +41,9 @@ impl Mapper {
         display_tx: watch::Sender<DisplayPayload>,
         channels: usize,
         state: Arc<AppState>,
-        broadcast_rate: Option<f32>,
+        broadcast_interval: Option<Duration>,
         midi_enabled: bool,
     ) -> JoinHandle<()> {
-        let broadcast_interval =
-            broadcast_rate.map(|hz| Duration::from_secs_f64(1.0 / f64::from(hz)));
-
         super::spawn_async_worker(
             "mapper",
             Self::run(

@@ -60,8 +60,8 @@ impl EnvelopeFollower {
 /// definition of a filter's time constant. Larger `time` gives a smaller
 /// coefficient and therefore a slower-moving envelope.
 pub(crate) fn envelope_coeff(time: Milliseconds, sample_rate: Hertz) -> f32 {
-    let tau_seconds = time.0 / 1000.0;
-    1.0 - (-1.0 / (tau_seconds * sample_rate.0)).exp()
+    let exponent = -1000.0 / (f64::from(time.0) * f64::from(sample_rate.0));
+    -exponent.exp_m1() as f32
 }
 
 /// Per-channel vocoder analyser.
@@ -186,5 +186,22 @@ impl VocoderAnalyser {
             env.reset();
         }
         self.bins.fill(0.0);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn envelope_coeff_remains_positive_for_the_largest_finite_time() {
+        let coefficient = envelope_coeff(Milliseconds(f32::MAX), Hertz(44_100.0));
+
+        assert!(coefficient.is_finite());
+        assert!(
+            coefficient > 0.0,
+            "a finite time constant should not collapse to a zero coefficient"
+        );
+        assert!(coefficient <= 1.0);
     }
 }

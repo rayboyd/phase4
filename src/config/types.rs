@@ -10,6 +10,16 @@ pub const DEFAULT_MAX_CLIENTS: usize = 8;
 /// `AppConfig::default()`, which `resolve_config` always overwrites.
 pub const DEFAULT_TEST_HZ: f32 = 440.0;
 
+/// Fixed sample rate used by the synthetic calibration input.
+pub(crate) const CALIBRATION_SAMPLE_RATE_HZ: u32 = 44_100;
+
+/// Frequency ceiling used by calibration signals to retain anti-aliasing headroom.
+pub(crate) const CALIBRATION_FREQUENCY_CEILING_RATIO: f32 = 0.45;
+
+/// Highest fixed-tone or sweep LFO frequency accepted in calibration mode.
+pub(crate) const CALIBRATION_MAX_FREQUENCY_HZ: f32 =
+    CALIBRATION_SAMPLE_RATE_HZ as f32 * CALIBRATION_FREQUENCY_CEILING_RATIO;
+
 /// Fallback broadcast rate in Hz used when neither CLI nor `config.yaml` sets one.
 pub(super) const DEFAULT_BROADCAST_RATE_HZ: f32 = 60.0;
 
@@ -163,22 +173,32 @@ pub enum AppConfigError {
     )]
     InvalidFreqRange { freq_low: f32, freq_high: f32 },
 
-    #[error("Invalid vocoder configuration: filter Q must be greater than 0, got {value}")]
+    #[error(
+        "Invalid vocoder configuration: filter Q must be finite, greater than 0, and produce finite coefficients, got {value}"
+    )]
     InvalidFilterQ { value: f32 },
 
-    #[error("Invalid broadcast rate: must be a finite value greater than 0 Hz, got {value}")]
+    #[error(
+        "Invalid broadcast rate: must be finite, greater than 0 Hz, and produce a representable non-zero interval, got {value}"
+    )]
     InvalidBroadcastRate { value: f32 },
 
-    #[error("Invalid MIDI test tempo: must be a finite value greater than 0 bpm, got {value}")]
+    #[error(
+        "Invalid MIDI test tempo: must be finite, greater than 0 bpm, and produce a representable non-zero clock interval, got {value}"
+    )]
     InvalidMidiTempo { value: f32 },
 
-    #[error("Invalid --test-hz value: must be finite, got {value}")]
+    #[error(
+        "Invalid --test-hz value: must be finite, greater than 0 Hz, and within the calibration sample-rate ceiling, got {value}"
+    )]
     InvalidTestFrequency { value: f32 },
 
-    #[error("Invalid --test-sweep value: must be finite, got {value}")]
+    #[error(
+        "Invalid --test-sweep value: must be finite, greater than 0 Hz, and within the calibration sample-rate ceiling, got {value}"
+    )]
     InvalidTestSweepRate { value: f32 },
 
-    #[error("Invalid max clients: must be greater than 0")]
+    #[error("Invalid max clients: must be at least 1 and fit the runtime semaphore capacity")]
     InvalidMaxClients,
 
     #[error("Channel selection must not be empty")]

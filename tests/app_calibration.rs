@@ -138,6 +138,27 @@ fn app_new_succeeds_in_calibration_mode() {
     // and joins them. If anything panics or deadlocks, the test will fail.
 }
 
+#[test]
+fn app_new_rejects_direct_numeric_config_that_would_panic_a_worker() {
+    let outputs = ConfigOutputs::new(vec![OutputConfig::WebSocket {
+        addr: "127.0.0.1:0".parse::<SocketAddr>().unwrap(),
+        max_clients: tokio::sync::Semaphore::MAX_PERMITS + 1,
+        no_browser_origin: false,
+    }])
+    .expect("a single-element Vec is non-empty");
+    let config = AppConfig {
+        outputs,
+        ..AppConfig::default()
+    };
+
+    let result = App::new(&config);
+
+    assert!(
+        result.is_err(),
+        "App::new() should reject numeric config that exceeds a worker's runtime limit"
+    );
+}
+
 // App::ws_bound_addr() must report the real OS-assigned port for `:0`, not
 // the configured placeholder, since it feeds the ready event's ws_addr.
 #[test]

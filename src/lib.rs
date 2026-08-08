@@ -33,18 +33,19 @@ pub enum ListFormat {
 #[derive(clap::Args)]
 #[command(next_help_heading = "Calibration")]
 pub struct CalibrationArgs {
-    /// Run in calibration mode with a synthetic sine wave at the given finite
-    /// frequency (e.g. 440.0). Mutually exclusive with --test-sweep.
+    /// Run in calibration mode with a synthetic sine wave above 0 Hz and no
+    /// higher than 19,845 Hz (e.g. 440.0). Mutually exclusive with --test-sweep.
     #[arg(long)]
     pub test_hz: Option<f32>,
 
-    /// Run a logarithmic sine wave sweep. The value is the finite LFO rate in Hz
-    /// (e.g. 0.1 for a 10 second cycle). Mutually exclusive with --test-hz.
+    /// Run a logarithmic sine wave sweep. The LFO rate must be above 0 Hz and no
+    /// higher than 19,845 Hz (e.g. 0.1 for a 10 second cycle). Mutually exclusive
+    /// with --test-hz.
     #[arg(long, conflicts_with = "test_hz")]
     pub test_sweep: Option<f32>,
 
-    /// Run against a synthetic MIDI clock at the given tempo (e.g. 120.0)
-    /// instead of a real device. Mutually exclusive with --midi-device.
+    /// Run against a synthetic MIDI clock at the given finite, positive tempo
+    /// (e.g. 120.0) instead of a real device. Mutually exclusive with --midi-device.
     #[arg(long, conflicts_with = "midi_device")]
     pub test_midi_clock: Option<f32>,
 }
@@ -99,11 +100,13 @@ pub struct NetworkArgs {
     #[arg(long)]
     pub ws_addr: Option<SocketAddr>,
 
-    /// Maximum number of concurrent WebSocket clients. Defaults to 8.
+    /// Maximum number of concurrent WebSocket clients. Must fit the runtime's
+    /// semaphore capacity. Defaults to 8.
     #[arg(long)]
     pub max_clients: Option<usize>,
 
-    /// Target WebSocket broadcast rate in Hz, e.g. 30 or 60. Defaults to 60.
+    /// Finite, positive target WebSocket broadcast rate in Hz, e.g. 30 or 60.
+    /// The resulting interval must be representable and non-zero. Defaults to 60.
     #[arg(long)]
     pub broadcast_rate: Option<f32>,
 
@@ -142,7 +145,8 @@ pub struct VocoderArgs {
     #[arg(long = "vocoder-freq-high")]
     pub freq_high: Option<f32>,
 
-    /// Vocoder bandpass filter Q factor. Higher is narrower. Defaults to 8.
+    /// Vocoder bandpass filter Q factor. Must produce finite filter coefficients.
+    /// Higher is narrower. Defaults to 8.
     #[arg(long = "vocoder-filter-q")]
     pub filter_q: Option<f32>,
 }

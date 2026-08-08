@@ -100,6 +100,7 @@ Use one of the following flags.
 ```
 
 `--midi-device` and `--test-midi-clock` are mutually exclusive.
+The synthetic clock tempo must be finite and positive, and its MIDI tick interval must be representable and non-zero.
 
 When MIDI input is configured, each display frame may include a top-level `midi` key:
 

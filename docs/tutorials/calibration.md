@@ -4,7 +4,7 @@ Calibration mode replaces the hardware input with a synthetic sine wave, making 
 
 ## Fixed tone
 
-Pass `--test-hz` with a frequency in Hz. No `--audio-device` is required, but at least one output transport (`--ws-addr` or `--osc-addr`) must still be given.
+Pass `--test-hz` with a frequency above 0 Hz and no higher than 19,845 Hz. This ceiling is 0.45 times the synthetic 44.1 kHz sample rate and retains anti-aliasing headroom. No `--audio-device` is required, but at least one output transport (`--ws-addr` or `--osc-addr`) must still be given.
 
 ```sh
 ./phase4 --test-hz 440 --ws-addr 127.0.0.1:8889
@@ -14,7 +14,7 @@ The pipeline runs at a synthetic 44.1 kHz stereo configuration and every display
 
 ## Frequency sweep
 
-Pass `--test-sweep` with an LFO rate in Hz. The signal sweeps logarithmically from 20 Hz up to 0.45 times the sample rate, driven by a sine LFO at the given rate. One full up-and-down cycle takes 1 divided by the rate in seconds, so `0.2` produces a five second cycle and `0.1` a ten second cycle.
+Pass `--test-sweep` with an LFO rate above 0 Hz and no higher than 19,845 Hz. The signal sweeps logarithmically from 20 Hz up to 0.45 times the sample rate, driven by a sine LFO at the given rate. One full up-and-down cycle takes 1 divided by the rate in seconds, so `0.2` produces a five second cycle and `0.1` a ten second cycle.
 
 ```sh
 ./phase4 --test-sweep 0.2 --ws-addr 127.0.0.1:8889
@@ -25,6 +25,6 @@ A sweep exercises every display bin in turn, which makes it the quickest way to 
 ## Notes
 
 - The two flags are mutually exclusive. Passing both is rejected at argument parsing with a non-zero exit code.
-- Both values must be finite. `NaN`, positive infinity, and negative infinity are rejected during configuration.
+- Both values must be finite and within the documented range. Zero, negative values, `NaN`, positive infinity, negative infinity, and values above 19,845 Hz are rejected during configuration.
 - The signal level is fixed at approximately -12 dBFS, leaving headroom so the display output sits at a comfortable level without clipping.
 - WebSocket and OSC output behave exactly as they do with a hardware device, so `--ws-addr`, `--osc-addr`, `--broadcast-rate`, and the rest of the network options apply unchanged. At least one of `--ws-addr` or `--osc-addr` must be given, both are opt-in.

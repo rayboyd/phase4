@@ -7,8 +7,9 @@
 
 use crate::app::AppState;
 use crate::config::{
-    validate_vocoder_sample_rate, AppConfig, AppConfigError, ConfigInput, ConfigMidiInput,
-    ConfigOutputs, OutputConfig, TestSignal,
+    broadcast_interval, midi_tick_interval, validate_app_config, validate_vocoder_sample_rate,
+    AppConfig, AppConfigError, ConfigInput, ConfigMidiInput, ConfigOutputs, OutputConfig,
+    TestSignal, CALIBRATION_SAMPLE_RATE_HZ,
 };
 use crate::dsp::{vocoder::VOCODER_BANDS, DisplayPayload, RawPayload};
 use crate::managers::audio::{ChannelMode, StreamSink};
@@ -72,6 +73,9 @@ pub(crate) struct Bootstrapped {
 /// cannot be started, or a configured output transport cannot bind to its
 /// given address.
 pub(crate) fn bootstrap(config: &AppConfig) -> Result<Bootstrapped> {
+    validate_app_config(config)?;
+    let mapper_broadcast_interval = config.broadcast_rate.map(broadcast_interval).transpose()?;
+
     let state = Arc::new(AppState::new());
     let stream_state = Arc::clone(&state);
     let analyser_state = Arc::clone(&state);
@@ -119,7 +123,7 @@ pub(crate) fn bootstrap(config: &AppConfig) -> Result<Bootstrapped> {
         display_tx,
         display_channels,
         mapper_state,
-        config.broadcast_rate,
+        mapper_broadcast_interval,
         midi_enabled,
     ));
 
@@ -293,7 +297,7 @@ fn resolve_audio_hardware(config: &AppConfig, input: &mut Input) -> Result<Resol
     match &config.input {
         ConfigInput::Calibration(signal) => Ok(ResolvedInput {
             hw_specs: Specs {
-                sample_rate: 44100,
+                sample_rate: CALIBRATION_SAMPLE_RATE_HZ,
                 channels: 2,
             },
             source: InputSource::Calibration(*signal),
@@ -325,7 +329,10 @@ fn resolve_audio_hardware(config: &AppConfig, input: &mut Input) -> Result<Resol
 fn resolve_midi_hardware(config: &AppConfig) -> Result<Option<MidiInputSource>> {
     match &config.midi_input {
         None => Ok(None),
-        Some(ConfigMidiInput::TestClock(bpm)) => Ok(Some(MidiInputSource::TestClock(*bpm))),
+        Some(ConfigMidiInput::TestClock(bpm)) => Ok(Some(MidiInputSource::TestClock {
+            bpm: *bpm,
+            tick_interval: midi_tick_interval(*bpm)?,
+        })),
         Some(ConfigMidiInput::Device(name)) => {
             let (midi_in, port, port_name) = crate::managers::midi::resolve_midi_device(name)?;
             Ok(Some(MidiInputSource::Hardware(midi_in, port, port_name)))
@@ -337,7 +344,7 @@ fn resolve_midi_hardware(config: &AppConfig) -> Result<Option<MidiInputSource>> 
 /// announcing calibration mode synchronously first, matching
 /// `spawn_audio_input`'s calibration announcement.
 fn spawn_midi_input(source: MidiInputSource, state: Arc<AppState>) -> std::thread::JoinHandle<()> {
-    if let MidiInputSource::TestClock(bpm) = &source {
+    if let MidiInputSource::TestClock { bpm, .. } = &source {
         log::info!("Calibration mode: MIDI test clock at {bpm} bpm");
     }
     MidiListener::spawn(source, state)
@@ -375,7 +382,7 @@ mod tests {
         let resolved = resolve_audio_hardware(&config, &mut input)
             .expect("resolve_audio_hardware should succeed in calibration mode");
 
-        assert_eq!(resolved.hw_specs.sample_rate, 44100);
+        assert_eq!(resolved.hw_specs.sample_rate, CALIBRATION_SAMPLE_RATE_HZ);
         assert_eq!(resolved.hw_specs.channels, 2);
         assert!(matches!(
             resolved.source,
@@ -437,8 +444,11 @@ mod tests {
         let result = resolve_midi_hardware(&config)
             .expect("should not error")
             .expect("should resolve to Some");
-        assert!(
-            matches!(result, MidiInputSource::TestClock(bpm) if (bpm - 120.0).abs() < f32::EPSILON)
-        );
+        assert!(matches!(
+            result,
+            MidiInputSource::TestClock { bpm, tick_interval }
+                if (bpm - 120.0).abs() < f32::EPSILON
+                    && tick_interval == midi_tick_interval(120.0).unwrap()
+        ));
     }
 }
