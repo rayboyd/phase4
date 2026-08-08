@@ -25,7 +25,7 @@ use std::net::SocketAddr;
 use std::sync::{atomic::Ordering, Arc};
 use std::thread::JoinHandle;
 use std::time::Duration;
-use tokio::sync::{watch, Notify, OwnedSemaphorePermit, Semaphore};
+use tokio::sync::{mpsc, oneshot, watch, Notify, OwnedSemaphorePermit, Semaphore};
 use tokio::task::JoinSet;
 use tokio_tungstenite::tungstenite::{
     handshake::server::{Callback, ErrorResponse, Request, Response},
@@ -50,10 +50,38 @@ const CLIENT_SHUTDOWN_TIMEOUT_MS: u64 = 500;
 /// are connected.
 const RETAINED_SERIALISED_RECEIVERS: usize = 1;
 
+/// A single request is sufficient because the accept loop waits for each
+/// snapshot refresh to complete before accepting another client.
+const SNAPSHOT_REFRESH_QUEUE_CAPACITY: usize = 1;
+
+type SnapshotRefreshRequest = oneshot::Sender<()>;
+
 /// Returns whether the serialised watch channel has any client receivers
 /// beyond the handle the server retains for cloning.
 fn has_connected_clients(receiver_count: usize) -> bool {
     receiver_count > RETAINED_SERIALISED_RECEIVERS
+}
+
+fn reap_completed_tasks(join_set: &mut JoinSet<()>) {
+    while let Some(result) = join_set.try_join_next() {
+        if let Err(error) = result {
+            log::error!("WebSocket server task failed: {error}");
+        }
+    }
+}
+
+async fn refresh_serialised_snapshot(requests: &mpsc::Sender<SnapshotRefreshRequest>) {
+    let (completion_tx, completion_rx) = oneshot::channel();
+    if requests.send(completion_tx).await.is_ok() {
+        let _ = completion_rx.await;
+    }
+}
+
+#[cfg(test)]
+fn advance_serialiser_progress(observer: Option<&watch::Sender<usize>>) {
+    if let Some(observer) = observer {
+        observer.send_modify(|progress| *progress += 1);
+    }
 }
 
 fn reject_browser_origin(origin: &str) -> ErrorResponse {
@@ -191,6 +219,14 @@ pub struct Server {
 
     /// Maximum number of concurrently connected clients.
     max_clients: usize,
+
+    /// Test-only visibility into retained tasks avoids platform-dependent RSS assertions.
+    #[cfg(test)]
+    task_count_observer: Option<watch::Sender<usize>>,
+
+    /// Test-only visibility into serialiser progress avoids timing-based frame assertions.
+    #[cfg(test)]
+    serialiser_progress_observer: Option<watch::Sender<usize>>,
 }
 
 impl Server {
@@ -200,7 +236,23 @@ impl Server {
             address,
             no_browser_origin,
             max_clients,
+            #[cfg(test)]
+            task_count_observer: None,
+            #[cfg(test)]
+            serialiser_progress_observer: None,
         }
+    }
+
+    #[cfg(test)]
+    fn with_task_count_observer(mut self, observer: watch::Sender<usize>) -> Self {
+        self.task_count_observer = Some(observer);
+        self
+    }
+
+    #[cfg(test)]
+    fn with_serialiser_progress_observer(mut self, observer: watch::Sender<usize>) -> Self {
+        self.serialiser_progress_observer = Some(observer);
+        self
     }
 
     /// Spawns the WebSocket broadcast server on a dedicated OS thread.
@@ -237,6 +289,10 @@ impl Server {
 
         let no_browser_origin = self.no_browser_origin;
         let max_clients = self.max_clients;
+        #[cfg(test)]
+        let task_count_observer = self.task_count_observer;
+        #[cfg(test)]
+        let serialiser_progress_observer = self.serialiser_progress_observer;
         let handle = super::spawn_async_worker(
             "websocket-server",
             Self::run(
@@ -245,6 +301,10 @@ impl Server {
                 state,
                 no_browser_origin,
                 max_clients,
+                #[cfg(test)]
+                task_count_observer,
+                #[cfg(test)]
+                serialiser_progress_observer,
             ),
         );
 
@@ -257,6 +317,8 @@ impl Server {
         state: Arc<AppState>,
         no_browser_origin: bool,
         max_clients: usize,
+        #[cfg(test)] task_count_observer: Option<watch::Sender<usize>>,
+        #[cfg(test)] serialiser_progress_observer: Option<watch::Sender<usize>>,
     ) {
         // from_std is infallible when called from within a Tokio runtime context,
         // which is always true here since we're inside block_on.
@@ -276,18 +338,36 @@ impl Server {
         let initial_serialised =
             initial_serialised_snapshot(&display_rx.borrow(), &mut serialise_failure_logged);
         let (serialised_tx, serialised_rx) = watch::channel(initial_serialised);
+        let (snapshot_refresh_tx, mut snapshot_refresh_rx) =
+            mpsc::channel::<SnapshotRefreshRequest>(SNAPSHOT_REFRESH_QUEUE_CAPACITY);
+        #[cfg(test)]
+        advance_serialiser_progress(serialiser_progress_observer.as_ref());
         join_set.spawn(async move {
             loop {
-                if display_rx.changed().await.is_err() {
-                    break;
-                }
+                let refresh_completion = tokio::select! {
+                    changed = display_rx.changed() => {
+                        if changed.is_err() {
+                            break;
+                        }
+                        None
+                    }
+                    request = snapshot_refresh_rx.recv() => {
+                        let Some(completion) = request else {
+                            break;
+                        };
+                        Some(completion)
+                    }
+                };
 
-                if !has_connected_clients(serialised_tx.receiver_count()) {
+                if refresh_completion.is_none()
+                    && !has_connected_clients(serialised_tx.receiver_count())
+                {
                     // Mark the frame consumed and skip the encode, nobody is
-                    // listening. The next client to connect receives the last
-                    // serialised frame as its handshake snapshot, and a fresh
-                    // frame replaces it within one broadcast interval.
+                    // listening. A new connection requests a current snapshot
+                    // before its client task starts.
                     let _ = display_rx.borrow_and_update();
+                    #[cfg(test)]
+                    advance_serialiser_progress(serialiser_progress_observer.as_ref());
                     continue;
                 }
 
@@ -297,12 +377,26 @@ impl Server {
                     &display_rx.borrow_and_update(),
                     &mut serialise_failure_logged,
                 ) {
-                    serialised_tx.send_replace(json);
+                    let snapshot_changed = refresh_completion.is_none() || {
+                        let current_snapshot = serialised_tx.borrow();
+                        current_snapshot.as_str() != json.as_str()
+                    };
+                    if snapshot_changed {
+                        serialised_tx.send_replace(json);
+                    }
                 }
+
+                if let Some(completion) = refresh_completion {
+                    let _ = completion.send(());
+                }
+                #[cfg(test)]
+                advance_serialiser_progress(serialiser_progress_observer.as_ref());
             }
         });
 
         loop {
+            reap_completed_tasks(&mut join_set);
+
             if !state.keep_running.load(Ordering::Acquire) {
                 break;
             }
@@ -322,6 +416,8 @@ impl Server {
                     };
 
                     log::debug!("WebSocket client connected from {client_addr}");
+                    refresh_serialised_snapshot(&snapshot_refresh_tx).await;
+                    reap_completed_tasks(&mut join_set);
                     join_set.spawn(Self::handle_client(
                         stream,
                         client_addr,
@@ -330,6 +426,11 @@ impl Server {
                         client_slot,
                         no_browser_origin,
                     ));
+
+                    #[cfg(test)]
+                    if let Some(observer) = &task_count_observer {
+                        observer.send_replace(join_set.len());
+                    }
                 }
                 Err(e) => log::error!("TCP Accept error: {e}"),
             }
@@ -414,6 +515,144 @@ impl Server {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use futures_util::StreamExt;
+
+    const CLIENT_RECONNECT_ATTEMPTS: usize = 50;
+    const CLIENT_RECONNECT_DELAY: Duration = Duration::from_millis(20);
+    const TEST_TIMEOUT: Duration = Duration::from_secs(2);
+
+    async fn next_observed_server_count(observer: &mut watch::Receiver<usize>) -> usize {
+        tokio::time::timeout(TEST_TIMEOUT, observer.changed())
+            .await
+            .expect("timed out waiting for an observed server count to change")
+            .expect("server dropped a count observer unexpectedly");
+        *observer.borrow_and_update()
+    }
+
+    async fn join_server(handle: JoinHandle<()>) {
+        let join_task = tokio::task::spawn_blocking(move || handle.join());
+        tokio::time::timeout(TEST_TIMEOUT, join_task)
+            .await
+            .expect("server thread did not stop within the test timeout")
+            .expect("blocking join task panicked")
+            .expect("server thread panicked");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn server_does_not_retain_completed_client_tasks() {
+        const EXPECTED_TRACKED_TASKS: usize = 2;
+
+        let (display_tx, display_rx) = watch::channel(DisplayPayload::new(0));
+        let state = Arc::new(AppState::new());
+        let (task_count_tx, mut task_count_rx) = watch::channel(0);
+        let server = Server::new("127.0.0.1:0".parse().expect("valid test address"), false, 1)
+            .with_task_count_observer(task_count_tx);
+        let (bound_addr, server_handle) = server
+            .spawn(display_rx, Arc::clone(&state))
+            .expect("server should bind to a loopback test address");
+        let url = format!("ws://{bound_addr}");
+
+        let (mut first_client, _) = tokio_tungstenite::connect_async(&url)
+            .await
+            .expect("first client should connect");
+        tokio::time::timeout(TEST_TIMEOUT, first_client.next())
+            .await
+            .expect("first client timed out waiting for its initial payload")
+            .expect("first client disconnected before its initial payload")
+            .expect("first client received an invalid WebSocket frame");
+        assert_eq!(
+            next_observed_server_count(&mut task_count_rx).await,
+            EXPECTED_TRACKED_TASKS,
+            "the server should initially retain the serialiser and first client tasks"
+        );
+
+        drop(first_client);
+
+        let mut second_client = None;
+        for _ in 0..CLIENT_RECONNECT_ATTEMPTS {
+            display_tx.send_replace(DisplayPayload::new(0));
+            tokio::time::sleep(CLIENT_RECONNECT_DELAY).await;
+
+            if let Ok((client, _)) = tokio_tungstenite::connect_async(&url).await {
+                second_client = Some(client);
+                break;
+            }
+        }
+        let second_client =
+            second_client.expect("second client should connect after the first exits");
+        let retained_task_count = next_observed_server_count(&mut task_count_rx).await;
+
+        state.keep_running.store(false, Ordering::Release);
+        drop(display_tx);
+        join_server(server_handle).await;
+        drop(second_client);
+
+        assert_eq!(
+            retained_task_count,
+            EXPECTED_TRACKED_TASKS,
+            "the server should retain only the serialiser and current client tasks, but a completed client task remains in the JoinSet"
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn first_client_receives_latest_payload_after_frames_without_clients() {
+        const INITIAL_PEAK: f32 = 0.25;
+        const LATEST_PEAK: f32 = 0.75;
+
+        let mut initial_payload = DisplayPayload::new(1);
+        initial_payload.channels[0].peak = INITIAL_PEAK;
+        let (display_tx, display_rx) = watch::channel(initial_payload);
+        let state = Arc::new(AppState::new());
+        let (serialiser_progress_tx, mut serialiser_progress_rx) = watch::channel(0);
+        let server = Server::new("127.0.0.1:0".parse().expect("valid test address"), false, 1)
+            .with_serialiser_progress_observer(serialiser_progress_tx);
+        let (bound_addr, server_handle) = server
+            .spawn(display_rx, Arc::clone(&state))
+            .expect("server should bind to a loopback test address");
+
+        assert_eq!(
+            next_observed_server_count(&mut serialiser_progress_rx).await,
+            1,
+            "the serialiser should be ready before the test publishes a newer frame"
+        );
+
+        let mut latest_payload = DisplayPayload::new(1);
+        latest_payload.channels[0].peak = LATEST_PEAK;
+        display_tx.send_replace(latest_payload);
+        assert_eq!(
+            next_observed_server_count(&mut serialiser_progress_rx).await,
+            2,
+            "the serialiser should consume the newer frame while no clients are connected"
+        );
+
+        let url = format!("ws://{bound_addr}");
+        let (mut client, _) = tokio_tungstenite::connect_async(&url)
+            .await
+            .expect("first client should connect");
+        let initial_message = tokio::time::timeout(TEST_TIMEOUT, client.next())
+            .await
+            .expect("first client timed out waiting for its initial payload")
+            .expect("first client disconnected before its initial payload")
+            .expect("first client received an invalid WebSocket frame");
+        let initial_json = initial_message
+            .into_text()
+            .expect("first client should receive a text payload");
+        let initial_value: serde_json::Value =
+            serde_json::from_str(&initial_json).expect("first client should receive valid JSON");
+        let received_peak = initial_value["channels"][0]["peak"]
+            .as_f64()
+            .expect("first client payload should contain a numeric peak");
+
+        state.keep_running.store(false, Ordering::Release);
+        drop(display_tx);
+        join_server(server_handle).await;
+        drop(client);
+
+        assert!(
+            (received_peak - f64::from(LATEST_PEAK)).abs() < f64::EPSILON,
+            "the first client must receive the latest consumed frame rather than the startup snapshot"
+        );
+    }
 
     #[test]
     fn has_connected_clients_is_false_for_the_retained_receiver_alone() {

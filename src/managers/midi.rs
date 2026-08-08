@@ -60,6 +60,24 @@ pub(crate) const MIDI_TRANSPORT_START: u8 = 1;
 pub(crate) const MIDI_TRANSPORT_STOP: u8 = 2;
 pub(crate) const MIDI_TRANSPORT_CONTINUE: u8 = 3;
 
+#[cfg(test)]
+type MidiStartPublishedObserver = Option<Box<dyn Fn(&AppState)>>;
+
+#[cfg(test)]
+thread_local! {
+    static MIDI_START_PUBLISHED_OBSERVER: std::cell::RefCell<MidiStartPublishedObserver> =
+        std::cell::RefCell::new(None);
+}
+
+#[cfg(test)]
+fn observe_published_midi_start(state: &AppState) {
+    MIDI_START_PUBLISHED_OBSERVER.with(|observer| {
+        if let Some(observer) = observer.borrow().as_ref() {
+            observer(state);
+        }
+    });
+}
+
 /// Matches a single raw MIDI status byte against the four Real-Time codes
 /// phase4 cares about. Start, Stop, and Continue update `AppState` directly.
 /// Clock ticks accumulate privately in `ticks_since_step` and are only
@@ -70,11 +88,13 @@ pub(crate) const MIDI_TRANSPORT_CONTINUE: u8 = 3;
 fn record_byte(byte: u8, state: &AppState, ticks_since_step: &mut u8) {
     match byte {
         MIDI_STATUS_START => {
+            *ticks_since_step = 0;
+            state.midi_steps.store(0, Ordering::Release);
             state
                 .midi_last_transport
                 .store(MIDI_TRANSPORT_START, Ordering::Release);
-            *ticks_since_step = 0;
-            state.midi_steps.store(0, Ordering::Release);
+            #[cfg(test)]
+            observe_published_midi_start(state);
         }
         MIDI_STATUS_STOP => state
             .midi_last_transport
@@ -209,16 +229,8 @@ pub(crate) fn resolve_midi_device(
 ) -> Result<(midir::MidiInput, midir::MidiInputPort, String)> {
     let midi_in = midir::MidiInput::new("phase4").context("Failed to initialise MIDI input")?;
 
-    let needle = name_query.to_lowercase();
     let ports = midi_in.ports();
-    let port = ports
-        .iter()
-        .find(|p| {
-            midi_in.port_name(p).is_ok_and(|name| {
-                name.eq_ignore_ascii_case(name_query) || name.to_lowercase().contains(&needle)
-            })
-        })
-        .cloned()
+    let port = find_matching_midi_device(ports, name_query, |port| midi_in.port_name(port).ok())
         .with_context(|| {
             format!(
                 "No MIDI input device matching '{name_query}' found. \
@@ -231,6 +243,31 @@ pub(crate) fn resolve_midi_device(
         .unwrap_or_else(|_| name_query.to_string());
 
     Ok((midi_in, port, port_name))
+}
+
+fn find_matching_midi_device<T>(
+    devices: impl IntoIterator<Item = T>,
+    name_query: &str,
+    mut device_name: impl FnMut(&T) -> Option<String>,
+) -> Option<T> {
+    let needle = name_query.to_lowercase();
+    let mut substring_match = None;
+
+    for device in devices {
+        let Some(name) = device_name(&device) else {
+            continue;
+        };
+
+        if name.eq_ignore_ascii_case(name_query) {
+            return Some(device);
+        }
+
+        if substring_match.is_none() && name.to_lowercase().contains(&needle) {
+            substring_match = Some(device);
+        }
+    }
+
+    substring_match
 }
 
 fn run_synthetic_clock(bpm: f32, state: &Arc<AppState>) {
@@ -301,6 +338,24 @@ mod tests {
     }
 
     #[test]
+    fn find_matching_midi_device_prefers_an_exact_match_over_an_earlier_substring() {
+        const NAME_QUERY: &str = "Phase Control";
+        const SUBSTRING_MATCH: &str = "Phase Control Extended";
+        const EXACT_MATCH: &str = "Phase Control";
+
+        let selected =
+            find_matching_midi_device([SUBSTRING_MATCH, EXACT_MATCH], NAME_QUERY, |device_name| {
+                Some((*device_name).to_owned())
+            });
+
+        assert_eq!(
+            selected,
+            Some(EXACT_MATCH),
+            "an exact MIDI device name must take precedence over an earlier substring match"
+        );
+    }
+
+    #[test]
     fn record_byte_sets_start() {
         let state = AppState::new();
         record_byte(0xFA, &state, &mut 0u8);
@@ -308,6 +363,31 @@ mod tests {
             state.midi_last_transport.load(Ordering::Acquire),
             MIDI_TRANSPORT_START
         );
+    }
+
+    #[test]
+    fn record_byte_publishes_start_with_reset_step_count() {
+        const PREVIOUS_STEP_COUNT: u32 = 12;
+
+        let state = AppState::new();
+        state
+            .midi_steps
+            .store(PREVIOUS_STEP_COUNT, Ordering::Release);
+        MIDI_START_PUBLISHED_OBSERVER.with(|observer| {
+            *observer.borrow_mut() = Some(Box::new(|observed_state| {
+                assert_eq!(
+                    observed_state.midi_steps.load(Ordering::Acquire),
+                    0,
+                    "MIDI Start must not become observable before its step count has reset"
+                );
+            }));
+        });
+
+        record_byte(MIDI_STATUS_START, &state, &mut 0u8);
+
+        MIDI_START_PUBLISHED_OBSERVER.with(|observer| {
+            observer.borrow_mut().take();
+        });
     }
 
     #[test]
