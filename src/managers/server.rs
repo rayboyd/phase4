@@ -56,6 +56,14 @@ fn has_connected_clients(receiver_count: usize) -> bool {
     receiver_count > RETAINED_SERIALISED_RECEIVERS
 }
 
+fn reap_completed_tasks(join_set: &mut JoinSet<()>) {
+    while let Some(result) = join_set.try_join_next() {
+        if let Err(error) = result {
+            log::error!("WebSocket server task failed: {error}");
+        }
+    }
+}
+
 #[cfg(test)]
 fn advance_serialiser_progress(observer: Option<&watch::Sender<usize>>) {
     if let Some(observer) = observer {
@@ -350,6 +358,8 @@ impl Server {
         });
 
         loop {
+            reap_completed_tasks(&mut join_set);
+
             if !state.keep_running.load(Ordering::Acquire) {
                 break;
             }
@@ -369,6 +379,7 @@ impl Server {
                     };
 
                     log::debug!("WebSocket client connected from {client_addr}");
+                    reap_completed_tasks(&mut join_set);
                     join_set.spawn(Self::handle_client(
                         stream,
                         client_addr,
