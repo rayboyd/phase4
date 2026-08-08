@@ -229,16 +229,8 @@ pub(crate) fn resolve_midi_device(
 ) -> Result<(midir::MidiInput, midir::MidiInputPort, String)> {
     let midi_in = midir::MidiInput::new("phase4").context("Failed to initialise MIDI input")?;
 
-    let needle = name_query.to_lowercase();
     let ports = midi_in.ports();
-    let port = ports
-        .iter()
-        .find(|p| {
-            midi_in.port_name(p).is_ok_and(|name| {
-                name.eq_ignore_ascii_case(name_query) || name.to_lowercase().contains(&needle)
-            })
-        })
-        .cloned()
+    let port = find_matching_midi_device(ports, name_query, |port| midi_in.port_name(port).ok())
         .with_context(|| {
             format!(
                 "No MIDI input device matching '{name_query}' found. \
@@ -251,6 +243,19 @@ pub(crate) fn resolve_midi_device(
         .unwrap_or_else(|_| name_query.to_string());
 
     Ok((midi_in, port, port_name))
+}
+
+fn find_matching_midi_device<T>(
+    devices: impl IntoIterator<Item = T>,
+    name_query: &str,
+    mut device_name: impl FnMut(&T) -> Option<String>,
+) -> Option<T> {
+    let needle = name_query.to_lowercase();
+    devices.into_iter().find(|device| {
+        device_name(device).is_some_and(|name| {
+            name.eq_ignore_ascii_case(name_query) || name.to_lowercase().contains(&needle)
+        })
+    })
 }
 
 fn run_synthetic_clock(bpm: f32, state: &Arc<AppState>) {
@@ -318,6 +323,24 @@ mod tests {
     fn resolve_midi_device_fails_for_an_unmatched_name() {
         let result = resolve_midi_device("a-name-no-real-device-will-ever-have");
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn find_matching_midi_device_prefers_an_exact_match_over_an_earlier_substring() {
+        const NAME_QUERY: &str = "Phase Control";
+        const SUBSTRING_MATCH: &str = "Phase Control Extended";
+        const EXACT_MATCH: &str = "Phase Control";
+
+        let selected =
+            find_matching_midi_device([SUBSTRING_MATCH, EXACT_MATCH], NAME_QUERY, |device_name| {
+                Some((*device_name).to_owned())
+            });
+
+        assert_eq!(
+            selected,
+            Some(EXACT_MATCH),
+            "an exact MIDI device name must take precedence over an earlier substring match"
+        );
     }
 
     #[test]
