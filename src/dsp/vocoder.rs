@@ -12,10 +12,8 @@
 
 use crate::config::VocoderConfig;
 use crate::dsp::units::{Hertz, Milliseconds};
+use crate::dsp::BAND_COUNT;
 use biquad::{Biquad, Coefficients, DirectForm1, ToHertz, Type};
-
-/// Number of frequency bands in the filter bank.
-pub const VOCODER_BANDS: usize = 32;
 
 /// One-pole envelope follower with separate attack and release coefficients.
 #[derive(Default)]
@@ -66,21 +64,21 @@ pub(crate) fn envelope_coeff(time: Milliseconds, sample_rate: Hertz) -> f32 {
 
 /// Per-channel vocoder analyser.
 ///
-/// Splits the input signal into [`VOCODER_BANDS`] logarithmically spaced
+/// Splits the input signal into [`BAND_COUNT`] logarithmically spaced
 /// frequency bands, each tracked by an envelope follower. Produces
-/// [`VOCODER_BANDS`] envelope values, one per logarithmically spaced band.
+/// [`BAND_COUNT`] envelope values, one per logarithmically spaced band.
 pub struct VocoderAnalyser {
     /// One bandpass filter per band, coefficients from the Audio EQ Cookbook
     /// (Robert Bristow-Johnson) via the `biquad` crate. `DirectForm1` mirrors
     /// the previous hand-written state layout while delegating the
     /// coefficient maths.
-    filters: [DirectForm1<f32>; VOCODER_BANDS],
+    filters: [DirectForm1<f32>; BAND_COUNT],
 
     /// One envelope follower per band, tracking its filter's rectified output.
-    envelopes: [EnvelopeFollower; VOCODER_BANDS],
+    envelopes: [EnvelopeFollower; BAND_COUNT],
 
     /// Latest envelope value per band, same order as `filters`.
-    bins: [f32; VOCODER_BANDS],
+    bins: [f32; BAND_COUNT],
 
     /// Shared one-pole attack coefficient, see [`envelope_coeff`].
     attack_coeff: f32,
@@ -108,7 +106,7 @@ impl VocoderAnalyser {
         let log_high = config.freq_high.0.ln();
 
         let filters = std::array::from_fn(|i| {
-            let t = i as f32 / (VOCODER_BANDS as f32 - 1.0);
+            let t = i as f32 / (BAND_COUNT as f32 - 1.0);
             let centre = (log_low + t * (log_high - log_low)).exp();
 
             // filter_q sets the bandpass width. Higher Q narrows the
@@ -131,7 +129,7 @@ impl VocoderAnalyser {
         Self {
             filters,
             envelopes,
-            bins: [0.0; VOCODER_BANDS],
+            bins: [0.0; BAND_COUNT],
             attack_coeff,
             release_coeff,
         }

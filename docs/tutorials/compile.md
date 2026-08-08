@@ -12,7 +12,7 @@ cargo build --release --locked
 
 ## Fixed data contract
 
-Every build uses native `f32` audio samples, 32 vocoder bands per channel, and a 60 Hz output cadence. These values are part of Phase4's data contract and have no build features or runtime options.
+Every build uses native `f32` audio samples, 32 vocoder bands per channel, and a 60 Hz output cadence. These values are Phase4's data contract.
 
 The vocoder envelope controls remain configurable. Use `--vocoder-attack-ms` and `--vocoder-release-ms` to control how quickly the 32 bands rise and fall.
 

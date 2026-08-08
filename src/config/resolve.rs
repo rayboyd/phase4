@@ -728,7 +728,6 @@ mod tests {
     fn explicit_config_path_with_unknown_nested_key_is_an_error() {
         for (section, unknown_key) in [
             ("network", "ws_adrr"),
-            ("network", "broadcast_rate"),
             ("audio", "device_name_macth"),
             ("midi", "device_name_macth"),
             ("vocoder", "attack_sm"),

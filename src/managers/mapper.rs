@@ -9,7 +9,7 @@
 //! frame is available.
 
 use crate::app::AppState;
-use crate::dsp::{DisplayChannelLevel, DisplayPayload, MidiSnapshot, RawChannelLevel, RawPayload};
+use crate::dsp::{DisplayPayload, MidiSnapshot, RawPayload};
 use crate::managers::{
     MIDI_TRANSPORT_CONTINUE, MIDI_TRANSPORT_NONE, MIDI_TRANSPORT_START, MIDI_TRANSPORT_STOP,
 };
@@ -95,10 +95,7 @@ impl Mapper {
                     }
 
                     let raw = raw_rx.borrow_and_update();
-                    debug_assert_eq!(raw.channels.len(), display_data.channels.len());
-                    for (source, target) in raw.channels.iter().zip(&mut display_data.channels) {
-                        map_channel(source, target);
-                    }
+                    display_data.channels.copy_from_slice(&raw.channels);
                     drop(raw);
 
                     display_data.midi = read_midi_snapshot(&state, midi_enabled);
@@ -109,12 +106,6 @@ impl Mapper {
             }
         }
     }
-}
-
-/// Copies one channel's fixed 32-band analysis snapshot into its display slot.
-fn map_channel(raw: &RawChannelLevel, out: &mut DisplayChannelLevel) {
-    out.peak = raw.peak;
-    out.bins.copy_from_slice(&raw.bins);
 }
 
 /// Reads and clears MIDI transport, and snapshots MIDI steps, once per
@@ -139,29 +130,5 @@ fn transport_code_to_str(code: u8) -> Option<&'static str> {
         MIDI_TRANSPORT_STOP => Some("stop"),
         MIDI_TRANSPORT_CONTINUE => Some("continue"),
         _ => None,
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::dsp::vocoder::VOCODER_BANDS;
-
-    #[test]
-    #[allow(clippy::float_cmp)]
-    fn map_channel_copies_peak_and_bins() {
-        let raw = RawChannelLevel {
-            peak: 0.87,
-            bins: std::array::from_fn(|index| index as f32 * 0.01),
-        };
-        let mut out = DisplayChannelLevel {
-            peak: 0.0,
-            bins: [0.0; VOCODER_BANDS],
-        };
-
-        map_channel(&raw, &mut out);
-
-        assert_eq!(out.peak, raw.peak);
-        assert_eq!(out.bins, raw.bins);
     }
 }
