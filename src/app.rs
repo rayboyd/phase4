@@ -96,7 +96,8 @@ impl App {
     ///
     /// Returns an error if the audio device cannot be opened, the input stream
     /// cannot be started, or a configured output transport cannot bind to its
-    /// given address.
+    /// given address. If an output fails after earlier workers have started,
+    /// construction stops and joins those workers before returning the error.
     ///
     /// # Panics
     ///

@@ -2,13 +2,14 @@
 
 The [WebSocket API](https://developer.mozilla.org/en-US/docs/Web/API/WebSockets_API) makes it possible to open a two-way interactive communication session between the browser and a server. With this API, we can receive messages without having to poll the server.
 
-Phase4 streams real-time audio analysis data as a JSON broadcast. Any tool capable of opening a standard WebSocket connection (including browsers, Node.js, Python, or creative coding environments like TouchDesigner) can consume this stream.
+Phase4 streams real-time audio analysis data as a one-way JSON broadcast. Any tool capable of opening a standard WebSocket connection (including browsers, Node.js, Python, or creative coding environments like TouchDesigner) can consume this stream.
 
 ## Connection Details
 
 - **Default Address:** none, pass `--ws-addr 127.0.0.1:8889` (or set `network.ws_addr` in `config.yaml`) to enable the WebSocket output.
 - **Protocol:** Standard WebSocket
 - **Format:** JSON (UTF-8)
+- **Direction:** Server to client only. Phase4 services Ping, Pong, and Close control frames, but rejects Text and Binary messages by closing the connection. Inbound application data is never passed into Phase4's application pipeline.
 
 > Running Phase4 with the `--no-browser-origin` flag rejects standard browser-based connections.
 

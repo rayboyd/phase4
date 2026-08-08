@@ -40,7 +40,7 @@ use crate::dsp::{DisplayPayload, DISPLAY_BINS};
 use anyhow::{Context, Result};
 use rosc::{OscBundle, OscMessage, OscPacket, OscTime, OscType};
 use socket2::{Domain, Socket, Type};
-use std::net::{SocketAddr, UdpSocket};
+use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr, UdpSocket};
 use std::sync::{atomic::Ordering, Arc};
 use std::thread::JoinHandle;
 use tokio::sync::watch;
@@ -97,12 +97,15 @@ impl OscSender {
         let send_buffer_size =
             messages_per_frame * OSC_MESSAGE_SIZE_ESTIMATE_BYTES * OSC_SEND_BUFFER_FRAME_HEADROOM;
 
-        let raw_socket = Socket::new(Domain::IPV4, Type::DGRAM, None)
+        let (domain, bind_addr) = match self.target {
+            SocketAddr::V4(_) => (Domain::IPV4, SocketAddr::from((Ipv4Addr::UNSPECIFIED, 0))),
+            SocketAddr::V6(_) => (Domain::IPV6, SocketAddr::from((Ipv6Addr::UNSPECIFIED, 0))),
+        };
+        let raw_socket = Socket::new(domain, Type::DGRAM, None)
             .context("Failed to create UDP socket for OSC output")?;
         raw_socket
             .set_send_buffer_size(send_buffer_size)
             .context("Failed to set UDP send buffer size for OSC output")?;
-        let bind_addr: SocketAddr = (std::net::Ipv4Addr::UNSPECIFIED, 0).into();
         raw_socket
             .bind(&bind_addr.into())
             .context("Failed to bind UDP socket for OSC output")?;

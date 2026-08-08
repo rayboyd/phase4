@@ -11,7 +11,7 @@ use tokio::io::AsyncReadExt;
 use tokio::sync::watch;
 use tokio::time::{sleep, timeout};
 use tokio_tungstenite::{
-    tungstenite::{self, client::IntoClientRequest, Message},
+    tungstenite::{self, client::IntoClientRequest, protocol::frame::coding::CloseCode, Message},
     MaybeTlsStream, WebSocketStream,
 };
 
@@ -296,6 +296,42 @@ async fn client_control_frames_are_serviced_while_display_is_paused() {
         "the paused server did not service client control frames: pong received = \
          {ping_was_answered}, replacement client connected = {}",
         replacement_client.is_some()
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn client_application_messages_are_rejected() {
+    const APPLICATION_MESSAGE_REJECTION_TIMEOUT: Duration = Duration::from_secs(1);
+
+    let address = free_local_address();
+    let payload = DisplayPayload::new(0);
+    let initial_display = serde_json::to_string(&payload).expect("failed to serialise payload");
+    let (display_tx, display_rx) = watch::channel(payload);
+    let state = Arc::new(AppState::new());
+
+    let (_bound_addr, handle) = Server::new(address, false, DEFAULT_MAX_CLIENTS)
+        .spawn(display_rx, state.clone())
+        .unwrap();
+
+    let mut client = connect_client(address).await;
+    expect_text_payload(&mut client, &initial_display, "initial snapshot").await;
+    client
+        .send(Message::Text("inbound data".into()))
+        .await
+        .expect("failed to send application message");
+
+    let rejection = timeout(APPLICATION_MESSAGE_REJECTION_TIMEOUT, client.next()).await;
+
+    state.keep_running.store(false, Ordering::Release);
+    drop(display_tx);
+    join_server_bounded(handle).await;
+
+    assert!(
+        matches!(
+            rejection,
+            Ok(Some(Ok(Message::Close(Some(ref frame))))) if frame.code == CloseCode::Policy
+        ),
+        "the server did not reject an inbound application message with a policy close: {rejection:?}"
     );
 }
 
