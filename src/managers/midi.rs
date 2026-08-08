@@ -251,11 +251,23 @@ fn find_matching_midi_device<T>(
     mut device_name: impl FnMut(&T) -> Option<String>,
 ) -> Option<T> {
     let needle = name_query.to_lowercase();
-    devices.into_iter().find(|device| {
-        device_name(device).is_some_and(|name| {
-            name.eq_ignore_ascii_case(name_query) || name.to_lowercase().contains(&needle)
-        })
-    })
+    let mut substring_match = None;
+
+    for device in devices {
+        let Some(name) = device_name(&device) else {
+            continue;
+        };
+
+        if name.eq_ignore_ascii_case(name_query) {
+            return Some(device);
+        }
+
+        if substring_match.is_none() && name.to_lowercase().contains(&needle) {
+            substring_match = Some(device);
+        }
+    }
+
+    substring_match
 }
 
 fn run_synthetic_clock(bpm: f32, state: &Arc<AppState>) {
