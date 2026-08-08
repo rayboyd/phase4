@@ -181,9 +181,17 @@ fn resolve_input(
     let analyse_channels = normalise_channel_selection(raw_channels)?;
 
     let calibration_signal = if let Some(lfo_rate) = args.calibration.test_sweep {
+        if !lfo_rate.is_finite() {
+            return Err(AppConfigError::InvalidTestSweepRate { value: lfo_rate });
+        }
         Some(TestSignal::Sweep(lfo_rate))
+    } else if let Some(frequency) = args.calibration.test_hz {
+        if !frequency.is_finite() {
+            return Err(AppConfigError::InvalidTestFrequency { value: frequency });
+        }
+        Some(TestSignal::FixedTone(frequency))
     } else {
-        args.calibration.test_hz.map(TestSignal::FixedTone)
+        None
     };
 
     match calibration_signal {

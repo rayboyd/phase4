@@ -33,13 +33,13 @@ pub enum ListFormat {
 #[derive(clap::Args)]
 #[command(next_help_heading = "Calibration")]
 pub struct CalibrationArgs {
-    /// Run in calibration mode with a synthetic sine wave at the given frequency
-    /// (e.g. 440.0). Mutually exclusive with --test-sweep.
+    /// Run in calibration mode with a synthetic sine wave at the given finite
+    /// frequency (e.g. 440.0). Mutually exclusive with --test-sweep.
     #[arg(long)]
     pub test_hz: Option<f32>,
 
-    /// Run a logarithmic sine wave sweep. The value is the LFO rate in Hz (e.g. 0.1
-    /// for a 10 second cycle). Mutually exclusive with --test-hz.
+    /// Run a logarithmic sine wave sweep. The value is the finite LFO rate in Hz
+    /// (e.g. 0.1 for a 10 second cycle). Mutually exclusive with --test-hz.
     #[arg(long, conflicts_with = "test_hz")]
     pub test_sweep: Option<f32>,
 
