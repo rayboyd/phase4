@@ -1,4 +1,4 @@
-use futures_util::StreamExt;
+use futures_util::{SinkExt, StreamExt};
 use phase4::app::AppState;
 use phase4::config::DEFAULT_MAX_CLIENTS;
 use phase4::dsp::DisplayPayload;
@@ -237,6 +237,66 @@ async fn idle_tcp_client_is_closed_after_handshake_timeout() {
             panic!("idle raw TCP client was not closed after the handshake timeout: {error}")
         }
     }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn client_control_frames_are_serviced_while_display_is_paused() {
+    const CONTROL_FRAME_TIMEOUT: Duration = Duration::from_millis(250);
+    const RECONNECT_ATTEMPTS: usize = 50;
+    const RECONNECT_RETRY_DELAY: Duration = Duration::from_millis(10);
+
+    let address = free_local_address();
+    let payload = DisplayPayload::new(0);
+    let initial_display = serde_json::to_string(&payload).expect("failed to serialise payload");
+    let (display_tx, display_rx) = watch::channel(payload);
+    let state = Arc::new(AppState::new());
+
+    let (_bound_addr, handle) = Server::new(address, false, 1)
+        .spawn(display_rx, state.clone())
+        .unwrap();
+
+    let mut first_client = connect_client(address).await;
+    expect_text_payload(&mut first_client, &initial_display, "initial snapshot").await;
+
+    let ping_payload = b"phase4-control-frame".to_vec();
+    first_client
+        .send(Message::Ping(ping_payload.clone().into()))
+        .await
+        .expect("failed to send ping frame");
+
+    let ping_response = timeout(CONTROL_FRAME_TIMEOUT, first_client.next()).await;
+    let ping_was_answered = matches!(
+        ping_response,
+        Ok(Some(Ok(Message::Pong(ref payload)))) if payload.as_ref() == ping_payload
+    );
+
+    first_client
+        .close(None)
+        .await
+        .expect("failed to send close frame");
+    drop(first_client);
+
+    let mut replacement_client = None;
+    for _ in 0..RECONNECT_ATTEMPTS {
+        if let Ok((client, _response)) =
+            tokio_tungstenite::connect_async(format!("ws://{address}")).await
+        {
+            replacement_client = Some(client);
+            break;
+        }
+        sleep(RECONNECT_RETRY_DELAY).await;
+    }
+
+    state.keep_running.store(false, Ordering::Release);
+    drop(display_tx);
+    join_server_bounded(handle).await;
+
+    assert!(
+        ping_was_answered && replacement_client.is_some(),
+        "the paused server did not service client control frames: pong received = \
+         {ping_was_answered}, replacement client connected = {}",
+        replacement_client.is_some()
+    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
