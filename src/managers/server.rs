@@ -191,6 +191,10 @@ pub struct Server {
 
     /// Maximum number of concurrently connected clients.
     max_clients: usize,
+
+    /// Test-only visibility into retained tasks avoids platform-dependent RSS assertions.
+    #[cfg(test)]
+    task_count_observer: Option<watch::Sender<usize>>,
 }
 
 impl Server {
@@ -200,7 +204,15 @@ impl Server {
             address,
             no_browser_origin,
             max_clients,
+            #[cfg(test)]
+            task_count_observer: None,
         }
+    }
+
+    #[cfg(test)]
+    fn with_task_count_observer(mut self, observer: watch::Sender<usize>) -> Self {
+        self.task_count_observer = Some(observer);
+        self
     }
 
     /// Spawns the WebSocket broadcast server on a dedicated OS thread.
@@ -237,6 +249,8 @@ impl Server {
 
         let no_browser_origin = self.no_browser_origin;
         let max_clients = self.max_clients;
+        #[cfg(test)]
+        let task_count_observer = self.task_count_observer;
         let handle = super::spawn_async_worker(
             "websocket-server",
             Self::run(
@@ -245,6 +259,8 @@ impl Server {
                 state,
                 no_browser_origin,
                 max_clients,
+                #[cfg(test)]
+                task_count_observer,
             ),
         );
 
@@ -257,6 +273,7 @@ impl Server {
         state: Arc<AppState>,
         no_browser_origin: bool,
         max_clients: usize,
+        #[cfg(test)] task_count_observer: Option<watch::Sender<usize>>,
     ) {
         // from_std is infallible when called from within a Tokio runtime context,
         // which is always true here since we're inside block_on.
@@ -330,6 +347,11 @@ impl Server {
                         client_slot,
                         no_browser_origin,
                     ));
+
+                    #[cfg(test)]
+                    if let Some(observer) = &task_count_observer {
+                        observer.send_replace(join_set.len());
+                    }
                 }
                 Err(e) => log::error!("TCP Accept error: {e}"),
             }
@@ -414,6 +436,84 @@ impl Server {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use futures_util::StreamExt;
+
+    const CLIENT_RECONNECT_ATTEMPTS: usize = 50;
+    const CLIENT_RECONNECT_DELAY: Duration = Duration::from_millis(20);
+    const TEST_TIMEOUT: Duration = Duration::from_secs(2);
+
+    async fn next_observed_task_count(observer: &mut watch::Receiver<usize>) -> usize {
+        tokio::time::timeout(TEST_TIMEOUT, observer.changed())
+            .await
+            .expect("timed out waiting for the server task count to change")
+            .expect("server dropped the task count observer unexpectedly");
+        *observer.borrow_and_update()
+    }
+
+    async fn join_server(handle: JoinHandle<()>) {
+        let join_task = tokio::task::spawn_blocking(move || handle.join());
+        tokio::time::timeout(TEST_TIMEOUT, join_task)
+            .await
+            .expect("server thread did not stop within the test timeout")
+            .expect("blocking join task panicked")
+            .expect("server thread panicked");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn server_does_not_retain_completed_client_tasks() {
+        const EXPECTED_TRACKED_TASKS: usize = 2;
+
+        let (display_tx, display_rx) = watch::channel(DisplayPayload::new(0));
+        let state = Arc::new(AppState::new());
+        let (task_count_tx, mut task_count_rx) = watch::channel(0);
+        let server = Server::new("127.0.0.1:0".parse().expect("valid test address"), false, 1)
+            .with_task_count_observer(task_count_tx);
+        let (bound_addr, server_handle) = server
+            .spawn(display_rx, Arc::clone(&state))
+            .expect("server should bind to a loopback test address");
+        let url = format!("ws://{bound_addr}");
+
+        let (mut first_client, _) = tokio_tungstenite::connect_async(&url)
+            .await
+            .expect("first client should connect");
+        tokio::time::timeout(TEST_TIMEOUT, first_client.next())
+            .await
+            .expect("first client timed out waiting for its initial payload")
+            .expect("first client disconnected before its initial payload")
+            .expect("first client received an invalid WebSocket frame");
+        assert_eq!(
+            next_observed_task_count(&mut task_count_rx).await,
+            EXPECTED_TRACKED_TASKS,
+            "the server should initially retain the serialiser and first client tasks"
+        );
+
+        drop(first_client);
+
+        let mut second_client = None;
+        for _ in 0..CLIENT_RECONNECT_ATTEMPTS {
+            display_tx.send_replace(DisplayPayload::new(0));
+            tokio::time::sleep(CLIENT_RECONNECT_DELAY).await;
+
+            if let Ok((client, _)) = tokio_tungstenite::connect_async(&url).await {
+                second_client = Some(client);
+                break;
+            }
+        }
+        let second_client =
+            second_client.expect("second client should connect after the first exits");
+        let retained_task_count = next_observed_task_count(&mut task_count_rx).await;
+
+        state.keep_running.store(false, Ordering::Release);
+        drop(display_tx);
+        join_server(server_handle).await;
+        drop(second_client);
+
+        assert_eq!(
+            retained_task_count,
+            EXPECTED_TRACKED_TASKS,
+            "the server should retain only the serialiser and current client tasks, but a completed client task remains in the JoinSet"
+        );
+    }
 
     #[test]
     fn has_connected_clients_is_false_for_the_retained_receiver_alone() {
