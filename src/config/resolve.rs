@@ -289,6 +289,25 @@ mod tests {
     }
 
     #[test]
+    fn try_from_rejects_non_finite_calibration_values() {
+        for non_finite_value in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+            let mut fixed_tone_args = args_with_device(None);
+            fixed_tone_args.calibration.test_hz = Some(non_finite_value);
+            assert!(
+                AppConfig::try_from(&fixed_tone_args).is_err(),
+                "--test-hz should reject {non_finite_value}"
+            );
+
+            let mut sweep_args = args_with_device(None);
+            sweep_args.calibration.test_sweep = Some(non_finite_value);
+            assert!(
+                AppConfig::try_from(&sweep_args).is_err(),
+                "--test-sweep should reject {non_finite_value}"
+            );
+        }
+    }
+
+    #[test]
     fn try_from_resolves_midi_test_clock() {
         let mut args = args_with_device(Some("test"));
         args.calibration.test_midi_clock = Some(120.0);
