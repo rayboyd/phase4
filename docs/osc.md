@@ -49,6 +49,8 @@ All OSC message structures (addresses and argument slots) are built once before 
 
 Every channel always carries 32 bins.
 
+MIDI transport and clock data travel their own OSC addresses when MIDI input is configured, see [MIDI](midi.md#osc-addresses).
+
 ## Noise Floor
 
 Bin values reach exactly `0.0` only when the input is digitally silent. Any device with a live analogue input stage has a noise floor, so with nothing playing the bins still carry small non-zero values, typically between -90 and -100 dBFS (roughly `0.00001` to `0.00003`).
@@ -56,21 +58,6 @@ Bin values reach exactly `0.0` only when the input is digitally silent. Any devi
 This is hardware behaviour, not an artefact of the analysis. Patches that map bin values to a fixed range can ignore it. It matters as soon as anything normalises or auto-gains, because during silence the running maximum collapses to the noise floor and every bin normalises to near full scale.
 
 Apply an absolute floor before any normalisation, starting around `0.0001` (-80 dBFS). See [Noise Floor](websockets.md#noise-floor) in the WebSocket API documentation for the full explanation and the reasoning behind that value.
-
-## MIDI Address Scheme
-
-When MIDI input is configured (`--midi-device` or `--test-midi-clock`), the OSC sender also transmits four additional addresses alongside the bin data:
-
-| Address                 | Type | Value | Description                                                                  |
-| :---------------------- | :--- | :---- | :--------------------------------------------------------------------------- |
-| `/phase4/midi/steps`    | `i`  | count | Absolute MIDI 1/16 note steps since the most recent Start. Sent every frame. |
-| `/phase4/midi/start`    | `i`  | `1`   | Sent only on the frame a Start transport event fired.                        |
-| `/phase4/midi/stop`     | `i`  | `1`   | Sent only on the frame a Stop transport event fired.                         |
-| `/phase4/midi/continue` | `i`  | `1`   | Sent only on the frame a Continue transport event fired.                     |
-
-`/phase4/midi/steps` behaves like the bin addresses. It is sent every frame, and clients detect new steps by comparing the current value to the previous frame. The three transport addresses instead follow an event model, each carrying a conventional bang value (`1`) that is only sent on the frame its event actually happened, so an OSC In CHOP channel bound to `/phase4/midi/start` only receives a message when playback starts.
-
-When MIDI input is not configured, none of these four addresses are ever sent.
 
 ## TouchDesigner Integration
 

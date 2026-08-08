@@ -8,13 +8,13 @@ Phase4 is a fast, lightweight tool for real-time audio analysis and MIDI transpo
 
 Phase4 has one audio-data contract. It accepts native `f32` input, analyses 32 logarithmically spaced frequency bands per channel, and broadcasts the latest snapshot at 60 Hz.
 
-Check the [platform requirements section](docs/tutorials/compile.md#platform-requirements) of the compile guide if you intend to build Phase4 from source.
+Check the [platform requirements section](docs/compile.md#platform-requirements) of the compile guide if you intend to build Phase4 from source.
 
-Phase4 supports 64-bit [macOS](docs/tutorials/compile.md#macos), [Windows](docs/tutorials/compile.md#windows) and [Linux](docs/tutorials/compile.md#linux).
+Phase4 supports 64-bit [macOS](docs/compile.md#macos), [Windows](docs/compile.md#windows) and [Linux](docs/compile.md#linux).
 
 ## Quickstart
 
-Pre-built binaries for macOS and Linux are on the [releases page](https://github.com/rayboyd/phase4/releases/latest). Windows users need to [compile from source](docs/tutorials/compile.md).
+Pre-built binaries for macOS and Linux are on the [releases page](https://github.com/rayboyd/phase4/releases/latest). Windows users need to [compile from source](docs/compile.md).
 
 1. [Check](#check) hardware compatibility.
 2. Select a device and [serve](#serve) analysis data.
@@ -31,9 +31,7 @@ List available input devices to find your device index and confirm `f32` support
 ./phase4 --audio-list
 ```
 
-Core Audio, the macOS audio subsystem, works internally with 32-bit Float and typically presents devices (including the built-in microphone) as F32 to applications. So running `./phase4 --audio-list` on a MacBook will almost certainly show the built-in mic as F32-capable.
-
-If a device is not supported, you'll see **No hardware support (32-bit required)** in the terminal output.
+See [Platform Requirements](docs/compile.md#platform-requirements) if a device doesn't show up as supported.
 
 ### Serve
 
@@ -57,7 +55,7 @@ By default every hardware channel is analysed and broadcast. To analyse only spe
 ./phase4 --audio-device "Duet 3" --ws-addr 127.0.0.1:8889 --audio-analyse-channels 0,1
 ```
 
-No audio hardware to hand, calibration mode drives the full pipeline with a synthetic sine wave. See [docs/tutorials/calibration.md](docs/tutorials/calibration.md).
+No audio hardware to hand, calibration mode drives the full pipeline with a synthetic sine wave. See [docs/calibration.md](docs/calibration.md).
 
 ### Connect
 
@@ -65,25 +63,23 @@ Phase4 streams real-time audio analysis data as a JSON broadcast. Any tool capab
 
 If Phase4 is broadcasting, check this [CodePen example](https://codepen.io/rayboyd/full/wBzOPPr) to see the server in action.
 
+See [docs/websockets.md](docs/websockets.md) for the full data structure and noise floor handling.
+
 ## Outputs
 
 Beyond the core WebSocket stream, Phase4 can send OSC messages to any UDP target, and attach MIDI transport and clock data to the streams you already have running.
 
 ### OSC
 
-Phase4 can send real-time analysis data as OSC float messages over UDP. Pass `--osc-addr` with a `host:port` target to enable it, either alongside `--ws-addr` or on its own.
+Pass `--osc-addr` with a `host:port` target to enable it, either alongside `--ws-addr` or on its own.
 
 ```sh
 ./phase4 --audio-device "Duet 3" --ws-addr 127.0.0.1:8889 --osc-addr 127.0.0.1:7000
 ```
 
-Each frequency bin is sent as a separate OSC message with address `/phase4/ch/{channel}/bin/{bin}` and a single `f` argument in the range `0.0` to `1.0`. Map these addresses to parameters using your software's OSC shortcut editor.
-
-See [docs/tutorials/osc.md](docs/tutorials/osc.md) for the full address reference and integration notes.
+See [docs/osc.md](docs/osc.md) for the address scheme and TouchDesigner integration notes.
 
 ### MIDI
-
-Phase4 can also attach MIDI transport and clock data to the existing WebSocket payload stream, using either a real MIDI input device or a synthetic test clock.
 
 List available MIDI input devices to find your device name.
 
@@ -91,7 +87,7 @@ List available MIDI input devices to find your device name.
 ./phase4 --midi-list
 ```
 
-Use one of the following flags.
+Use one of the following flags. They are mutually exclusive.
 
 ```sh
 ./phase4 --audio-device "Duet 3" --ws-addr 127.0.0.1:8889 --midi-device "Loopback"
@@ -101,45 +97,15 @@ Use one of the following flags.
 ./phase4 --audio-device "Duet 3" --ws-addr 127.0.0.1:8889 --test-midi-clock 120.0
 ```
 
-`--midi-device` and `--test-midi-clock` are mutually exclusive.
-The synthetic clock tempo must be finite and positive, and its MIDI tick interval must be representable and non-zero.
-A real MIDI device is opened during startup. If the selected device disappears or cannot be opened, Phase4 exits before starting any workers.
-
-When MIDI input is configured, every display frame also includes a top-level `midi` object. Its value has this shape:
-
-```json
-{
-  "transport": "start",
-  "steps": 24
-}
-```
-
-`transport` is one of `start`, `stop`, or `continue`, and is omitted when no transport event happened since the previous broadcast frame. `steps` is the absolute count of MIDI 1/16 note steps since the most recent Start event. The value does not reset each broadcast frame, clients detect new steps by comparing the current value to the previous frame.
-
-When MIDI input is not configured, the `midi` key is absent, so clients that only read `channels` are unaffected.
-
-When MIDI input is configured, the OSC sender also transmits `/phase4/midi/steps` every frame, one `i` argument, the current absolute step count, and `/phase4/midi/start`, `/phase4/midi/stop`, `/phase4/midi/continue`, each one `i` argument (`1`), sent only on the frame their transport event fired.
+See [docs/midi.md](docs/midi.md) for the WebSocket and OSC schema.
 
 ## Config
 
-Instead of passing flags on every invocation you can put them in a YAML file. Phase4 reads it at startup and applies a three-tier priority rule. CLI flags override file values, file values override hardcoded defaults. Any key may be omitted, and absent keys inherit the default. Unknown keys are rejected as startup errors so misspelled settings cannot be silently ignored.
-
-Pass `--config` with a path to name the file explicitly, which makes it easy to keep one config per setup:
-
-```sh
-./phase4 --config digitone.yaml
-./phase4 --config focusrite.yaml
-```
-
-With `--config`, the file must exist; a missing file is a startup error. Without it, Phase4 falls back to looking for an optional `config.yaml` in the current working directory, that is, wherever the Phase4 process is launched from, not where the binary itself lives on disk.
-
-Copy the bundled example as a starting point.
+Instead of passing flags on every invocation you can put them in a YAML file.
 
 ```sh
 cp example.config.yaml config.yaml
 ```
-
-Edit only the sections you need. For example, to pin a WebSocket address and audio device:
 
 ```yaml
 network:
@@ -149,25 +115,7 @@ audio:
   device_name_match: "Duet 3"
 ```
 
-Persistent OSC output and vocoder tuning are also supported in the file:
-
-```yaml
-network:
-  osc_addr: "127.0.0.1:7000"
-
-vocoder:
-  attack_ms: 20.0
-  freq_high: 16000.0
-```
-
-A MIDI input device can be pinned the same way. `--test-midi-clock` stays CLI-only, it's a calibration flag and is never read from the file:
-
-```yaml
-midi:
-  device_name_match: "Loopback"
-```
-
-See [example.config.yaml](example.config.yaml) for the full reference with all keys and their defaults.
+See [docs/config.md](docs/config.md) for the full priority rules and reference.
 
 ## Licence
 
