@@ -69,9 +69,9 @@ pub(crate) struct Bootstrapped {
 ///
 /// # Errors
 ///
-/// Returns an error if the audio device cannot be opened, the input stream
-/// cannot be started, or a configured output transport cannot bind to its
-/// given address.
+/// Returns an error if an audio or MIDI device cannot be opened, the audio
+/// input stream cannot be started, or a configured output transport cannot
+/// bind to its given address.
 pub(crate) fn bootstrap(config: &AppConfig) -> Result<Bootstrapped> {
     validate_app_config(config)?;
     let mapper_broadcast_interval = config.broadcast_rate.map(broadcast_interval).transpose()?;
@@ -88,7 +88,7 @@ pub(crate) fn bootstrap(config: &AppConfig) -> Result<Bootstrapped> {
     // the analyser (the generator always writes every hardware channel).
     let resolved = resolve_audio_hardware(config, &mut input_device)?;
     let (hw_specs, input_source) = (resolved.hw_specs, resolved.source);
-    let midi_source = resolve_midi_hardware(config)?;
+    let midi_source = resolve_midi_hardware(config, &state)?;
     let midi_enabled = midi_source.is_some();
 
     // Validate. Must happen before ChannelMode::resolve below, which
@@ -317,26 +317,32 @@ fn resolve_audio_hardware(config: &AppConfig, input: &mut Input) -> Result<Resol
     }
 }
 
-/// Returns a resolved MIDI input source, if MIDI input is configured.
-/// Mirrors `resolve_audio_hardware`: a missing device is reported
-/// here, before any thread is spawned, rather than discovered later
-/// inside a running thread.
+/// Returns a resolved MIDI input source, if MIDI input is configured. Real
+/// devices are connected here before any worker thread is spawned.
 ///
 /// # Errors
 ///
-/// Returns an error if a configured MIDI device does not match any
-/// available port.
-fn resolve_midi_hardware(config: &AppConfig) -> Result<Option<MidiInputSource>> {
+/// Returns an error if a configured MIDI device does not match an available
+/// port or the selected port cannot be opened.
+fn resolve_midi_hardware(
+    config: &AppConfig,
+    state: &Arc<AppState>,
+) -> Result<Option<MidiInputSource>> {
+    resolve_midi_hardware_with(config, state, crate::managers::midi::connect_midi_device)
+}
+
+fn resolve_midi_hardware_with(
+    config: &AppConfig,
+    state: &Arc<AppState>,
+    connect_hardware: impl FnOnce(&str, Arc<AppState>) -> Result<MidiInputSource>,
+) -> Result<Option<MidiInputSource>> {
     match &config.midi_input {
         None => Ok(None),
         Some(ConfigMidiInput::TestClock(bpm)) => Ok(Some(MidiInputSource::TestClock {
             bpm: *bpm,
             tick_interval: midi_tick_interval(*bpm)?,
         })),
-        Some(ConfigMidiInput::Device(name)) => {
-            let (midi_in, port, port_name) = crate::managers::midi::resolve_midi_device(name)?;
-            Ok(Some(MidiInputSource::Hardware(midi_in, port, port_name)))
-        }
+        Some(ConfigMidiInput::Device(name)) => connect_hardware(name, Arc::clone(state)).map(Some),
     }
 }
 
@@ -431,7 +437,8 @@ mod tests {
     #[test]
     fn resolve_midi_hardware_returns_none_when_not_configured() {
         let config = AppConfig::default();
-        let result = resolve_midi_hardware(&config).expect("should not error");
+        let state = Arc::new(AppState::new());
+        let result = resolve_midi_hardware(&config, &state).expect("should not error");
         assert!(result.is_none());
     }
 
@@ -441,7 +448,8 @@ mod tests {
             midi_input: Some(ConfigMidiInput::TestClock(120.0)),
             ..AppConfig::default()
         };
-        let result = resolve_midi_hardware(&config)
+        let state = Arc::new(AppState::new());
+        let result = resolve_midi_hardware(&config, &state)
             .expect("should not error")
             .expect("should resolve to Some");
         assert!(matches!(
@@ -450,5 +458,28 @@ mod tests {
                 if (bpm - 120.0).abs() < f32::EPSILON
                     && tick_interval == midi_tick_interval(120.0).unwrap()
         ));
+    }
+
+    #[test]
+    fn resolve_midi_hardware_propagates_connection_failure() {
+        const DEVICE_NAME: &str = "Disconnected MIDI Device";
+
+        let config = AppConfig {
+            midi_input: Some(ConfigMidiInput::Device(DEVICE_NAME.to_owned())),
+            ..AppConfig::default()
+        };
+        let state = Arc::new(AppState::new());
+
+        let result = resolve_midi_hardware_with(&config, &state, |name, _state| {
+            assert_eq!(name, DEVICE_NAME);
+            anyhow::bail!("injected MIDI connection failure")
+        });
+
+        let Err(error) = result else {
+            panic!("MIDI connection failure should stop hardware resolution");
+        };
+        assert!(error
+            .to_string()
+            .contains("injected MIDI connection failure"));
     }
 }

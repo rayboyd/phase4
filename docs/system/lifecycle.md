@@ -36,8 +36,11 @@ flowchart TD
 		E3 -->|yes| F{Calibration mode?}
 		F -->|yes| G[Use synthetic specs 44.1kHz, 2ch]
 		F -->|no| H[Resolve input device and native specs]
-		G --> I[Create analyse ring buffer]
-		H --> I
+		G --> H2{Real MIDI input configured?}
+		H --> H2
+		H2 -->|yes| H3[Resolve and connect MIDI input device]
+		H2 -->|no| I[Create analyse ring buffer]
+		H3 --> I
 		I --> J[Create watch channels: RawPayload and typed DisplayPayload]
 		J --> K{Input source}
 		K -->|calibration| M[Spawn generator thread]

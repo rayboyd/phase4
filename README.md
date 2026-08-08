@@ -101,6 +101,7 @@ Use one of the following flags.
 
 `--midi-device` and `--test-midi-clock` are mutually exclusive.
 The synthetic clock tempo must be finite and positive, and its MIDI tick interval must be representable and non-zero.
+A real MIDI device is opened during startup. If the selected device disappears or cannot be opened, Phase4 exits before starting any workers.
 
 When MIDI input is configured, each display frame may include a top-level `midi` key:
 

@@ -14,7 +14,7 @@
 
 use crate::app::AppState;
 use crate::ListFormat;
-use anyhow::{Context, Result};
+use anyhow::{anyhow, Context, Result};
 use serde::Serialize;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
@@ -111,16 +111,14 @@ fn record_byte(byte: u8, state: &AppState, ticks_since_step: &mut u8) {
     }
 }
 
-/// Resolved MIDI input source, either a synthetic clock spec or an
-/// already-resolved real device connection. Mirrors `InputSource` for
-/// audio.
+/// Resolved MIDI input source, either a synthetic clock spec or an open real
+/// device connection. Mirrors `InputSource` for audio.
 pub(crate) enum MidiInputSource {
     /// Synthetic clock, driven at the given BPM instead of a real device.
     TestClock { bpm: f32, tick_interval: Duration },
 
-    /// A resolved real device, carrying the open input handle, its port,
-    /// and the resolved port name.
-    Hardware(midir::MidiInput, midir::MidiInputPort, String),
+    /// An open real MIDI input connection, established before worker startup.
+    Hardware(midir::MidiInputConnection<u8>),
 }
 
 fn set_midi_thread_priority() {
@@ -202,29 +200,29 @@ impl MidiListener {
                     run_synthetic_clock(tick_interval, &state);
                 })
                 .expect("failed to spawn midi-input thread"),
-            MidiInputSource::Hardware(midi_in, port, port_name) => thread::Builder::new()
+            MidiInputSource::Hardware(connection) => thread::Builder::new()
                 .name("midi-input".into())
                 .spawn(move || {
                     set_midi_thread_priority();
-                    run_real_device(midi_in, &port, &port_name, &state);
+                    run_real_device(connection, &state);
                 })
                 .expect("failed to spawn midi-input thread"),
         }
     }
 }
 
-/// Resolves a real MIDI input device by name, synchronously, before any
-/// thread is spawned. Mirrors `App::resolve_audio_hardware`'s audio device
-/// resolution, so a missing device is reported once, at startup, rather than
-/// discovered later inside a running thread.
+/// Resolves and connects to a real MIDI input device synchronously, before
+/// any worker thread is spawned. Mirrors the audio device resolution path, so
+/// missing devices and connection failures are reported during construction.
 ///
 /// # Errors
 ///
-/// Returns an error if MIDI input cannot be initialised, or if no port
-/// matches the given name.
-pub(crate) fn resolve_midi_device(
+/// Returns an error if MIDI input cannot be initialised, no port matches the
+/// given name, or the selected port cannot be opened.
+pub(crate) fn connect_midi_device(
     name_query: &str,
-) -> Result<(midir::MidiInput, midir::MidiInputPort, String)> {
+    state: Arc<AppState>,
+) -> Result<MidiInputSource> {
     let midi_in = midir::MidiInput::new("phase4").context("Failed to initialise MIDI input")?;
 
     let ports = midi_in.ports();
@@ -239,8 +237,22 @@ pub(crate) fn resolve_midi_device(
     let port_name = midi_in
         .port_name(&port)
         .unwrap_or_else(|_| name_query.to_string());
+    let callback_state = state;
+    let connection = midi_in
+        .connect(
+            &port,
+            "phase4-midi-in",
+            move |_timestamp_us, bytes, ticks_since_step: &mut u8| {
+                for &byte in bytes {
+                    record_byte(byte, &callback_state, ticks_since_step);
+                }
+            },
+            0u8,
+        )
+        .map_err(|error| anyhow!("Failed to connect to MIDI device '{port_name}': {error}"))?;
 
-    Ok((midi_in, port, port_name))
+    log::info!("MIDI input connected: {port_name}");
+    Ok(MidiInputSource::Hardware(connection))
 }
 
 fn find_matching_midi_device<T>(
@@ -289,33 +301,8 @@ fn run_synthetic_clock(tick_interval: Duration, state: &Arc<AppState>) {
     }
 }
 
-fn run_real_device(
-    midi_in: midir::MidiInput,
-    port: &midir::MidiInputPort,
-    port_name: &str,
-    state: &Arc<AppState>,
-) {
-    let thread_state = Arc::clone(state);
-
-    let connection = midi_in.connect(
-        port,
-        "phase4-midi-in",
-        move |_timestamp_us, bytes, ticks_since_step: &mut u8| {
-            for &byte in bytes {
-                record_byte(byte, &thread_state, ticks_since_step);
-            }
-        },
-        0u8,
-    );
-
-    let Ok(_connection) = connection else {
-        log::error!("Failed to connect to MIDI device '{port_name}'");
-        return;
-    };
-
-    log::info!("MIDI input connected: {port_name}");
-
-    // midir delivers bytes on its own backend thread. Holding _connection keeps
+fn run_real_device(_connection: midir::MidiInputConnection<u8>, state: &Arc<AppState>) {
+    // midir delivers bytes on its own backend thread. Holding the connection keeps
     // that alive. This thread only needs to wait for shutdown, park the thread
     // indefinitely so it remains asleep with 0% CPU footprint.
     while state.keep_running.load(Ordering::Acquire) {
@@ -328,8 +315,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn resolve_midi_device_fails_for_an_unmatched_name() {
-        let result = resolve_midi_device("a-name-no-real-device-will-ever-have");
+    fn connect_midi_device_fails_for_an_unmatched_name() {
+        let result = connect_midi_device(
+            "a-name-no-real-device-will-ever-have",
+            Arc::new(AppState::new()),
+        );
         assert!(result.is_err());
     }
 

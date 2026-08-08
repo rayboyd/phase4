@@ -23,6 +23,10 @@ pub(crate) const CALIBRATION_MAX_FREQUENCY_HZ: f32 =
 /// Fallback broadcast rate in Hz used when neither CLI nor `config.yaml` sets one.
 pub(super) const DEFAULT_BROADCAST_RATE_HZ: f32 = 60.0;
 
+/// Stable output names used in duplicate-transport configuration errors.
+const WEBSOCKET_OUTPUT_NAME: &str = "WebSocket";
+const OSC_OUTPUT_NAME: &str = "OSC";
+
 /// The synthetic calibration signal, a simple sine wave in one of two modes.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum TestSignal {
@@ -48,11 +52,11 @@ pub enum ConfigInput {
 
     /// Hardware device resolved by name match (exact first, then substring).
     Device {
-        /// Device name query, matched exactly first, then as a substring.
+        /// Non-empty device name query, matched exactly first, then as a substring.
         name: String,
 
         /// Sorted, deduplicated hardware channel indices for the analyser.
-        /// None means forward all channels.
+        /// The collection must not be empty. None means forward all channels.
         analyse_channels: Option<Box<[u16]>>,
     },
 }
@@ -64,7 +68,7 @@ pub enum ConfigMidiInput {
     /// Synthetic test clock at the given tempo, in beats per minute.
     TestClock(f32),
 
-    /// Real MIDI input device resolved by name.
+    /// Real MIDI input device resolved by a non-empty name.
     Device(String),
 }
 
@@ -88,7 +92,7 @@ pub enum OutputConfig {
 /// The resolved output set, non-empty by construction. Phase4 is a consumer
 /// tool, so an output exists only because the user named it, either
 /// `--ws-addr` or `--osc-addr` (or their `config.yaml` equivalents), and
-/// both may be configured together.
+/// both may be configured together. Each transport may appear at most once.
 ///
 /// The spawn loop in `App::new` iterates the collection and spawns one
 /// worker per entry, so a `WebSocket` entry and an `Osc` entry both present
@@ -97,16 +101,33 @@ pub enum OutputConfig {
 pub struct ConfigOutputs(Vec<OutputConfig>);
 
 impl ConfigOutputs {
-    /// Builds a `ConfigOutputs` from the given descriptors, rejecting an
-    /// empty collection.
+    /// Builds a `ConfigOutputs` from the given descriptors, rejecting an empty
+    /// collection or repeated transport type.
     ///
     /// # Errors
     ///
-    /// Returns [`AppConfigError::NoOutputConfigured`] if `outputs` is empty.
+    /// Returns [`AppConfigError::NoOutputConfigured`] if `outputs` is empty, or
+    /// [`AppConfigError::DuplicateOutputTransport`] if a transport is repeated.
     pub fn new(outputs: Vec<OutputConfig>) -> Result<Self, AppConfigError> {
         if outputs.is_empty() {
             return Err(AppConfigError::NoOutputConfigured);
         }
+
+        let mut websocket_configured = false;
+        let mut osc_configured = false;
+        for output in &outputs {
+            let (configured, transport) = match output {
+                OutputConfig::WebSocket { .. } => {
+                    (&mut websocket_configured, WEBSOCKET_OUTPUT_NAME)
+                }
+                OutputConfig::Osc { .. } => (&mut osc_configured, OSC_OUTPUT_NAME),
+            };
+            if *configured {
+                return Err(AppConfigError::DuplicateOutputTransport { transport });
+            }
+            *configured = true;
+        }
+
         Ok(Self(outputs))
     }
 }
@@ -204,6 +225,12 @@ pub enum AppConfigError {
     #[error("Channel selection must not be empty")]
     EmptyChannelSelection,
 
+    #[error("MIDI device name must not be empty")]
+    InvalidMidiDeviceName,
+
+    #[error("Output transport may only be configured once: {transport}")]
+    DuplicateOutputTransport { transport: &'static str },
+
     #[error("Selected audio channel index {idx} is unavailable on this {channels}-channel device")]
     ChannelIndexOutOfRange { idx: u16, channels: u16 },
 
@@ -234,6 +261,10 @@ pub enum AppConfigError {
     },
 }
 
+/// Complete application configuration.
+///
+/// [`crate::app::App::new`] validates directly constructed values against the
+/// same structural and numeric rules applied during CLI and YAML resolution.
 #[derive(Debug)]
 pub struct AppConfig {
     /// The resolved, non-empty set of output transports.
@@ -441,5 +472,44 @@ mod tests {
     fn config_outputs_new_rejects_empty_collection() {
         let result = ConfigOutputs::new(Vec::new());
         assert!(matches!(result, Err(AppConfigError::NoOutputConfigured)));
+    }
+
+    #[test]
+    fn config_outputs_new_rejects_duplicate_transports() {
+        let address = "127.0.0.1:0".parse().expect("valid socket address");
+        let duplicate_output_sets = [
+            (
+                WEBSOCKET_OUTPUT_NAME,
+                vec![
+                    OutputConfig::WebSocket {
+                        addr: address,
+                        max_clients: DEFAULT_MAX_CLIENTS,
+                        no_browser_origin: false,
+                    },
+                    OutputConfig::WebSocket {
+                        addr: address,
+                        max_clients: DEFAULT_MAX_CLIENTS,
+                        no_browser_origin: false,
+                    },
+                ],
+            ),
+            (
+                OSC_OUTPUT_NAME,
+                vec![
+                    OutputConfig::Osc { addr: address },
+                    OutputConfig::Osc { addr: address },
+                ],
+            ),
+        ];
+
+        for (expected_transport, duplicate_outputs) in duplicate_output_sets {
+            let result = ConfigOutputs::new(duplicate_outputs);
+
+            assert!(matches!(
+                result,
+                Err(AppConfigError::DuplicateOutputTransport { transport })
+                    if transport == expected_transport
+            ));
+        }
     }
 }
