@@ -67,6 +67,44 @@ pub(super) fn validate_max_clients(max_clients: usize) -> Result<(), AppConfigEr
 }
 
 pub(crate) fn validate_app_config(config: &AppConfig) -> Result<(), AppConfigError> {
+    match &config.input {
+        ConfigInput::Calibration(signal) => validate_test_signal(*signal)?,
+        ConfigInput::Device {
+            name,
+            analyse_channels,
+        } => {
+            if name.trim().is_empty() {
+                return Err(AppConfigError::MissingDevice);
+            }
+            if analyse_channels
+                .as_ref()
+                .is_some_and(|indices| indices.is_empty())
+            {
+                return Err(AppConfigError::EmptyChannelSelection);
+            }
+        }
+    }
+
+    match &config.midi_input {
+        Some(ConfigMidiInput::TestClock(bpm)) => {
+            midi_tick_interval(*bpm)?;
+        }
+        Some(ConfigMidiInput::Device(name)) if name.trim().is_empty() => {
+            return Err(AppConfigError::InvalidMidiDeviceName);
+        }
+        Some(ConfigMidiInput::Device(_)) | None => {}
+    }
+
+    for output in config.outputs.iter() {
+        if let OutputConfig::WebSocket {
+            addr, max_clients, ..
+        } = output
+        {
+            validate_bind_addr(*addr)?;
+            validate_max_clients(*max_clients)?;
+        }
+    }
+
     validate_vocoder_fields(
         config.vocoder_config.attack_ms.0,
         config.vocoder_config.release_ms.0,
@@ -77,20 +115,6 @@ pub(crate) fn validate_app_config(config: &AppConfig) -> Result<(), AppConfigErr
 
     if let Some(rate_hz) = config.broadcast_rate {
         broadcast_interval(rate_hz)?;
-    }
-
-    if let ConfigInput::Calibration(signal) = &config.input {
-        validate_test_signal(*signal)?;
-    }
-
-    if let Some(ConfigMidiInput::TestClock(bpm)) = &config.midi_input {
-        midi_tick_interval(*bpm)?;
-    }
-
-    for output in config.outputs.iter() {
-        if let OutputConfig::WebSocket { max_clients, .. } = output {
-            validate_max_clients(*max_clients)?;
-        }
     }
 
     Ok(())
@@ -171,7 +195,7 @@ pub(crate) fn validate_vocoder_sample_rate(
 #[cfg(test)]
 mod tests {
     use super::super::types::test_support::args_with_device;
-    use super::super::types::AppConfig;
+    use super::super::types::{AppConfig, ConfigOutputs, DEFAULT_MAX_CLIENTS};
     use super::*;
 
     // Attack times must remain strictly positive (review regression).
@@ -230,6 +254,71 @@ mod tests {
             result.is_err(),
             "non-positive filter Q values should be rejected"
         );
+    }
+
+    #[test]
+    fn direct_app_config_rejects_empty_audio_device_name() {
+        let config = AppConfig {
+            input: ConfigInput::Device {
+                name: "  ".to_owned(),
+                analyse_channels: None,
+            },
+            ..AppConfig::default()
+        };
+
+        let result = validate_app_config(&config);
+
+        assert!(matches!(result, Err(AppConfigError::MissingDevice)));
+    }
+
+    #[test]
+    fn direct_app_config_rejects_empty_channel_selection() {
+        let config = AppConfig {
+            input: ConfigInput::Device {
+                name: "Audio Device".to_owned(),
+                analyse_channels: Some(Vec::new().into_boxed_slice()),
+            },
+            ..AppConfig::default()
+        };
+
+        let result = validate_app_config(&config);
+
+        assert!(matches!(result, Err(AppConfigError::EmptyChannelSelection)));
+    }
+
+    #[test]
+    fn direct_app_config_rejects_empty_midi_device_name() {
+        let config = AppConfig {
+            midi_input: Some(ConfigMidiInput::Device("  ".to_owned())),
+            ..AppConfig::default()
+        };
+
+        let result = validate_app_config(&config);
+
+        assert!(result.is_err(), "an empty MIDI device name is invalid");
+    }
+
+    #[test]
+    fn direct_app_config_rejects_non_loopback_websocket_address() {
+        let non_loopback_address = "0.0.0.0:8889".parse().expect("valid socket address");
+        let outputs = ConfigOutputs::new(vec![OutputConfig::WebSocket {
+            addr: non_loopback_address,
+            max_clients: DEFAULT_MAX_CLIENTS,
+            no_browser_origin: false,
+        }])
+        .expect("the output set is non-empty");
+        let config = AppConfig {
+            outputs,
+            ..AppConfig::default()
+        };
+
+        let result = validate_app_config(&config);
+
+        assert!(matches!(
+            result,
+            Err(AppConfigError::NonLoopbackBindAddress(address))
+                if address == non_loopback_address
+        ));
     }
 
     // The WebSocket server is intentionally loopback-only unless a later change makes this explicit.

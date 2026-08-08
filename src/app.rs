@@ -94,10 +94,10 @@ impl App {
     ///
     /// # Errors
     ///
-    /// Returns an error if numeric configuration violates a worker's runtime
-    /// limits, the audio device cannot be opened, the input stream cannot be
-    /// started, or a configured output transport cannot bind to its given
-    /// address. If an output fails after earlier workers have started,
+    /// Returns an error if configuration violates structural or numeric runtime
+    /// limits, an audio or MIDI device cannot be opened, the audio input stream
+    /// cannot be started, or a configured output transport cannot bind to its
+    /// given address. If an output fails after earlier workers have started,
     /// construction stops and joins those workers before returning the error.
     ///
     /// # Panics
