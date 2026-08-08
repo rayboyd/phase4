@@ -21,7 +21,7 @@ network:
   ws_addr: "127.0.0.1:8889"
 ```
 
-See [example.config.yaml](../../example.config.yaml) for the full reference.
+See [example.config.yaml](../example.config.yaml) for the full reference.
 
 ## Data Structure
 
@@ -50,7 +50,7 @@ Every message is a JSON object containing a `channels` array.
 
 Phase4 uses `f32` for audio samples, DSP state, peaks, and bins. JSON does not encode a float width, so JavaScript parses these values as `Number`. Copying them into a `Float32Array` recovers the original `f32` values for direct WebGL use.
 
-When MIDI input is configured (`--midi-device` or `--test-midi-clock`), each message also carries a top-level `midi` object with transport and step-count data. See the [MIDI section of the README](../../README.md#midi) for the schema. When MIDI input is not configured the key is absent, so clients that only read `channels` are unaffected.
+When MIDI input is configured (`--midi-device` or `--test-midi-clock`), each message also carries a top-level `midi` object with transport and step-count data. See [MIDI](midi.md#websocket-schema) for the schema. When MIDI input is not configured the key is absent, so clients that only read `channels` are unaffected.
 
 ## Noise Floor
 

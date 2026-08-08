@@ -1,6 +1,6 @@
 # Compiling
 
-Install Rust with `rustup` from [rustup.rs](https://rustup.rs/). This repository pins the stable toolchain and required components in [rust-toolchain.toml](../../rust-toolchain.toml), once `rustup` is installed, `cargo` will use the right toolchain automatically in this directory.
+Install Rust with `rustup` from [rustup.rs](https://rustup.rs/). This repository pins the stable toolchain and required components in [rust-toolchain.toml](../rust-toolchain.toml), once `rustup` is installed, `cargo` will use the right toolchain automatically in this directory.
 
 Clone the repository, and build a release version of Phase4.
 
@@ -18,9 +18,17 @@ The vocoder envelope controls remain configurable. Use `--vocoder-attack-ms` and
 
 ## Platform Requirements
 
-Phase4 uses your system’s native audio drivers. To work correctly, your audio interface or microphone must expose an `f32` input configuration. Most modern interfaces support this by default.
+Phase4 uses your system's native audio drivers. To work correctly, your audio interface or microphone must expose an `f32` input configuration. Most modern interfaces support this by default.
 
-If Phase4 doesn't detect your device, check your OS sound settings (e.g., Windows Sound Control Panel or macOS Audio MIDI Setup) to ensure the format is set to "32-bit Float".
+List available input devices to confirm `f32` support before running Phase4.
+
+```sh
+./phase4 --audio-list
+```
+
+Core Audio, the macOS audio subsystem, works internally with 32-bit Float and typically presents devices, including the built-in microphone, as F32 to applications. Running `--audio-list` on a MacBook will almost always show the built-in mic as F32-capable.
+
+A device that fails this check shows **No hardware support (32-bit required)** in the terminal output. If Phase4 doesn't detect your device, check your OS sound settings (e.g., Windows Sound Control Panel or macOS Audio MIDI Setup) to ensure the format is set to "32-bit Float".
 
 ### Linux
 
