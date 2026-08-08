@@ -25,7 +25,7 @@ use std::net::SocketAddr;
 use std::sync::{atomic::Ordering, Arc};
 use std::thread::JoinHandle;
 use std::time::Duration;
-use tokio::sync::{watch, Notify, OwnedSemaphorePermit, Semaphore};
+use tokio::sync::{mpsc, oneshot, watch, Notify, OwnedSemaphorePermit, Semaphore};
 use tokio::task::JoinSet;
 use tokio_tungstenite::tungstenite::{
     handshake::server::{Callback, ErrorResponse, Request, Response},
@@ -50,6 +50,12 @@ const CLIENT_SHUTDOWN_TIMEOUT_MS: u64 = 500;
 /// are connected.
 const RETAINED_SERIALISED_RECEIVERS: usize = 1;
 
+/// A single request is sufficient because the accept loop waits for each
+/// snapshot refresh to complete before accepting another client.
+const SNAPSHOT_REFRESH_QUEUE_CAPACITY: usize = 1;
+
+type SnapshotRefreshRequest = oneshot::Sender<()>;
+
 /// Returns whether the serialised watch channel has any client receivers
 /// beyond the handle the server retains for cloning.
 fn has_connected_clients(receiver_count: usize) -> bool {
@@ -61,6 +67,13 @@ fn reap_completed_tasks(join_set: &mut JoinSet<()>) {
         if let Err(error) = result {
             log::error!("WebSocket server task failed: {error}");
         }
+    }
+}
+
+async fn refresh_serialised_snapshot(requests: &mpsc::Sender<SnapshotRefreshRequest>) {
+    let (completion_tx, completion_rx) = oneshot::channel();
+    if requests.send(completion_tx).await.is_ok() {
+        let _ = completion_rx.await;
     }
 }
 
@@ -325,19 +338,33 @@ impl Server {
         let initial_serialised =
             initial_serialised_snapshot(&display_rx.borrow(), &mut serialise_failure_logged);
         let (serialised_tx, serialised_rx) = watch::channel(initial_serialised);
+        let (snapshot_refresh_tx, mut snapshot_refresh_rx) =
+            mpsc::channel::<SnapshotRefreshRequest>(SNAPSHOT_REFRESH_QUEUE_CAPACITY);
         #[cfg(test)]
         advance_serialiser_progress(serialiser_progress_observer.as_ref());
         join_set.spawn(async move {
             loop {
-                if display_rx.changed().await.is_err() {
-                    break;
-                }
+                let refresh_completion = tokio::select! {
+                    changed = display_rx.changed() => {
+                        if changed.is_err() {
+                            break;
+                        }
+                        None
+                    }
+                    request = snapshot_refresh_rx.recv() => {
+                        let Some(completion) = request else {
+                            break;
+                        };
+                        Some(completion)
+                    }
+                };
 
-                if !has_connected_clients(serialised_tx.receiver_count()) {
+                if refresh_completion.is_none()
+                    && !has_connected_clients(serialised_tx.receiver_count())
+                {
                     // Mark the frame consumed and skip the encode, nobody is
-                    // listening. The next client to connect receives the last
-                    // serialised frame as its handshake snapshot, and a fresh
-                    // frame replaces it within one broadcast interval.
+                    // listening. A new connection requests a current snapshot
+                    // before its client task starts.
                     let _ = display_rx.borrow_and_update();
                     #[cfg(test)]
                     advance_serialiser_progress(serialiser_progress_observer.as_ref());
@@ -350,7 +377,17 @@ impl Server {
                     &display_rx.borrow_and_update(),
                     &mut serialise_failure_logged,
                 ) {
-                    serialised_tx.send_replace(json);
+                    let snapshot_changed = refresh_completion.is_none() || {
+                        let current_snapshot = serialised_tx.borrow();
+                        current_snapshot.as_str() != json.as_str()
+                    };
+                    if snapshot_changed {
+                        serialised_tx.send_replace(json);
+                    }
+                }
+
+                if let Some(completion) = refresh_completion {
+                    let _ = completion.send(());
                 }
                 #[cfg(test)]
                 advance_serialiser_progress(serialiser_progress_observer.as_ref());
@@ -379,6 +416,7 @@ impl Server {
                     };
 
                     log::debug!("WebSocket client connected from {client_addr}");
+                    refresh_serialised_snapshot(&snapshot_refresh_tx).await;
                     reap_completed_tasks(&mut join_set);
                     join_set.spawn(Self::handle_client(
                         stream,
