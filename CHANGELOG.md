@@ -6,6 +6,10 @@ All notable changes to Phase4 will be documented in this file.
 
 ### Breaking Change
 
+#### Remove band resolution and broadcast rate
+
+- Define fixed 32-band 60 hz output contract
+
 #### Docs folder restructure
 
 `docs/tutorials/` and `docs/system/` are gone, docs now sit flat under `docs/`. Any bookmarked or linked path under the old layout breaks:
