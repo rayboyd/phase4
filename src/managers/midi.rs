@@ -88,13 +88,13 @@ fn observe_published_midi_start(state: &AppState) {
 fn record_byte(byte: u8, state: &AppState, ticks_since_step: &mut u8) {
     match byte {
         MIDI_STATUS_START => {
+            *ticks_since_step = 0;
+            state.midi_steps.store(0, Ordering::Release);
             state
                 .midi_last_transport
                 .store(MIDI_TRANSPORT_START, Ordering::Release);
             #[cfg(test)]
             observe_published_midi_start(state);
-            *ticks_since_step = 0;
-            state.midi_steps.store(0, Ordering::Release);
         }
         MIDI_STATUS_STOP => state
             .midi_last_transport
