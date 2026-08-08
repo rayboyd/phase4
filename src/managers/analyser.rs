@@ -91,9 +91,7 @@ impl State {
         let analysers: Vec<VocoderAnalyser> = (0..channels)
             .map(|_| VocoderAnalyser::new(specs.sample_rate, vocoder_config))
             .collect();
-        let bin_count = crate::dsp::vocoder::VOCODER_BANDS;
-
-        let frame_data = RawPayload::new(channels, bin_count);
+        let frame_data = RawPayload::new(channels);
 
         Self {
             channels,
@@ -268,10 +266,7 @@ mod tests {
             sample_rate: 48_000,
             channels,
         };
-        let (tx, rx) = watch::channel(RawPayload::new(
-            channels as usize,
-            crate::dsp::vocoder::VOCODER_BANDS,
-        ));
+        let (tx, rx) = watch::channel(RawPayload::new(channels as usize));
         let state = State::new(specs, tx, &VocoderConfig::default());
         (state, rx)
     }
@@ -331,7 +326,7 @@ mod tests {
             sample_rate: 22_050,
             channels: 2,
         };
-        let (tx, _rx) = watch::channel(RawPayload::new(2, crate::dsp::vocoder::VOCODER_BANDS));
+        let (tx, _rx) = watch::channel(RawPayload::new(2));
         let state = State::new(specs, tx, &VocoderConfig::default());
         assert_eq!(state.transfer_buffer.len() % 2, 0);
         assert_eq!(state.transfer_buffer.len(), 442);

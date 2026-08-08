@@ -17,6 +17,4 @@ pub use types::{
     VocoderConfig, DEFAULT_MAX_CLIENTS,
 };
 pub(crate) use types::{CALIBRATION_FREQUENCY_CEILING_RATIO, CALIBRATION_SAMPLE_RATE_HZ};
-pub(crate) use validate::{
-    broadcast_interval, midi_tick_interval, validate_app_config, validate_vocoder_sample_rate,
-};
+pub(crate) use validate::{midi_tick_interval, validate_app_config, validate_vocoder_sample_rate};

@@ -94,7 +94,7 @@ flowchart LR
 		B2 --> C2[Analyser thread]
 		C2 -->|watch send_replace RawPayload| E[(RawPayload watch)]
 		E --> F[Mapper thread]
-		F -->|map bins plus broadcast-rate gate| G[(DisplayPayload watch)]
+		F -->|copy 32 bands on fixed 60 Hz timer| G[(DisplayPayload watch)]
 		N1[MIDI listener thread] -->|raw bytes to atomics| N2[(AppState MIDI atomics)]
 		N2 -->|read and clear on broadcast cycles| F
 		G --> H[WebSocket server]

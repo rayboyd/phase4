@@ -9,6 +9,7 @@ Phase4 streams real-time audio analysis data as a one-way JSON broadcast. Any to
 - **Default Address:** none, pass `--ws-addr 127.0.0.1:8889` (or set `network.ws_addr` in `config.yaml`) to enable the WebSocket output.
 - **Protocol:** Standard WebSocket
 - **Format:** JSON (UTF-8)
+- **Rate:** 60 messages per second while the engine is active
 - **Direction:** Server to client only. Phase4 services Ping, Pong, and Close control frames, but rejects Text and Binary messages by closing the connection. Inbound application data is never passed into Phase4's application pipeline.
 
 > Running Phase4 with the `--no-browser-origin` flag rejects standard browser-based connections.
@@ -37,10 +38,12 @@ Every message is a JSON object containing a `channels` array.
 }
 ```
 
-| Field      | Type    | Description                                                                    |
-| :--------- | :------ | :----------------------------------------------------------------------------- |
-| **`peak`** | `float` | The peak sample amplitude (0.0 to 1.0).                                        |
-| **`bins`** | `array` | Frequency magnitudes (compile-time, default 32 bands) mapped from low to high. |
+| Field      | Type    | Description                                                        |
+| :--------- | :------ | :----------------------------------------------------------------- |
+| **`peak`** | `float` | The `f32` peak sample amplitude from 0.0 to 1.0.                    |
+| **`bins`** | `array` | Exactly 32 `f32` frequency magnitudes, ordered from low to high.    |
+
+Phase4 uses `f32` for audio samples, DSP state, peaks, and bins. JSON does not encode a float width, so JavaScript parses these values as `Number`. Copying them into a `Float32Array` recovers the original `f32` values for direct WebGL use.
 
 When MIDI input is configured (`--midi-device` or `--test-midi-clock`), each message may also carry a top-level `midi` object with transport and step-count data. See the [MIDI section of the README](../../README.md#midi) for the schema. When MIDI input is not configured the key is absent, so clients that only read `channels` are unaffected.
 

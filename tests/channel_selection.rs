@@ -28,7 +28,7 @@ async fn selecting_single_channel_updates_analyser_payload() {
         mode: ChannelMode::Selected(Box::new([2])),
     };
 
-    let (raw_tx, mut raw_rx) = watch::channel(RawPayload::new(analyse_specs.channels as usize, 64));
+    let (raw_tx, mut raw_rx) = watch::channel(RawPayload::new(analyse_specs.channels as usize));
     let state = Arc::new(AppState::new());
 
     // Spawn the analyser with the specs.

@@ -3,8 +3,8 @@
 //!
 //! [`analyser`] runs the DSP analysis thread consuming the analyse ringbuf.
 //! [`audio`] manages the CPAL audio input device and stream. [`generator`]
-//! produces the synthetic signal for calibration mode. [`mapper`] reduces
-//! raw vocoder bins to [`crate::dsp::DISPLAY_BINS`] display bins. [`midi`]
+//! produces the synthetic signal for calibration mode. [`mapper`] copies the
+//! latest 32-band analysis snapshot into the display payload at 60 Hz. [`midi`]
 //! listens to MIDI input and writes transport and clock state atomics.
 //! [`osc`] broadcasts bin values over UDP to a configured target address.
 //! [`server`] broadcasts pre-serialised JSON to WebSocket clients.

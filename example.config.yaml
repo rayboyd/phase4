@@ -21,12 +21,6 @@ network:
   # default: 8
   max_clients: 8
 
-  # Finite, positive target broadcast rate sent to WebSocket clients, in Hz.
-  # Its interval must be representable and non-zero. Only meaningful when
-  # ws_addr is set.
-  # default: 60.0
-  broadcast_rate: 60.0
-
   # OSC UDP target address. Phase4 sends to this address, it does not listen.
   # Omit to disable the OSC output.
   # Emits one float message per bin per channel each broadcast frame.

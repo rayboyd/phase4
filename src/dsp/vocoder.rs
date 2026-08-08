@@ -15,7 +15,7 @@ use crate::dsp::units::{Hertz, Milliseconds};
 use biquad::{Biquad, Coefficients, DirectForm1, ToHertz, Type};
 
 /// Number of frequency bands in the filter bank.
-pub const VOCODER_BANDS: usize = 64;
+pub const VOCODER_BANDS: usize = 32;
 
 /// One-pole envelope follower with separate attack and release coefficients.
 #[derive(Default)]
@@ -74,13 +74,13 @@ pub struct VocoderAnalyser {
     /// (Robert Bristow-Johnson) via the `biquad` crate. `DirectForm1` mirrors
     /// the previous hand-written state layout while delegating the
     /// coefficient maths.
-    filters: Vec<DirectForm1<f32>>,
+    filters: [DirectForm1<f32>; VOCODER_BANDS],
 
     /// One envelope follower per band, tracking its filter's rectified output.
-    envelopes: Vec<EnvelopeFollower>,
+    envelopes: [EnvelopeFollower; VOCODER_BANDS],
 
     /// Latest envelope value per band, same order as `filters`.
-    bins: Vec<f32>,
+    bins: [f32; VOCODER_BANDS],
 
     /// Shared one-pole attack coefficient, see [`envelope_coeff`].
     attack_coeff: f32,
@@ -107,27 +107,23 @@ impl VocoderAnalyser {
         let log_low = config.freq_low.0.ln();
         let log_high = config.freq_high.0.ln();
 
-        let filters = (0..VOCODER_BANDS)
-            .map(|i| {
-                let t = i as f32 / (VOCODER_BANDS as f32 - 1.0);
-                let centre = (log_low + t * (log_high - log_low)).exp();
+        let filters = std::array::from_fn(|i| {
+            let t = i as f32 / (VOCODER_BANDS as f32 - 1.0);
+            let centre = (log_low + t * (log_high - log_low)).exp();
 
-                // filter_q sets the bandpass width. Higher Q narrows the
-                // band around centre, lower Q widens it.
-                let coefficients = Coefficients::<f32>::from_params(
-                    Type::BandPass,
-                    sample_rate.hz(),
-                    centre.hz(),
-                    config.filter_q,
-                )
-                .expect("validated vocoder configuration should produce valid biquad coefficients");
-                DirectForm1::new(coefficients)
-            })
-            .collect();
+            // filter_q sets the bandpass width. Higher Q narrows the
+            // band around centre, lower Q widens it.
+            let coefficients = Coefficients::<f32>::from_params(
+                Type::BandPass,
+                sample_rate.hz(),
+                centre.hz(),
+                config.filter_q,
+            )
+            .expect("validated vocoder configuration should produce valid biquad coefficients");
+            DirectForm1::new(coefficients)
+        });
 
-        let envelopes = (0..VOCODER_BANDS)
-            .map(|_| EnvelopeFollower::new())
-            .collect();
+        let envelopes = std::array::from_fn(|_| EnvelopeFollower::new());
 
         let attack_coeff = envelope_coeff(config.attack_ms, sr);
         let release_coeff = envelope_coeff(config.release_ms, sr);
@@ -135,7 +131,7 @@ impl VocoderAnalyser {
         Self {
             filters,
             envelopes,
-            bins: vec![0.0; VOCODER_BANDS],
+            bins: [0.0; VOCODER_BANDS],
             attack_coeff,
             release_coeff,
         }

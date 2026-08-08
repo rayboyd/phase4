@@ -18,9 +18,8 @@ use tokio::net::UdpSocket;
 use tokio::sync::watch;
 use tokio::time::{sleep, timeout};
 
-/// Receive buffer size, generous enough for a full bin bundle even at the
-/// largest `display-bins-*` feature CI exercises. Heap-allocated rather than
-/// a stack array so it doesn't blow up the async fns' future size.
+/// Receive buffer size, generous enough for a full 32-bin test bundle.
+/// Heap-allocated so it does not inflate the async functions' future size.
 const MAX_DATAGRAM_BYTES: usize = 32 * 1024;
 
 /// Binds an ephemeral local UDP socket for the test to receive on.

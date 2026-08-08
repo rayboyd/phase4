@@ -18,15 +18,6 @@ fn non_zero_duration_from_secs(seconds: f64) -> Option<Duration> {
         .filter(|duration| !duration.is_zero())
 }
 
-pub(crate) fn broadcast_interval(rate_hz: f32) -> Result<Duration, AppConfigError> {
-    if !is_strictly_positive(rate_hz) {
-        return Err(AppConfigError::InvalidBroadcastRate { value: rate_hz });
-    }
-
-    non_zero_duration_from_secs(1.0 / f64::from(rate_hz))
-        .ok_or(AppConfigError::InvalidBroadcastRate { value: rate_hz })
-}
-
 pub(crate) fn midi_tick_interval(bpm: f32) -> Result<Duration, AppConfigError> {
     if !is_strictly_positive(bpm) {
         return Err(AppConfigError::InvalidMidiTempo { value: bpm });
@@ -112,10 +103,6 @@ pub(crate) fn validate_app_config(config: &AppConfig) -> Result<(), AppConfigErr
         config.vocoder_config.freq_high.0,
         config.vocoder_config.filter_q,
     )?;
-
-    if let Some(rate_hz) = config.broadcast_rate {
-        broadcast_interval(rate_hz)?;
-    }
 
     Ok(())
 }

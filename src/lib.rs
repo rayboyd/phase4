@@ -105,11 +105,6 @@ pub struct NetworkArgs {
     #[arg(long)]
     pub max_clients: Option<usize>,
 
-    /// Finite, positive target WebSocket broadcast rate in Hz, e.g. 30 or 60.
-    /// The resulting interval must be representable and non-zero. Defaults to 60.
-    #[arg(long)]
-    pub broadcast_rate: Option<f32>,
-
     /// Reject WebSocket clients whose handshake includes an Origin header.
     ///
     /// Only browsers are required by the Fetch spec to send Origin, so this flag
@@ -159,9 +154,7 @@ pub struct VocoderArgs {
         env!("CARGO_PKG_VERSION"),
         " (",
         env!("BUILD_GIT_HASH"),
-        ", ",
-        env!("BUILD_DISPLAY_BINS"),
-        "-bin build)"
+        ")"
     ),
     about = "Phase4 is a fast, lightweight audio analysis tool built for real-time audio visualisation."
 )]
