@@ -7,11 +7,11 @@
 
 use crate::app::AppState;
 use crate::config::{
-    broadcast_interval, midi_tick_interval, validate_app_config, validate_vocoder_sample_rate,
-    AppConfig, AppConfigError, ConfigInput, ConfigMidiInput, ConfigOutputs, OutputConfig,
-    TestSignal, CALIBRATION_SAMPLE_RATE_HZ,
+    midi_tick_interval, validate_app_config, validate_vocoder_sample_rate, AppConfig,
+    AppConfigError, ConfigInput, ConfigMidiInput, ConfigOutputs, OutputConfig, TestSignal,
+    CALIBRATION_SAMPLE_RATE_HZ,
 };
-use crate::dsp::{vocoder::VOCODER_BANDS, DisplayPayload, RawPayload};
+use crate::dsp::{DisplayPayload, RawPayload};
 use crate::managers::audio::{ChannelMode, StreamSink};
 use crate::managers::{
     Generator, Input, Mapper, MidiInputSource, MidiListener, OscSender, Processor, Server, Specs,
@@ -74,7 +74,6 @@ pub(crate) struct Bootstrapped {
 /// bind to its given address.
 pub(crate) fn bootstrap(config: &AppConfig) -> Result<Bootstrapped> {
     validate_app_config(config)?;
-    let mapper_broadcast_interval = config.broadcast_rate.map(broadcast_interval).transpose()?;
 
     let state = Arc::new(AppState::new());
     let stream_state = Arc::clone(&state);
@@ -102,7 +101,7 @@ pub(crate) fn bootstrap(config: &AppConfig) -> Result<Bootstrapped> {
     let (analyse_tx, analyse_rx) =
         Input::create_audio_buffer_pair(analyser_specs, ANALYSE_BUFFER_MS);
     let display_channels = analyser_specs.channels as usize;
-    let (raw_tx, raw_rx) = watch::channel(RawPayload::new(display_channels, VOCODER_BANDS));
+    let (raw_tx, raw_rx) = watch::channel(RawPayload::new(display_channels));
     let (display_tx, display_rx) = watch::channel(DisplayPayload::new(display_channels));
 
     let generator_thread = spawn_audio_input(
@@ -123,7 +122,6 @@ pub(crate) fn bootstrap(config: &AppConfig) -> Result<Bootstrapped> {
         display_tx,
         display_channels,
         mapper_state,
-        mapper_broadcast_interval,
         midi_enabled,
     ));
 

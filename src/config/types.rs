@@ -20,9 +20,6 @@ pub(crate) const CALIBRATION_FREQUENCY_CEILING_RATIO: f32 = 0.45;
 pub(crate) const CALIBRATION_MAX_FREQUENCY_HZ: f32 =
     CALIBRATION_SAMPLE_RATE_HZ as f32 * CALIBRATION_FREQUENCY_CEILING_RATIO;
 
-/// Fallback broadcast rate in Hz used when neither CLI nor `config.yaml` sets one.
-pub(super) const DEFAULT_BROADCAST_RATE_HZ: f32 = 60.0;
-
 /// Stable output names used in duplicate-transport configuration errors.
 const WEBSOCKET_OUTPUT_NAME: &str = "WebSocket";
 const OSC_OUTPUT_NAME: &str = "OSC";
@@ -200,11 +197,6 @@ pub enum AppConfigError {
     InvalidFilterQ { value: f32 },
 
     #[error(
-        "Invalid broadcast rate: must be finite, greater than 0 Hz, and produce a representable non-zero interval, got {value}"
-    )]
-    InvalidBroadcastRate { value: f32 },
-
-    #[error(
         "Invalid MIDI test tempo: must be finite, greater than 0 bpm, and produce a representable non-zero clock interval, got {value}"
     )]
     InvalidMidiTempo { value: f32 },
@@ -278,13 +270,6 @@ pub struct AppConfig {
 
     /// Vocoder filter bank configuration.
     pub vocoder_config: VocoderConfig,
-
-    /// Target WebSocket broadcast rate in Hz. None means no throttle (unlimited rate).
-    ///
-    /// In production this is always `Some` because `resolve_config` always wraps
-    /// the resolved rate in `Some`. The `None` variant is only reachable through
-    /// direct struct construction in tests.
-    pub broadcast_rate: Option<f32>,
 }
 
 impl Default for AppConfig {
@@ -303,7 +288,6 @@ impl Default for AppConfig {
             input: ConfigInput::Calibration(TestSignal::FixedTone(DEFAULT_TEST_HZ)),
             midi_input: None,
             vocoder_config: VocoderConfig::default(),
-            broadcast_rate: Some(DEFAULT_BROADCAST_RATE_HZ),
         }
     }
 }
@@ -317,7 +301,6 @@ impl Default for AppConfig {
 pub struct FileNetworkConfig {
     pub ws_addr: Option<SocketAddr>,
     pub max_clients: Option<usize>,
-    pub broadcast_rate: Option<f32>,
     pub osc_addr: Option<SocketAddr>,
 }
 
@@ -389,7 +372,6 @@ pub(super) mod test_support {
             network: NetworkArgs {
                 ws_addr: Some(test_ws_addr()),
                 max_clients: Some(DEFAULT_MAX_CLIENTS),
-                broadcast_rate: Some(DEFAULT_BROADCAST_RATE_HZ),
                 no_browser_origin: false,
                 osc_addr: None,
             },
@@ -444,14 +426,6 @@ mod tests {
         assert_eq!(max_clients, DEFAULT_MAX_CLIENTS);
         assert!(!no_browser_origin);
         assert_eq!(config.vocoder_config, VocoderConfig::default());
-    }
-
-    // The default config uses a 60 Hz broadcast rate.
-    #[test]
-    #[allow(clippy::float_cmp)]
-    fn default_config_has_default_broadcast_rate() {
-        let config = AppConfig::default();
-        assert_eq!(config.broadcast_rate, Some(60.0));
     }
 
     // VocoderConfig::default produces the documented defaults.

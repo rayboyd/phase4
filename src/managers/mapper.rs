@@ -1,36 +1,39 @@
 //! [`Mapper`] sits between the [`crate::managers::analyser`] and the front-end
-//! [`crate::managers::server`] and [`crate::managers::osc`]. It receives the raw
-//! vocoder envelope bins and maps them to a [`DISPLAY_BINS`]-bin representation
-//! for display broadcast.
+//! [`crate::managers::server`] and [`crate::managers::osc`]. It copies each
+//! 32-band analysis snapshot into the serialisable [`DisplayPayload`] shape
+//! and publishes the latest snapshot at a fixed 60 Hz.
 //!
-//! When the raw bin count exceeds [`DISPLAY_BINS`] the mapper averages adjacent
-//! bins (downsampling). When it is lower the mapper spreads each raw bin across
-//! multiple display slots (upsampling). An exact match is a direct copy.
-//!
-//! The mapper publishes a typed [`DisplayPayload`] over one watch channel.
-//! Downstream transports subscribe to this channel and apply their own wire
-//! encoding where appropriate.
+//! The output timer is independent of analyser updates. A slower or irregular
+//! analyser therefore changes data freshness without changing the public
+//! broadcast cadence. The latest snapshot is reused when no newer analysis
+//! frame is available.
 
 use crate::app::AppState;
-use crate::dsp::{
-    DisplayChannelLevel, DisplayPayload, MidiSnapshot, RawChannelLevel, RawPayload, DISPLAY_BINS,
-};
+use crate::dsp::{DisplayPayload, MidiSnapshot, RawPayload};
 use crate::managers::{
     MIDI_TRANSPORT_CONTINUE, MIDI_TRANSPORT_NONE, MIDI_TRANSPORT_START, MIDI_TRANSPORT_STOP,
 };
-use std::cmp::Ordering::{Equal, Greater, Less};
 use std::sync::{atomic::Ordering, Arc};
 use std::thread::JoinHandle;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use tokio::sync::watch;
+use tokio::time::{Instant, MissedTickBehavior};
 
-/// Maps raw vocoder envelope bins to display resolution for broadcast.
+/// Fixed number of display frames published per second.
+const BROADCAST_RATE_HZ: u64 = 60;
+
+/// Nanoseconds in one second, used to derive the fixed broadcast interval.
+const NANOSECONDS_PER_SECOND: u64 = 1_000_000_000;
+
+/// Fixed interval between display frames.
+const BROADCAST_INTERVAL: Duration =
+    Duration::from_nanos(NANOSECONDS_PER_SECOND / BROADCAST_RATE_HZ);
+
+/// Copies analysis snapshots into the display payload and broadcasts them.
 pub struct Mapper;
 
 impl Mapper {
     /// Spawns the mapper on a dedicated background thread.
-    /// `broadcast_interval` is resolved and validated before worker startup.
-    /// `None` disables throttling.
     ///
     /// # Panics
     ///
@@ -41,19 +44,11 @@ impl Mapper {
         display_tx: watch::Sender<DisplayPayload>,
         channels: usize,
         state: Arc<AppState>,
-        broadcast_interval: Option<Duration>,
         midi_enabled: bool,
     ) -> JoinHandle<()> {
         super::spawn_async_worker(
             "mapper",
-            Self::run(
-                raw_rx,
-                display_tx,
-                channels,
-                state,
-                broadcast_interval,
-                midi_enabled,
-            ),
+            Self::run(raw_rx, display_tx, channels, state, midi_enabled),
         )
     }
 
@@ -62,98 +57,59 @@ impl Mapper {
         display_tx: watch::Sender<DisplayPayload>,
         channels: usize,
         state: Arc<AppState>,
-        broadcast_interval: Option<Duration>,
         midi_enabled: bool,
     ) {
-        // Pre-allocated buffer reused every frame to avoid per-frame heap allocation.
         let mut display_data = DisplayPayload::new(channels);
-        let mut last_broadcast: Option<Instant> = None;
 
         while state.keep_running.load(Ordering::Acquire) {
-            // Block efficiently until the Analyser publishes a new frame.
             if raw_rx.changed().await.is_err() {
                 log::info!("- Analyser channel closed, mapper exiting");
+                return;
+            }
+            if !raw_rx.borrow_and_update().channels.is_empty() {
                 break;
             }
+        }
 
-            let raw = raw_rx.borrow_and_update();
+        let first_deadline = Instant::now() + BROADCAST_INTERVAL;
+        let mut broadcast_timer = tokio::time::interval_at(first_deadline, BROADCAST_INTERVAL);
+        broadcast_timer.set_missed_tick_behavior(MissedTickBehavior::Skip);
+        let mut latest_frame_available = true;
 
-            if raw.channels.is_empty() {
-                continue;
-            }
-
-            for (ch_idx, channel) in raw.channels.iter().enumerate() {
-                map_channel(channel, &mut display_data.channels[ch_idx]);
-            }
-
-            // Release the watch read-lock before sending.
-            drop(raw);
-
-            // When a broadcast rate is configured, skip serialisation and
-            // transmission if the minimum interval has not yet elapsed. The
-            // display buffer retains the latest mapped data, so the next
-            // broadcast that does fire carries the most recent frame.
-            if let Some(interval) = broadcast_interval {
-                if let Some(last) = last_broadcast {
-                    if last.elapsed() < interval {
+        while state.keep_running.load(Ordering::Acquire) {
+            tokio::select! {
+                raw_result = raw_rx.changed() => {
+                    if raw_result.is_err() {
+                        log::info!("- Analyser channel closed, mapper exiting");
+                        break;
+                    }
+                    latest_frame_available = !raw_rx.borrow_and_update().channels.is_empty();
+                }
+                _ = broadcast_timer.tick() => {
+                    if !state.is_active.load(Ordering::Acquire) {
+                        latest_frame_available = false;
                         continue;
                     }
+                    if !latest_frame_available {
+                        continue;
+                    }
+
+                    let raw = raw_rx.borrow_and_update();
+                    display_data.channels.copy_from_slice(&raw.channels);
+                    drop(raw);
+
+                    display_data.midi = read_midi_snapshot(&state, midi_enabled);
+
+                    let payload = std::mem::take(&mut display_data);
+                    display_data = display_tx.send_replace(payload);
                 }
             }
-
-            display_data.midi = read_midi_snapshot(&state, midi_enabled);
-
-            let payload = std::mem::take(&mut display_data);
-            display_data = display_tx.send_replace(payload);
-            last_broadcast = Some(Instant::now());
         }
     }
 }
 
-/// Maps a single channel's raw vocoder envelope bins to display resolution.
-///
-/// Handles three cases based on the relationship between the raw bin count
-/// and [`DISPLAY_BINS`]: downsampling (average), direct copy (equal), or
-/// upsampling (spread).
-fn map_channel(raw: &RawChannelLevel, out: &mut DisplayChannelLevel) {
-    out.peak = raw.peak;
-
-    let raw_len = raw.bins.len();
-
-    match raw_len.cmp(&DISPLAY_BINS) {
-        Equal => {
-            out.bins.copy_from_slice(&raw.bins);
-        }
-        Greater => {
-            // Downsample, average adjacent raw bins into each display slot.
-            debug_assert_eq!(
-                raw_len % DISPLAY_BINS,
-                0,
-                "raw bin count must be a multiple of DISPLAY_BINS when downsampling"
-            );
-            let chunk_size = raw_len / DISPLAY_BINS;
-            for (i, chunk) in raw.bins.chunks_exact(chunk_size).enumerate() {
-                let sum: f32 = chunk.iter().copied().sum();
-                out.bins[i] = sum / chunk.len() as f32;
-            }
-        }
-        Less => {
-            // Upsample, spread each raw bin across multiple display slots.
-            debug_assert_eq!(
-                DISPLAY_BINS % raw_len,
-                0,
-                "DISPLAY_BINS must be a multiple of raw bin count when upsampling"
-            );
-            let spread = DISPLAY_BINS / raw_len;
-            for (&val, chunk) in raw.bins.iter().zip(out.bins.chunks_exact_mut(spread)) {
-                chunk.fill(val);
-            }
-        }
-    }
-}
-
-/// Reads and clears MIDI transport, and snapshots MIDI steps, called only on
-/// a cycle that actually broadcasts.
+/// Reads and clears MIDI transport, and snapshots MIDI steps, once per
+/// broadcast frame.
 fn read_midi_snapshot(state: &AppState, midi_enabled: bool) -> Option<MidiSnapshot> {
     if !midi_enabled {
         return None;
@@ -174,115 +130,5 @@ fn transport_code_to_str(code: u8) -> Option<&'static str> {
         MIDI_TRANSPORT_STOP => Some("stop"),
         MIDI_TRANSPORT_CONTINUE => Some("continue"),
         _ => None,
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    // When raw bin count equals DISPLAY_BINS the bins are copied exactly as is.
-    #[test]
-    #[allow(clippy::float_cmp)]
-    fn map_channel_equal_copies_bins() {
-        let raw = RawChannelLevel {
-            peak: 0.0,
-            bins: (0..DISPLAY_BINS).map(|i| i as f32 * 0.01).collect(),
-        };
-        let mut out = DisplayChannelLevel {
-            peak: 0.0,
-            bins: [0.0; DISPLAY_BINS],
-        };
-
-        map_channel(&raw, &mut out);
-
-        for (i, &bin) in out.bins.iter().enumerate() {
-            assert_eq!(bin, raw.bins[i], "bin {i} should be a direct copy");
-        }
-    }
-
-    // When raw bin count exceeds DISPLAY_BINS, adjacent bins are averaged.
-    // With the default feature (display-bins-32) and VOCODER_BANDS = 64,
-    // each display slot is the mean of two raw bins.
-    #[test]
-    #[allow(clippy::float_cmp)]
-    fn map_channel_downsample_averages_bins() {
-        let raw_len = DISPLAY_BINS * 2;
-        let raw = RawChannelLevel {
-            peak: 0.0,
-            bins: (0..raw_len).map(|i| i as f32).collect(),
-        };
-        let mut out = DisplayChannelLevel {
-            peak: 0.0,
-            bins: [0.0; DISPLAY_BINS],
-        };
-
-        map_channel(&raw, &mut out);
-
-        for i in 0..DISPLAY_BINS {
-            let expected = f32::midpoint(raw.bins[i * 2], raw.bins[i * 2 + 1]);
-            assert_eq!(
-                out.bins[i],
-                expected,
-                "display bin {i} should be the mean of raw bins {} and {}",
-                i * 2,
-                i * 2 + 1
-            );
-        }
-    }
-
-    // When raw bin count is less than DISPLAY_BINS, each raw bin is spread
-    // across multiple display slots. With 16 raw bins and 32 display bins,
-    // each raw value fills two consecutive slots.
-    #[test]
-    #[allow(clippy::float_cmp)]
-    fn map_channel_upsample_spreads_bins() {
-        let raw_len = DISPLAY_BINS / 2;
-        let raw = RawChannelLevel {
-            peak: 0.0,
-            bins: (0..raw_len).map(|i| (i + 1) as f32 * 0.1).collect(),
-        };
-        let mut out = DisplayChannelLevel {
-            peak: 0.0,
-            bins: [0.0; DISPLAY_BINS],
-        };
-
-        map_channel(&raw, &mut out);
-
-        let spread = DISPLAY_BINS / raw_len;
-        for (raw_idx, &raw_val) in raw.bins.iter().enumerate() {
-            for s in 0..spread {
-                let display_idx = raw_idx * spread + s;
-                assert_eq!(
-                    out.bins[display_idx], raw_val,
-                    "display bin {display_idx} should equal raw bin {raw_idx}"
-                );
-            }
-        }
-    }
-
-    // The peak field is copied regardless of which mapping path is taken.
-    #[test]
-    #[allow(clippy::float_cmp)]
-    fn map_channel_preserves_peak() {
-        let cases: &[usize] = &[DISPLAY_BINS, DISPLAY_BINS * 2, DISPLAY_BINS / 2];
-
-        for &raw_len in cases {
-            let raw = RawChannelLevel {
-                peak: 0.87,
-                bins: vec![0.0; raw_len],
-            };
-            let mut out = DisplayChannelLevel {
-                peak: 0.0,
-                bins: [0.0; DISPLAY_BINS],
-            };
-
-            map_channel(&raw, &mut out);
-
-            assert_eq!(
-                out.peak, 0.87,
-                "peak must pass through for raw_len={raw_len}"
-            );
-        }
     }
 }

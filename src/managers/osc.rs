@@ -16,7 +16,7 @@
 //! are low frequency and broadcast-channel based already, not the per-call
 //! cost the bundle exists to amortise.
 //!
-//! All `channels * DISPLAY_BINS` bin messages are pre-built once, as the
+//! All `channels * BAND_COUNT` bin messages are pre-built once, as the
 //! `content` of a single persistent `OscPacket::Bundle`, before the send
 //! loop, not rebuilt per frame. Each frame, only the float arguments are
 //! mutated in place, then the whole bundle is encoded and sent as one
@@ -36,7 +36,7 @@
 //! required only to await the watch channel in the same pattern as the mapper.
 
 use crate::app::AppState;
-use crate::dsp::{DisplayPayload, DISPLAY_BINS};
+use crate::dsp::{DisplayPayload, BAND_COUNT};
 use anyhow::{Context, Result};
 use rosc::{OscBundle, OscMessage, OscPacket, OscTime, OscType};
 use socket2::{Domain, Socket, Type};
@@ -72,7 +72,7 @@ impl OscSender {
     /// Binds an ephemeral local UDP socket eagerly so any bind error surfaces
     /// here as a `Result` rather than panicking inside the spawned thread.
     /// The socket's send buffer is sized explicitly, scaled to the per-frame
-    /// message burst (`channels * DISPLAY_BINS`, plus a MIDI allowance of the
+    /// message burst (`channels * BAND_COUNT`, plus a MIDI allowance of the
     /// steps message and one transport bang), rather than left on the OS
     /// default, so the burst that fires every frame doesn't block `sendto`
     /// under queue pressure.
@@ -93,7 +93,7 @@ impl OscSender {
         state: Arc<AppState>,
         midi_enabled: bool,
     ) -> Result<JoinHandle<()>> {
-        let messages_per_frame = channels * DISPLAY_BINS + if midi_enabled { 2 } else { 0 };
+        let messages_per_frame = channels * BAND_COUNT + if midi_enabled { 2 } else { 0 };
         let send_buffer_size =
             messages_per_frame * OSC_MESSAGE_SIZE_ESTIMATE_BYTES * OSC_SEND_BUFFER_FRAME_HEADROOM;
 
@@ -136,11 +136,11 @@ impl OscSender {
     /// Pre-builds the packet table for a given channel count.
     ///
     /// Each packet is an `OscMessage` with address and a placeholder float argument.
-    /// The table is flattened into a single Vec indexed by ch * `DISPLAY_BINS` + bin.
+    /// The table is flattened into a single Vec indexed by ch * `BAND_COUNT` + bin.
     fn build_packets(channels: usize) -> Vec<OscPacket> {
-        let mut packets = Vec::with_capacity(channels * DISPLAY_BINS);
+        let mut packets = Vec::with_capacity(channels * BAND_COUNT);
         for ch in 0..channels {
-            for bin in 0..DISPLAY_BINS {
+            for bin in 0..BAND_COUNT {
                 let addr = format!("/phase4/ch/{ch}/bin/{bin}");
                 packets.push(OscPacket::Message(OscMessage {
                     addr,
@@ -259,7 +259,7 @@ impl OscRuntime {
                 };
                 for (ch_packets, channel) in bundle
                     .content
-                    .chunks_exact_mut(DISPLAY_BINS)
+                    .chunks_exact_mut(BAND_COUNT)
                     .zip(guard.channels.iter())
                 {
                     for (packet, &bin_value) in ch_packets.iter_mut().zip(channel.bins.iter()) {
@@ -385,14 +385,14 @@ mod tests {
 
         assert_eq!(
             packets.len(),
-            channels * DISPLAY_BINS,
-            "packet table length must be channels * DISPLAY_BINS"
+            channels * BAND_COUNT,
+            "packet table length must be channels * BAND_COUNT"
         );
 
         // Check a specific index mapping.
         let ch_0_bin_0_idx = 0;
-        let sampled_bin = usize::min(5, DISPLAY_BINS - 1);
-        let ch_1_sampled_bin_idx = DISPLAY_BINS + sampled_bin;
+        let sampled_bin = usize::min(5, BAND_COUNT - 1);
+        let ch_1_sampled_bin_idx = BAND_COUNT + sampled_bin;
 
         if let OscPacket::Message(msg) = &packets[ch_0_bin_0_idx] {
             assert_eq!(msg.addr, "/phase4/ch/0/bin/0");
@@ -411,7 +411,7 @@ mod tests {
         }
     }
 
-    // The pre-built bin bundle must wrap all channels * DISPLAY_BINS messages
+    // The pre-built bin bundle must wrap all channels * BAND_COUNT messages
     // as its content, with the same shape as the flat packet table.
     #[test]
     fn pre_built_bin_bundle_has_correct_shape() {
@@ -424,8 +424,8 @@ mod tests {
 
         assert_eq!(
             bundle.content.len(),
-            channels * DISPLAY_BINS,
-            "bundle content length must be channels * DISPLAY_BINS"
+            channels * BAND_COUNT,
+            "bundle content length must be channels * BAND_COUNT"
         );
 
         if let OscPacket::Message(msg) = &bundle.content[0] {

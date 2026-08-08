@@ -6,13 +6,15 @@
 
 Phase4 is a fast, lightweight tool for real-time audio analysis and MIDI transport, broadcasting both over WebSocket and OSC. Any WebSocket-capable tooling, such as [TouchDesigner](https://derivative.ca/) or a browser using the [WebSocket API](https://developer.mozilla.org/en-US/docs/Web/API/WebSockets_API), can connect to the Phase4 server. OSC output can be sent to any UDP target, including TouchDesigner's [OSC In DAT](https://derivative.ca/UserGuide/OSC_In_DAT).
 
+Phase4 has one audio-data contract. It accepts native `f32` input, analyses 32 logarithmically spaced frequency bands per channel, and broadcasts the latest snapshot at 60 Hz.
+
 Check the [platform requirements section](docs/tutorials/compile.md#platform-requirements) of the compile guide if you intend to build Phase4 from source.
 
 Phase4 supports 64-bit [macOS](docs/tutorials/compile.md#macos), [Windows](docs/tutorials/compile.md#windows) and [Linux](docs/tutorials/compile.md#linux).
 
 ## Quickstart
 
-Pre-built binaries for macOS and Linux are on the [releases page](https://github.com/rayboyd/phase4/releases/latest). Windows users need to [compile from source](docs/tutorials/compile.md). Compiling is also the route if you want a non-default band resolution.
+Pre-built binaries for macOS and Linux are on the [releases page](https://github.com/rayboyd/phase4/releases/latest). Windows users need to [compile from source](docs/tutorials/compile.md).
 
 1. [Check](#check) hardware compatibility.
 2. Select a device and [serve](#serve) analysis data.
@@ -23,7 +25,7 @@ and clock.
 
 ### Check
 
-List available input devices to find your device index and confirm 32-bit Float support.
+List available input devices to find your device index and confirm `f32` support.
 
 ```sh
 ./phase4 --audio-list
@@ -103,15 +105,12 @@ Use one of the following flags.
 The synthetic clock tempo must be finite and positive, and its MIDI tick interval must be representable and non-zero.
 A real MIDI device is opened during startup. If the selected device disappears or cannot be opened, Phase4 exits before starting any workers.
 
-When MIDI input is configured, each display frame may include a top-level `midi` key:
+When MIDI input is configured, every display frame also includes a top-level `midi` object. Its value has this shape:
 
 ```json
 {
-  "channels": [{ "peak": 0.38, "bins": [0.0, 0.1, 0.2, 0.3] }],
-  "midi": {
-    "transport": "start",
-    "steps": 24
-  }
+  "transport": "start",
+  "steps": 24
 }
 ```
 
@@ -140,12 +139,11 @@ Copy the bundled example as a starting point.
 cp example.config.yaml config.yaml
 ```
 
-Edit only the sections you need. For example, to pin a device and raise the broadcast rate:
+Edit only the sections you need. For example, to pin a WebSocket address and audio device:
 
 ```yaml
 network:
   ws_addr: "127.0.0.1:8889"
-  broadcast_rate: 90.0
 
 audio:
   device_name_match: "Duet 3"

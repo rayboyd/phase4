@@ -23,7 +23,7 @@ network:
   osc_addr: "127.0.0.1:7000"
 ```
 
-Phase4 binds an ephemeral local UDP port using the target's IPv4 or IPv6 address family, then sends to the specified target. OSC output shares the same rate-limit gate as the WebSocket broadcast, so `--broadcast-rate` applies to both.
+Phase4 binds an ephemeral local UDP port using the target's IPv4 or IPv6 address family, then sends the latest analysis snapshot at 60 Hz. OSC and WebSocket share the same fixed output cadence.
 
 ## Address Scheme
 
@@ -35,9 +35,9 @@ Each frequency bin is represented by an OSC message. The address pattern is:
 
 - `{channel}` is zero-based. A stereo device produces channels `0` and `1`.
 - `{bin}` is zero-based, ordered from lowest to highest frequency.
-- The argument is a single `f` (32-bit float) in the range `0.0` to `1.0`.
+- The argument is a single `f` (`f32`) in the range `0.0` to `1.0`.
 
-All `channels * DISPLAY_BINS` bin messages for a frame are sent together as a single OSC bundle (`#bundle` header, immediate time tag) in one UDP packet, rather than one packet per bin.
+All `channels * 32` bin messages for a frame are sent together as a single OSC bundle (`#bundle` header, immediate time tag) in one UDP packet, rather than one packet per bin.
 
 All OSC message structures (addresses and argument slots) are built once before the send loop, as the content of a single persistent bundle. On each frame, only the float value is updated in place, then the whole bundle is encoded and sent as one UDP packet. The encoded bytes are written into a reused buffer, so the send loop performs no heap allocation in steady state.
 
@@ -47,7 +47,7 @@ All OSC message structures (addresses and argument slots) are built once before 
 | :----------------------- | :--- | :--------- | :----------------------------------------- |
 | `/phase4/ch/{n}/bin/{n}` | `f`  | 0.0 to 1.0 | Frequency bin magnitude for channel `{n}`. |
 
-The bin count is set at compile time. The default is 32 bins. See [compile.md](compile.md) for how to change it.
+Every channel always carries 32 bins.
 
 ## Noise Floor
 
@@ -80,7 +80,7 @@ If you are receiving a large number of messages, check your receiving applicatio
 
 Phase4 fires and forgets each UDP packet. There is no connection handshake, acknowledgement, or backpressure. If the target is not running or unreachable, packets are silently dropped.
 
-Bin messages for a frame are combined into one OSC bundle per UDP packet. At the default build (stereo, 32 bins, 64 bin messages), the encoded bundle runs roughly 2 to 2.5KB, over standard Ethernet's 1500 byte MTU. That's not an issue on loopback, whose MTU is far larger, but it raises IP fragmentation risk if `--osc-addr` targets a non-loopback destination.
+Bin messages for a frame are combined into one OSC bundle per UDP packet. For stereo input, 32 bins per channel produce 64 bin messages and an encoded bundle of roughly 2 to 2.5KB, over standard Ethernet's 1500 byte MTU. That's not an issue on loopback, whose MTU is far larger, but it raises IP fragmentation risk if `--osc-addr` targets a non-loopback destination.
 
 ## Notes
 

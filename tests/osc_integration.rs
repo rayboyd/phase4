@@ -7,7 +7,7 @@
 //! `DisplayPayload` that produced it.
 
 use phase4::app::AppState;
-use phase4::dsp::{DisplayPayload, MidiSnapshot, DISPLAY_BINS};
+use phase4::dsp::{DisplayPayload, MidiSnapshot, BAND_COUNT};
 use phase4::managers::OscSender;
 use rosc::{OscPacket, OscType};
 use std::collections::HashMap;
@@ -18,9 +18,8 @@ use tokio::net::UdpSocket;
 use tokio::sync::watch;
 use tokio::time::{sleep, timeout};
 
-/// Receive buffer size, generous enough for a full bin bundle even at the
-/// largest `display-bins-*` feature CI exercises. Heap-allocated rather than
-/// a stack array so it doesn't blow up the async fns' future size.
+/// Receive buffer size, generous enough for a full 32-bin test bundle.
+/// Heap-allocated so it does not inflate the async functions' future size.
 const MAX_DATAGRAM_BYTES: usize = 32 * 1024;
 
 /// Binds an ephemeral local UDP socket for the test to receive on.
@@ -155,10 +154,10 @@ async fn sender_transmits_bin_values_matching_display_payload() {
         .send(first_payload)
         .expect("initial update should reach the OSC sender");
 
-    let first_values = receive_bin_values(&receiver, DISPLAY_BINS).await;
+    let first_values = receive_bin_values(&receiver, BAND_COUNT).await;
     assert_eq!(
         first_values.len(),
-        DISPLAY_BINS,
+        BAND_COUNT,
         "expected one packet per display bin"
     );
     assert_eq!(first_values.get(&0).copied(), Some(0.25));
@@ -171,7 +170,7 @@ async fn sender_transmits_bin_values_matching_display_payload() {
         .send(second_payload)
         .expect("second update should reach the OSC sender");
 
-    let second_values = receive_bin_values(&receiver, DISPLAY_BINS).await;
+    let second_values = receive_bin_values(&receiver, BAND_COUNT).await;
     assert_eq!(second_values.get(&0).copied(), Some(0.1));
     assert_eq!(second_values.get(&1).copied(), Some(0.9));
 
@@ -224,7 +223,7 @@ async fn sender_transmits_to_ipv6_target() {
     let OscPacket::Bundle(bundle) = packet else {
         panic!("expected an OSC bundle, got a single message");
     };
-    assert_eq!(bundle.content.len(), DISPLAY_BINS);
+    assert_eq!(bundle.content.len(), BAND_COUNT);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -277,7 +276,7 @@ async fn sender_forwards_midi_steps_and_transport_when_enabled() {
         .send(payload)
         .expect("update should reach the OSC sender");
 
-    // One bin bundle datagram (DISPLAY_BINS addresses), plus separate
+    // One bin bundle datagram (BAND_COUNT addresses), plus separate
     // /phase4/midi/steps and /phase4/midi/start datagrams, not /stop or
     // /continue, on this frame, giving 3 datagrams in total.
     let addresses = receive_addresses(&receiver, 3).await;

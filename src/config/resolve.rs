@@ -1,11 +1,10 @@
 use super::types::{
     AppConfig, AppConfigError, ConfigInput, ConfigMidiInput, ConfigOutputs, FileConfig,
-    FileMidiConfig, OutputConfig, TestSignal, VocoderConfig, DEFAULT_BROADCAST_RATE_HZ,
-    DEFAULT_MAX_CLIENTS,
+    FileMidiConfig, OutputConfig, TestSignal, VocoderConfig, DEFAULT_MAX_CLIENTS,
 };
 use super::validate::{
-    broadcast_interval, midi_tick_interval, validate_bind_addr, validate_max_clients,
-    validate_test_signal, validate_vocoder_fields,
+    midi_tick_interval, validate_bind_addr, validate_max_clients, validate_test_signal,
+    validate_vocoder_fields,
 };
 use crate::dsp::units::{Hertz, Milliseconds};
 use crate::Args;
@@ -60,12 +59,6 @@ fn resolve_config(args: &Args, file: FileConfig) -> Result<AppConfig, AppConfigE
         .max_clients
         .or(file.network.max_clients)
         .unwrap_or(DEFAULT_MAX_CLIENTS);
-
-    let broadcast_rate = args
-        .network
-        .broadcast_rate
-        .or(file.network.broadcast_rate)
-        .unwrap_or(DEFAULT_BROADCAST_RATE_HZ);
 
     // CLI-only. A presence-style bool flag has no "explicitly false" form, so
     // offering it in config.yaml would break the CLI-overrides-file rule (a
@@ -124,8 +117,6 @@ fn resolve_config(args: &Args, file: FileConfig) -> Result<AppConfig, AppConfigE
     // Validation.
     validate_vocoder_fields(attack_ms, release_ms, freq_low, freq_high, filter_q)?;
 
-    broadcast_interval(broadcast_rate)?;
-
     // Build the output set. Each transport's settings are validated only when
     // that transport is actually configured, an unused --max-clients or
     // --no-browser-origin flag is meaningless without --ws-addr.
@@ -158,7 +149,6 @@ fn resolve_config(args: &Args, file: FileConfig) -> Result<AppConfig, AppConfigE
             freq_high: Hertz(freq_high),
             filter_q,
         },
-        broadcast_rate: Some(broadcast_rate),
     })
 }
 
@@ -406,15 +396,6 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::float_cmp)]
-    fn try_from_forwards_broadcast_rate() {
-        let mut args = args_with_device(Some("test"));
-        args.network.broadcast_rate = Some(45.0);
-        let config = AppConfig::try_from(&args).unwrap();
-        assert_eq!(config.broadcast_rate, Some(45.0));
-    }
-
-    #[test]
     fn try_from_forwards_max_clients() {
         let mut args = args_with_device(Some("test"));
         args.network.max_clients = Some(16);
@@ -437,51 +418,6 @@ mod tests {
         args.network.max_clients = Some(tokio::sync::Semaphore::MAX_PERMITS + 1);
         let result = AppConfig::try_from(&args);
         assert!(matches!(result, Err(AppConfigError::InvalidMaxClients)));
-    }
-
-    #[test]
-    fn try_from_rejects_zero_broadcast_rate() {
-        let mut args = args_with_device(Some("test"));
-        args.network.broadcast_rate = Some(0.0);
-        let result = AppConfig::try_from(&args);
-        assert!(matches!(
-            result,
-            Err(AppConfigError::InvalidBroadcastRate { .. })
-        ));
-    }
-
-    #[test]
-    fn try_from_rejects_negative_broadcast_rate() {
-        let mut args = args_with_device(Some("test"));
-        args.network.broadcast_rate = Some(-10.0);
-        let result = AppConfig::try_from(&args);
-        assert!(matches!(
-            result,
-            Err(AppConfigError::InvalidBroadcastRate { .. })
-        ));
-    }
-
-    #[test]
-    fn try_from_rejects_infinite_broadcast_rate() {
-        let mut args = args_with_device(Some("test"));
-        args.network.broadcast_rate = Some(f32::INFINITY);
-        let result = AppConfig::try_from(&args);
-        assert!(matches!(
-            result,
-            Err(AppConfigError::InvalidBroadcastRate { .. })
-        ));
-    }
-
-    #[test]
-    fn try_from_rejects_broadcast_rates_with_unrepresentable_intervals() {
-        for invalid_rate in [f32::MIN_POSITIVE, f32::MAX] {
-            let mut args = args_with_device(Some("test"));
-            args.network.broadcast_rate = Some(invalid_rate);
-            assert!(
-                AppConfig::try_from(&args).is_err(),
-                "--broadcast-rate should reject {invalid_rate}"
-            );
-        }
     }
 
     #[test]
@@ -551,47 +487,6 @@ mod tests {
         args.input.audio_analyse_channels = Some(vec![]);
         let result = AppConfig::try_from(&args);
         assert!(matches!(result, Err(AppConfigError::EmptyChannelSelection)));
-    }
-
-    #[test]
-    #[allow(clippy::float_cmp)]
-    fn file_config_broadcast_rate_overrides_default_when_cli_absent() {
-        let mut args = args_with_device(Some("test"));
-        args.network.broadcast_rate = None;
-        let file = FileConfig {
-            network: FileNetworkConfig {
-                broadcast_rate: Some(45.0),
-                ..Default::default()
-            },
-            ..Default::default()
-        };
-        let config = resolve_config(&args, file).unwrap();
-        assert_eq!(config.broadcast_rate, Some(45.0));
-    }
-
-    #[test]
-    #[allow(clippy::float_cmp)]
-    fn cli_broadcast_rate_overrides_file_config() {
-        let mut args = args_with_device(Some("test"));
-        args.network.broadcast_rate = Some(60.0);
-        let file = FileConfig {
-            network: FileNetworkConfig {
-                broadcast_rate: Some(10.0),
-                ..Default::default()
-            },
-            ..Default::default()
-        };
-        let config = resolve_config(&args, file).unwrap();
-        assert_eq!(config.broadcast_rate, Some(60.0));
-    }
-
-    #[test]
-    #[allow(clippy::float_cmp)]
-    fn default_broadcast_rate_used_when_both_cli_and_file_absent() {
-        let mut args = args_with_device(Some("test"));
-        args.network.broadcast_rate = None;
-        let config = resolve_config(&args, FileConfig::default()).unwrap();
-        assert_eq!(config.broadcast_rate, Some(DEFAULT_BROADCAST_RATE_HZ));
     }
 
     #[test]
@@ -771,16 +666,16 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::float_cmp)]
     fn explicit_config_path_is_loaded() {
-        let file = TempConfigFile::new("explicit-load", "network:\n  broadcast_rate: 45.0\n");
+        let file = TempConfigFile::new("explicit-load", "network:\n  ws_addr: 127.0.0.1:9001\n");
         let mut args = args_with_device(Some("test"));
         args.config = Some(file.0.clone());
-        args.network.broadcast_rate = None;
+        args.network.ws_addr = None;
 
         let config = AppConfig::try_from(&args).unwrap();
+        let (address, _max_clients, _no_browser_origin) = websocket_output(&config);
 
-        assert_eq!(config.broadcast_rate, Some(45.0));
+        assert_eq!(address, "127.0.0.1:9001".parse().unwrap());
     }
 
     #[test]

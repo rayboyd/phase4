@@ -9,8 +9,9 @@ pub mod payload;
 pub mod units;
 pub mod vocoder;
 
-pub use payload::{
-    DisplayChannelLevel, DisplayPayload, MidiSnapshot, RawChannelLevel, RawPayload, DISPLAY_BINS,
-};
+/// Number of logarithmically spaced frequency bands analysed and broadcast.
+pub const BAND_COUNT: usize = 32;
+
+pub use payload::{ChannelLevel, DisplayPayload, MidiSnapshot, RawPayload};
 pub use units::{Hertz, Milliseconds};
 pub use vocoder::VocoderAnalyser;

@@ -5,16 +5,6 @@ version = "0.0.14"
 edition = "2021"
 rust-version = "1.87"
 
-[features]
-default = ["display-bins-32"]
-display-bins-4 = []
-display-bins-8 = []
-display-bins-16 = []
-display-bins-32 = []
-display-bins-64 = []
-display-bins-128 = []
-display-bins-256 = []
-
 [lints.clippy]
 all = { level = "warn", priority = -1 }
 pedantic = { level = "warn", priority = -1 }

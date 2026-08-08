@@ -9,6 +9,7 @@ Phase4 streams real-time audio analysis data as a one-way JSON broadcast. Any to
 - **Default Address:** none, pass `--ws-addr 127.0.0.1:8889` (or set `network.ws_addr` in `config.yaml`) to enable the WebSocket output.
 - **Protocol:** Standard WebSocket
 - **Format:** JSON (UTF-8)
+- **Rate:** 60 messages per second while the engine is active
 - **Direction:** Server to client only. Phase4 services Ping, Pong, and Close control frames, but rejects Text and Binary messages by closing the connection. Inbound application data is never passed into Phase4's application pipeline.
 
 > Running Phase4 with the `--no-browser-origin` flag rejects standard browser-based connections.
@@ -31,18 +32,25 @@ Every message is a JSON object containing a `channels` array.
   "channels": [
     {
       "peak": 0.842,
-      "bins": [0.0, 0.001, 0.012, 0.034, "..."]
+      "bins": [
+        0.001, 0.002, 0.003, 0.004, 0.005, 0.006, 0.007, 0.008,
+        0.009, 0.010, 0.011, 0.012, 0.013, 0.014, 0.015, 0.016,
+        0.017, 0.018, 0.019, 0.020, 0.021, 0.022, 0.023, 0.024,
+        0.025, 0.026, 0.027, 0.028, 0.029, 0.030, 0.031, 0.032
+      ]
     }
   ]
 }
 ```
 
-| Field      | Type    | Description                                                                    |
-| :--------- | :------ | :----------------------------------------------------------------------------- |
-| **`peak`** | `float` | The peak sample amplitude (0.0 to 1.0).                                        |
-| **`bins`** | `array` | Frequency magnitudes (compile-time, default 32 bands) mapped from low to high. |
+| Field      | Type    | Description                                                        |
+| :--------- | :------ | :----------------------------------------------------------------- |
+| **`peak`** | `float` | The `f32` peak sample amplitude from 0.0 to 1.0.                    |
+| **`bins`** | `array` | Exactly 32 `f32` frequency magnitudes, ordered from low to high.    |
 
-When MIDI input is configured (`--midi-device` or `--test-midi-clock`), each message may also carry a top-level `midi` object with transport and step-count data. See the [MIDI section of the README](../../README.md#midi) for the schema. When MIDI input is not configured the key is absent, so clients that only read `channels` are unaffected.
+Phase4 uses `f32` for audio samples, DSP state, peaks, and bins. JSON does not encode a float width, so JavaScript parses these values as `Number`. Copying them into a `Float32Array` recovers the original `f32` values for direct WebGL use.
+
+When MIDI input is configured (`--midi-device` or `--test-midi-clock`), each message also carries a top-level `midi` object with transport and step-count data. See the [MIDI section of the README](../../README.md#midi) for the schema. When MIDI input is not configured the key is absent, so clients that only read `channels` are unaffected.
 
 ## Noise Floor
 
