@@ -11,7 +11,7 @@
 //! headroom for clipping in the downstream pipeline.
 
 use crate::app::AppState;
-use crate::config::TestSignal;
+use crate::config::{TestSignal, CALIBRATION_FREQUENCY_CEILING_RATIO};
 use crate::managers::audio::Specs;
 use ringbuf::traits::Producer;
 use std::f32::consts::PI;
@@ -45,7 +45,7 @@ fn fill_buffer(
     channels: u16,
 ) -> (f32, f32) {
     let chunk_size = buffer.len();
-    let sweep_ceiling = 0.45 * sample_rate as f32;
+    let sweep_ceiling = CALIBRATION_FREQUENCY_CEILING_RATIO * sample_rate as f32;
 
     for i in (0..chunk_size).step_by(channels as usize) {
         // Calculate the current frequency.
@@ -62,9 +62,9 @@ fn fill_buffer(
         };
 
         // Advance the primary audio sine wave.
-        let phase_inc = 2.0 * PI * current_freq / (sample_rate as f32);
+        let phase_inc = std::f64::consts::TAU * f64::from(current_freq) / f64::from(sample_rate);
         let sample = phase.sin() * AMPLITUDE;
-        phase = (phase + phase_inc) % (2.0 * PI);
+        phase = (f64::from(phase) + phase_inc).rem_euclid(std::f64::consts::TAU) as f32;
 
         // Write to all channels.
         for ch in 0..channels as usize {
@@ -135,6 +135,23 @@ impl Generator {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn largest_finite_tone_frequency_keeps_generator_state_finite() {
+        let mut buffer = [0.0; 2];
+        let (phase, lfo_phase) = fill_buffer(
+            &mut buffer,
+            0.0,
+            0.0,
+            TestSignal::FixedTone(f32::MAX),
+            crate::config::CALIBRATION_SAMPLE_RATE_HZ,
+            2,
+        );
+
+        assert!(phase.is_finite());
+        assert!(lfo_phase.is_finite());
+        assert!(buffer.iter().all(|sample| sample.is_finite()));
+    }
 
     /// Generates several chunks of a 1000 Hz tone at 48 kHz and verifies the
     /// frequency by counting zero crossings. A sine wave at frequency f has

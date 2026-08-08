@@ -41,8 +41,6 @@ const MIDI_THREAD_PRIORITY: u8 = 20;
 /// realistic tick interval.
 const MIDI_POLL_INTERVAL_MS: u64 = 10;
 
-const MIDI_CLOCK_TICKS_PER_QUARTER_NOTE: f64 = 24.0;
-
 /// Raw MIDI clock ticks (0xF8 bytes) per 1/16 note step, phase4's fixed
 /// resolution of 24 ticks per quarter note divided by four.
 const MIDI_CLOCK_TICKS_PER_STEP: u8 = 6;
@@ -118,7 +116,7 @@ fn record_byte(byte: u8, state: &AppState, ticks_since_step: &mut u8) {
 /// audio.
 pub(crate) enum MidiInputSource {
     /// Synthetic clock, driven at the given BPM instead of a real device.
-    TestClock(f32),
+    TestClock { bpm: f32, tick_interval: Duration },
 
     /// A resolved real device, carrying the open input handle, its port,
     /// and the resolved port name.
@@ -197,11 +195,11 @@ impl MidiListener {
     /// Panics if the OS thread cannot be spawned.
     pub(crate) fn spawn(source: MidiInputSource, state: Arc<AppState>) -> JoinHandle<()> {
         match source {
-            MidiInputSource::TestClock(bpm) => thread::Builder::new()
+            MidiInputSource::TestClock { tick_interval, .. } => thread::Builder::new()
                 .name("midi-input".into())
                 .spawn(move || {
                     set_midi_thread_priority();
-                    run_synthetic_clock(bpm, &state);
+                    run_synthetic_clock(tick_interval, &state);
                 })
                 .expect("failed to spawn midi-input thread"),
             MidiInputSource::Hardware(midi_in, port, port_name) => thread::Builder::new()
@@ -270,9 +268,7 @@ fn find_matching_midi_device<T>(
     substring_match
 }
 
-fn run_synthetic_clock(bpm: f32, state: &Arc<AppState>) {
-    let tick_interval =
-        Duration::from_secs_f64(60.0 / (f64::from(bpm) * MIDI_CLOCK_TICKS_PER_QUARTER_NOTE));
+fn run_synthetic_clock(tick_interval: Duration, state: &Arc<AppState>) {
     let poll_interval = Duration::from_millis(MIDI_POLL_INTERVAL_MS);
     let mut ticks_since_step: u8 = 0;
 
@@ -499,7 +495,8 @@ mod tests {
     #[test]
     fn synthetic_clock_tick_interval_at_120_bpm_matches_hand_calculation() {
         // 60_000ms / (120 * 24) = 20.8333ms per tick.
-        let interval = Duration::from_secs_f64(60.0 / (120.0 * MIDI_CLOCK_TICKS_PER_QUARTER_NOTE));
+        let interval = crate::config::midi_tick_interval(120.0)
+            .expect("120 bpm should produce a valid tick interval");
         let expected_ms = 20.833_333_333_333_332;
         assert!((interval.as_secs_f64() * 1000.0 - expected_ms).abs() < 1e-6);
     }
@@ -508,7 +505,9 @@ mod tests {
     fn synthetic_clock_exits_promptly_when_keep_running_clears() {
         let state = Arc::new(AppState::new());
         let thread_state = state.clone();
-        let handle = thread::spawn(move || run_synthetic_clock(120.0, &thread_state));
+        let tick_interval = crate::config::midi_tick_interval(120.0)
+            .expect("120 bpm should produce a valid tick interval");
+        let handle = thread::spawn(move || run_synthetic_clock(tick_interval, &thread_state));
 
         thread::sleep(Duration::from_millis(20));
         let start = Instant::now();

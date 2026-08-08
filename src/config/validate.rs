@@ -1,8 +1,99 @@
-use super::types::AppConfigError;
+use super::types::{
+    AppConfig, AppConfigError, ConfigInput, ConfigMidiInput, OutputConfig, TestSignal,
+    CALIBRATION_MAX_FREQUENCY_HZ,
+};
 use crate::dsp::units::Hertz;
+use std::time::{Duration, Instant};
+
+/// MIDI clock pulses emitted per quarter note by the standard timing clock.
+const MIDI_CLOCK_TICKS_PER_QUARTER_NOTE: f64 = 24.0;
 
 pub(super) fn is_strictly_positive(value: f32) -> bool {
     value.is_finite() && value > 0.0
+}
+
+fn non_zero_duration_from_secs(seconds: f64) -> Option<Duration> {
+    Duration::try_from_secs_f64(seconds)
+        .ok()
+        .filter(|duration| !duration.is_zero())
+}
+
+pub(crate) fn broadcast_interval(rate_hz: f32) -> Result<Duration, AppConfigError> {
+    if !is_strictly_positive(rate_hz) {
+        return Err(AppConfigError::InvalidBroadcastRate { value: rate_hz });
+    }
+
+    non_zero_duration_from_secs(1.0 / f64::from(rate_hz))
+        .ok_or(AppConfigError::InvalidBroadcastRate { value: rate_hz })
+}
+
+pub(crate) fn midi_tick_interval(bpm: f32) -> Result<Duration, AppConfigError> {
+    if !is_strictly_positive(bpm) {
+        return Err(AppConfigError::InvalidMidiTempo { value: bpm });
+    }
+
+    let seconds = 60.0 / (f64::from(bpm) * MIDI_CLOCK_TICKS_PER_QUARTER_NOTE);
+    let interval = non_zero_duration_from_secs(seconds)
+        .ok_or(AppConfigError::InvalidMidiTempo { value: bpm })?;
+    if Instant::now().checked_add(interval).is_none() {
+        return Err(AppConfigError::InvalidMidiTempo { value: bpm });
+    }
+
+    Ok(interval)
+}
+
+pub(super) fn validate_test_signal(signal: TestSignal) -> Result<(), AppConfigError> {
+    match signal {
+        TestSignal::FixedTone(value)
+            if !is_strictly_positive(value) || value > CALIBRATION_MAX_FREQUENCY_HZ =>
+        {
+            Err(AppConfigError::InvalidTestFrequency { value })
+        }
+        TestSignal::Sweep(value)
+            if !is_strictly_positive(value) || value > CALIBRATION_MAX_FREQUENCY_HZ =>
+        {
+            Err(AppConfigError::InvalidTestSweepRate { value })
+        }
+        TestSignal::FixedTone(_) | TestSignal::Sweep(_) => Ok(()),
+    }
+}
+
+pub(super) fn validate_max_clients(max_clients: usize) -> Result<(), AppConfigError> {
+    let maximum = tokio::sync::Semaphore::MAX_PERMITS;
+    if max_clients == 0 || max_clients > maximum {
+        return Err(AppConfigError::InvalidMaxClients);
+    }
+    Ok(())
+}
+
+pub(crate) fn validate_app_config(config: &AppConfig) -> Result<(), AppConfigError> {
+    validate_vocoder_fields(
+        config.vocoder_config.attack_ms.0,
+        config.vocoder_config.release_ms.0,
+        config.vocoder_config.freq_low.0,
+        config.vocoder_config.freq_high.0,
+        config.vocoder_config.filter_q,
+    )?;
+
+    if let Some(rate_hz) = config.broadcast_rate {
+        broadcast_interval(rate_hz)?;
+    }
+
+    if let ConfigInput::Calibration(signal) = &config.input {
+        validate_test_signal(*signal)?;
+    }
+
+    if let Some(ConfigMidiInput::TestClock(bpm)) = &config.midi_input {
+        midi_tick_interval(*bpm)?;
+    }
+
+    for output in config.outputs.iter() {
+        if let OutputConfig::WebSocket { max_clients, .. } = output {
+            validate_max_clients(*max_clients)?;
+        }
+    }
+
+    Ok(())
 }
 
 pub(super) fn validate_bind_addr(addr: std::net::SocketAddr) -> Result<(), AppConfigError> {
@@ -43,7 +134,8 @@ pub(super) fn validate_vocoder_fields(
         });
     }
 
-    if !is_strictly_positive(filter_q) {
+    let maximum_biquad_alpha = 1.0 / (2.0 * filter_q);
+    if !is_strictly_positive(filter_q) || !maximum_biquad_alpha.is_finite() {
         return Err(AppConfigError::InvalidFilterQ { value: filter_q });
     }
 

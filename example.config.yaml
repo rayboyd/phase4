@@ -15,13 +15,14 @@ network:
   # default: (disabled)
   # ws_addr: "127.0.0.1:8889"
 
-  # Maximum number of concurrent WebSocket clients. Only meaningful when
-  # ws_addr is set.
+  # Maximum number of concurrent WebSocket clients. Must be at least 1 and
+  # fit the runtime semaphore capacity. Only meaningful when ws_addr is set.
   # default: 8
   max_clients: 8
 
-  # Target broadcast rate sent to WebSocket clients, in Hz. Only meaningful
-  # when ws_addr is set.
+  # Finite, positive target broadcast rate sent to WebSocket clients, in Hz.
+  # Its interval must be representable and non-zero. Only meaningful when
+  # ws_addr is set.
   # default: 60.0
   broadcast_rate: 60.0
 
@@ -75,6 +76,7 @@ vocoder:
   # default: 6000.0
   freq_high: 6000.0
 
-  # Bandpass filter Q factor. Higher values produce narrower bands.
+  # Bandpass filter Q factor. It must produce finite filter coefficients.
+  # Higher values produce narrower bands.
   # default: 8.0
   filter_q: 8.0

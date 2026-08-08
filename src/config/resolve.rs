@@ -3,7 +3,10 @@ use super::types::{
     FileMidiConfig, OutputConfig, TestSignal, VocoderConfig, DEFAULT_BROADCAST_RATE_HZ,
     DEFAULT_MAX_CLIENTS,
 };
-use super::validate::{is_strictly_positive, validate_bind_addr, validate_vocoder_fields};
+use super::validate::{
+    broadcast_interval, midi_tick_interval, validate_bind_addr, validate_max_clients,
+    validate_test_signal, validate_vocoder_fields,
+};
 use crate::dsp::units::{Hertz, Milliseconds};
 use crate::Args;
 use std::path::Path;
@@ -121,11 +124,7 @@ fn resolve_config(args: &Args, file: FileConfig) -> Result<AppConfig, AppConfigE
     // Validation.
     validate_vocoder_fields(attack_ms, release_ms, freq_low, freq_high, filter_q)?;
 
-    if !is_strictly_positive(broadcast_rate) {
-        return Err(AppConfigError::InvalidBroadcastRate {
-            value: broadcast_rate,
-        });
-    }
+    broadcast_interval(broadcast_rate)?;
 
     // Build the output set. Each transport's settings are validated only when
     // that transport is actually configured, an unused --max-clients or
@@ -135,9 +134,7 @@ fn resolve_config(args: &Args, file: FileConfig) -> Result<AppConfig, AppConfigE
     if let Some(addr) = ws_addr {
         validate_bind_addr(addr)?;
 
-        if max_clients == 0 {
-            return Err(AppConfigError::InvalidMaxClients);
-        }
+        validate_max_clients(max_clients)?;
 
         outputs.push(OutputConfig::WebSocket {
             addr,
@@ -181,15 +178,13 @@ fn resolve_input(
     let analyse_channels = normalise_channel_selection(raw_channels)?;
 
     let calibration_signal = if let Some(lfo_rate) = args.calibration.test_sweep {
-        if !lfo_rate.is_finite() {
-            return Err(AppConfigError::InvalidTestSweepRate { value: lfo_rate });
-        }
-        Some(TestSignal::Sweep(lfo_rate))
+        let signal = TestSignal::Sweep(lfo_rate);
+        validate_test_signal(signal)?;
+        Some(signal)
     } else if let Some(frequency) = args.calibration.test_hz {
-        if !frequency.is_finite() {
-            return Err(AppConfigError::InvalidTestFrequency { value: frequency });
-        }
-        Some(TestSignal::FixedTone(frequency))
+        let signal = TestSignal::FixedTone(frequency);
+        validate_test_signal(signal)?;
+        Some(signal)
     } else {
         None
     };
@@ -235,9 +230,7 @@ fn resolve_midi_input(
     file_midi: &FileMidiConfig,
 ) -> Result<Option<ConfigMidiInput>, AppConfigError> {
     if let Some(bpm) = args.calibration.test_midi_clock {
-        if !is_strictly_positive(bpm) {
-            return Err(AppConfigError::InvalidMidiTempo { value: bpm });
-        }
+        midi_tick_interval(bpm)?;
         return Ok(Some(ConfigMidiInput::TestClock(bpm)));
     }
 
@@ -316,6 +309,25 @@ mod tests {
     }
 
     #[test]
+    fn try_from_rejects_calibration_values_outside_the_generator_range() {
+        for invalid_frequency in [0.0, -1.0, f32::MAX] {
+            let mut fixed_tone_args = args_with_device(None);
+            fixed_tone_args.calibration.test_hz = Some(invalid_frequency);
+            assert!(
+                AppConfig::try_from(&fixed_tone_args).is_err(),
+                "--test-hz should reject {invalid_frequency}"
+            );
+
+            let mut sweep_args = args_with_device(None);
+            sweep_args.calibration.test_sweep = Some(invalid_frequency);
+            assert!(
+                AppConfig::try_from(&sweep_args).is_err(),
+                "--test-sweep should reject {invalid_frequency}"
+            );
+        }
+    }
+
+    #[test]
     fn try_from_resolves_midi_test_clock() {
         let mut args = args_with_device(Some("test"));
         args.calibration.test_midi_clock = Some(120.0);
@@ -355,6 +367,18 @@ mod tests {
         args.calibration.test_midi_clock = Some(0.0);
         let result = AppConfig::try_from(&args);
         assert!(matches!(result, Err(AppConfigError::InvalidMidiTempo { value }) if value == 0.0));
+    }
+
+    #[test]
+    fn try_from_rejects_midi_tempos_with_unrepresentable_tick_intervals() {
+        for invalid_tempo in [f32::MIN_POSITIVE, f32::MAX] {
+            let mut args = args_with_device(Some("test"));
+            args.calibration.test_midi_clock = Some(invalid_tempo);
+            assert!(
+                AppConfig::try_from(&args).is_err(),
+                "--test-midi-clock should reject {invalid_tempo}"
+            );
+        }
     }
 
     #[test]
@@ -408,6 +432,14 @@ mod tests {
     }
 
     #[test]
+    fn try_from_rejects_max_clients_above_the_runtime_limit() {
+        let mut args = args_with_device(Some("test"));
+        args.network.max_clients = Some(tokio::sync::Semaphore::MAX_PERMITS + 1);
+        let result = AppConfig::try_from(&args);
+        assert!(matches!(result, Err(AppConfigError::InvalidMaxClients)));
+    }
+
+    #[test]
     fn try_from_rejects_zero_broadcast_rate() {
         let mut args = args_with_device(Some("test"));
         args.network.broadcast_rate = Some(0.0);
@@ -438,6 +470,26 @@ mod tests {
             result,
             Err(AppConfigError::InvalidBroadcastRate { .. })
         ));
+    }
+
+    #[test]
+    fn try_from_rejects_broadcast_rates_with_unrepresentable_intervals() {
+        for invalid_rate in [f32::MIN_POSITIVE, f32::MAX] {
+            let mut args = args_with_device(Some("test"));
+            args.network.broadcast_rate = Some(invalid_rate);
+            assert!(
+                AppConfig::try_from(&args).is_err(),
+                "--broadcast-rate should reject {invalid_rate}"
+            );
+        }
+    }
+
+    #[test]
+    fn try_from_rejects_filter_q_that_produces_non_finite_coefficients() {
+        let mut args = args_with_device(Some("test"));
+        args.vocoder.filter_q = Some(f32::from_bits(1));
+        let result = AppConfig::try_from(&args);
+        assert!(matches!(result, Err(AppConfigError::InvalidFilterQ { .. })));
     }
 
     #[test]
