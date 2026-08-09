@@ -8,7 +8,7 @@ Phase4 is a fast, lightweight tool for broadcasting real-time audio data over We
 
 Any WebSocket-capable tooling, such as [TouchDesigner](https://derivative.ca/) or a browser using the [WebSocket API](https://developer.mozilla.org/en-US/docs/Web/API/WebSockets_API), can connect to the Phase4 server. OSC output can be sent to any UDP target, including TouchDesigner's [OSC In DAT](https://derivative.ca/UserGuide/OSC_In_DAT).
 
-Check the [platform requirements section](docs/compile.md#platform-requirements) of the compile guide if you intend to build Phase4 from source. Phase4 supports 64-bit [macOS](docs/compile.md#macos), [Windows](docs/compile.md#windows) and [Linux](docs/compile.md#linux).
+Phase4 supports 64-bit [macOS](docs/compile.md#macos), [Windows](docs/compile.md#windows) and [Linux](docs/compile.md#linux).
 
 ## Quickstart
 
@@ -18,7 +18,7 @@ Pre-built binaries for macOS and Linux are on the [releases page](https://github
 2. Select a device and [serve](#serve) analysis data.
 3. [Connect](#connect) a WebSocket client.
 
-See [Outputs](#outputs) to also send OSC data or attach MIDI transport and clock.
+_Check the [platform requirements section](docs/compile.md#platform-requirements) of the compile guide if you intend to build Phase4 from source._
 
 ### Check
 
