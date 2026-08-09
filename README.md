@@ -4,13 +4,11 @@
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://github.com/rayboyd/phase4/blob/main/LICENSE)
 [![Security Policy](https://img.shields.io/badge/Security-Policy-green.svg)](https://github.com/rayboyd/phase4/blob/main/SECURITY.md)
 
-Phase4 is a fast, lightweight tool for real-time audio analysis and MIDI transport, broadcasting both over WebSocket and OSC. Any WebSocket-capable tooling, such as [TouchDesigner](https://derivative.ca/) or a browser using the [WebSocket API](https://developer.mozilla.org/en-US/docs/Web/API/WebSockets_API), can connect to the Phase4 server. OSC output can be sent to any UDP target, including TouchDesigner's [OSC In DAT](https://derivative.ca/UserGuide/OSC_In_DAT).
+Phase4 is a fast, lightweight tool for broadcasting real-time audio analysis and MIDI transport events over WebSocket and OSC.
 
-Phase4 has one audio-data contract. It accepts native `f32` input, analyses 32 logarithmically spaced frequency bands per channel, and broadcasts the latest snapshot at 60 Hz.
+Any WebSocket-capable tooling, such as [TouchDesigner](https://derivative.ca/) or a browser using the [WebSocket API](https://developer.mozilla.org/en-US/docs/Web/API/WebSockets_API), can connect to the Phase4 server. OSC output can be sent to any UDP target, including TouchDesigner's [OSC In DAT](https://derivative.ca/UserGuide/OSC_In_DAT).
 
-Check the [platform requirements section](docs/compile.md#platform-requirements) of the compile guide if you intend to build Phase4 from source.
-
-Phase4 supports 64-bit [macOS](docs/compile.md#macos), [Windows](docs/compile.md#windows) and [Linux](docs/compile.md#linux).
+Check the [platform requirements section](docs/compile.md#platform-requirements) of the compile guide if you intend to build Phase4 from source. Phase4 supports 64-bit [macOS](docs/compile.md#macos), [Windows](docs/compile.md#windows) and [Linux](docs/compile.md#linux).
 
 ## Quickstart
 
@@ -20,8 +18,7 @@ Pre-built binaries for macOS and Linux are on the [releases page](https://github
 2. Select a device and [serve](#serve) analysis data.
 3. [Connect](#connect) a WebSocket client.
 
-See [Outputs](#outputs) to also send OSC data or attach MIDI transport
-and clock.
+See [Outputs](#outputs) to also send OSC data or attach MIDI transport and clock.
 
 ### Check
 
@@ -49,13 +46,13 @@ Press `T` to toggle the engine's active state.
 [INFO] Ready. Press T to toggle engine, Ctrl+C to exit.
 ```
 
-By default every hardware channel is analysed and broadcast. To analyse only specific channels, pass `--audio-analyse-channels` with comma-separated zero-based indices, or set `audio.analyse_channels` in `config.yaml`. Indices are validated against the device's channel count at startup.
+By default every hardware channel is analysed and broadcast. To analyse only specific channels, pass `--audio-analyse-channels` with comma-separated zero-based indices, or set `audio.analyse_channels` in `config.yaml`.
 
 ```sh
 ./phase4 --audio-device "Duet 3" --ws-addr 127.0.0.1:8889 --audio-analyse-channels 0,1
 ```
 
-No audio hardware to hand, calibration mode drives the full pipeline with a synthetic sine wave. See [docs/calibration.md](docs/calibration.md).
+Calibration mode drives the full pipeline with a synthetic sine wave. See [docs/calibration.md](docs/calibration.md).
 
 ### Connect
 
@@ -71,51 +68,15 @@ Beyond the core WebSocket stream, Phase4 can send OSC messages to any UDP target
 
 ### OSC
 
-Pass `--osc-addr` with a `host:port` target to enable it, either alongside `--ws-addr` or on its own.
-
-```sh
-./phase4 --audio-device "Duet 3" --ws-addr 127.0.0.1:8889 --osc-addr 127.0.0.1:7000
-```
-
-See [docs/osc.md](docs/osc.md) for the address scheme and TouchDesigner integration notes.
+See [docs/osc.md](docs/osc.md)
 
 ### MIDI
 
-List available MIDI input devices to find your device name.
-
-```sh
-./phase4 --midi-list
-```
-
-Use one of the following flags. They are mutually exclusive.
-
-```sh
-./phase4 --audio-device "Duet 3" --ws-addr 127.0.0.1:8889 --midi-device "Loopback"
-```
-
-```sh
-./phase4 --audio-device "Duet 3" --ws-addr 127.0.0.1:8889 --test-midi-clock 120.0
-```
-
-See [docs/midi.md](docs/midi.md) for the WebSocket and OSC schema.
+See [docs/midi.md](docs/midi.md)
 
 ## Config
 
-Instead of passing flags on every invocation you can put them in a YAML file.
-
-```sh
-cp example.config.yaml config.yaml
-```
-
-```yaml
-network:
-  ws_addr: "127.0.0.1:8889"
-
-audio:
-  device_name_match: "Duet 3"
-```
-
-See [docs/config.md](docs/config.md) for the full priority rules and reference.
+See [docs/config.md](docs/config.md)
 
 ## Licence
 
