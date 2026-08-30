@@ -4,6 +4,13 @@ All notable changes to Phase4 will be documented in this file.
 
 ## 0.0.15
 
+### Build
+
+- Package updates ([963661c](https://github.com/rayboyd/phase4/commit/963661c0e2eb6079c0978b0374cbfed16955abad))
+- Package updates ([66c8ed2](https://github.com/rayboyd/phase4/commit/66c8ed24173f5ee03f03a9aa6bf79058d9e62bd2))
+
+## 0.0.15
+
 ### Breaking Change
 
 #### Remove band resolution and broadcast rate
