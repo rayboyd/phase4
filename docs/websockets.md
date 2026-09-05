@@ -48,7 +48,7 @@ Every message is a JSON object containing a `channels` array.
 | Field      | Type    | Description                                                        |
 | :--------- | :------ | :----------------------------------------------------------------- |
 | **`peak`** | `float` | The `f32` peak sample amplitude from 0.0 to 1.0.                    |
-| **`bins`** | `array` | Exactly 32 `f32` frequency magnitudes, ordered from low to high.    |
+| **`bins`** | `array` | Exactly 32 non-negative, unnormalised `f32` frequency envelopes, ordered from low to high. Values can exceed `1.0`. |
 
 Phase4 uses `f32` for audio samples, DSP state, peaks, and bins. JSON does not encode a float width, so JavaScript parses these values as `Number`. Copying them into a `Float32Array` recovers the original `f32` values for direct WebGL use.
 

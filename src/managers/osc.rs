@@ -2,7 +2,8 @@
 //! and emits all bin messages for a frame as a single OSC bundle over UDP.
 //!
 //! Addresses follow `/phase4/ch/{channel}/bin/{bin}` with a single `f` (float)
-//! argument in the range 0.0..=1.0. The receiver maps these to its own
+//! argument carrying a non-negative, unnormalised envelope value that can
+//! exceed 1.0. The receiver maps these to its own
 //! parameters using its OSC shortcut editor (e.g. `TouchDesigner` OSC In DAT,
 //! which unpacks bundles; OSC In CHOP does not and requires individual
 //! messages).

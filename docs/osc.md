@@ -35,7 +35,9 @@ Each frequency bin is represented by an OSC message. The address pattern is:
 
 - `{channel}` is zero-based. A stereo device produces channels `0` and `1`.
 - `{bin}` is zero-based, ordered from lowest to highest frequency.
-- The argument is a single `f` (`f32`) in the range `0.0` to `1.0`.
+- The argument is a single `f` (`f32`) carrying a non-negative, unnormalised envelope value. Values can exceed `1.0`.
+
+Filter Q affects both bandwidth and gain. With the default settings, a 440 Hz sine wave at `0.25` amplitude produces a strongest bin of approximately `1.14`. Consumers that need a `0.0` to `1.0` control range must apply their own scaling and clamping.
 
 All `channels * 32` bin messages for a frame are sent together as a single OSC bundle (`#bundle` header, immediate time tag) in one UDP packet, rather than one packet per bin.
 
@@ -45,7 +47,7 @@ All OSC message structures (addresses and argument slots) are built once before 
 
 | Address                  | Type | Range      | Description                                |
 | :----------------------- | :--- | :--------- | :----------------------------------------- |
-| `/phase4/ch/{n}/bin/{n}` | `f`  | 0.0 to 1.0 | Frequency bin magnitude for channel `{n}`. |
+| `/phase4/ch/{n}/bin/{n}` | `f`  | Non-negative, unnormalised | Frequency bin envelope for channel `{n}`, which can exceed `1.0`. |
 
 Every channel always carries 32 bins.
 
