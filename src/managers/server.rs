@@ -13,6 +13,8 @@
 //! receive an RFC 6455 close frame on graceful shutdown. Phase4 services Ping,
 //! Pong, and Close control frames but rejects inbound Text and Binary messages,
 //! preserving the outbound-only application protocol.
+//! Writes and flushes have a one-second deadline. A stalled client is dropped
+//! and its connection slot released when that deadline expires.
 //!
 //! When `no_browser_origin` is set, the server rejects handshakes that carry
 //! an `Origin` header. This blocks browsers (which the Fetch spec requires to
@@ -23,6 +25,7 @@ use crate::app::AppState;
 use crate::dsp::DisplayPayload;
 use anyhow::{Context, Result};
 use futures_util::{SinkExt, StreamExt};
+use std::future::Future;
 use std::net::SocketAddr;
 use std::sync::{atomic::Ordering, Arc};
 use std::thread::JoinHandle;
@@ -30,6 +33,7 @@ use std::time::Duration;
 use tokio::sync::{mpsc, oneshot, watch, Notify, OwnedSemaphorePermit, Semaphore};
 use tokio::task::JoinSet;
 use tokio_tungstenite::tungstenite::{
+    self,
     handshake::server::{Callback, ErrorResponse, Request, Response},
     protocol::{frame::coding::CloseCode, CloseFrame, WebSocketConfig},
     Message, Utf8Bytes,
@@ -42,6 +46,9 @@ const ACCEPT_TIMEOUT_MS: u64 = 100;
 
 /// How long a newly accepted TCP client has to complete the WebSocket handshake.
 const HANDSHAKE_TIMEOUT_MS: u64 = 1_000;
+
+/// Maximum time for one client write or flush before dropping the connection.
+const CLIENT_WRITE_TIMEOUT: Duration = Duration::from_secs(1);
 
 /// How long to wait for in-flight client tasks to flush a close frame
 /// before the server thread exits.
@@ -87,6 +94,25 @@ async fn refresh_serialised_snapshot(requests: &mpsc::Sender<SnapshotRefreshRequ
     let (completion_tx, completion_rx) = oneshot::channel();
     if requests.send(completion_tx).await.is_ok() {
         let _ = completion_rx.await;
+    }
+}
+
+/// A failed or cancelled write leaves the connection unusable. Callers must
+/// drop the client on false rather than retry a partially written frame.
+async fn complete_client_write(
+    write: impl Future<Output = tungstenite::Result<()>>,
+    address: SocketAddr,
+) -> bool {
+    match tokio::time::timeout(CLIENT_WRITE_TIMEOUT, write).await {
+        Ok(Ok(())) => true,
+        Ok(Err(error)) => {
+            log::debug!("WebSocket client disconnected: {address}, {error}");
+            false
+        }
+        Err(_) => {
+            log::warn!("WebSocket client write timed out, disconnecting: {address}");
+            false
+        }
     }
 }
 
@@ -498,8 +524,7 @@ impl Server {
         // Send the current snapshot immediately so new clients do not wait for
         // the next mapper publish before rendering.
         let initial_json: Utf8Bytes = watch_rx.borrow_and_update().clone();
-        if ws_stream.send(Message::Text(initial_json)).await.is_err() {
-            log::debug!("WebSocket client disconnected: {addr}");
+        if !complete_client_write(ws_stream.send(Message::Text(initial_json)), addr).await {
             return;
         }
 
@@ -510,14 +535,13 @@ impl Server {
                 incoming = ws_stream.next() => {
                     match incoming {
                         Some(Ok(Message::Ping(_))) => {
-                            if ws_stream.flush().await.is_err() {
-                                log::debug!("WebSocket client disconnected: {addr}");
+                            if !complete_client_write(ws_stream.flush(), addr).await {
                                 return;
                             }
                         }
                         Some(Ok(Message::Pong(_) | Message::Frame(_))) => {}
                         Some(Ok(Message::Close(_))) => {
-                            ws_stream.flush().await.ok();
+                            complete_client_write(ws_stream.flush(), addr).await;
                             return;
                         }
                         Some(Ok(Message::Text(_) | Message::Binary(_))) => {
@@ -530,7 +554,9 @@ impl Server {
                                     INBOUND_APPLICATION_MESSAGE_CLOSE_REASON,
                                 ),
                             };
-                            ws_stream.send(Message::Close(Some(close_frame))).await.ok();
+                            complete_client_write(
+                                ws_stream.send(Message::Close(Some(close_frame))), addr,
+                            ).await;
                             return;
                         }
                         Some(Err(error)) => {
@@ -550,8 +576,7 @@ impl Server {
                     let json: Utf8Bytes = watch_rx.borrow_and_update().clone();
                     let msg = Message::Text(json);
 
-                    if ws_stream.send(msg).await.is_err() {
-                        log::debug!("WebSocket client disconnected: {addr}");
+                    if !complete_client_write(ws_stream.send(msg), addr).await {
                         return;
                     }
                 }
@@ -559,7 +584,7 @@ impl Server {
         }
 
         // RFC 6455 close frame on graceful shutdown or upstream channel closure.
-        ws_stream.close(None).await.ok();
+        complete_client_write(ws_stream.close(None), addr).await;
     }
 }
 
@@ -568,9 +593,97 @@ mod tests {
     use super::*;
     use futures_util::StreamExt;
 
+    struct BackpressureClient {
+        snapshots: watch::Sender<Utf8Bytes>,
+        client: tokio_tungstenite::WebSocketStream<tokio::net::TcpStream>,
+        task: tokio::task::JoinHandle<()>,
+        slots: Arc<Semaphore>,
+    }
+
     const CLIENT_RECONNECT_ATTEMPTS: usize = 50;
     const CLIENT_RECONNECT_DELAY: Duration = Duration::from_millis(20);
     const TEST_TIMEOUT: Duration = Duration::from_secs(2);
+    const BACKPRESSURE_SOCKET_BUFFER_BYTES: u32 = 1_024;
+    const BACKPRESSURE_PAYLOAD_BYTES: usize = 256 * 1_024;
+
+    async fn backpressure_client(initial_snapshot: Utf8Bytes) -> BackpressureClient {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("test listener should bind");
+        let address = listener
+            .local_addr()
+            .expect("listener should have an address");
+        let client_socket = tokio::net::TcpSocket::new_v4().expect("client socket should open");
+        client_socket
+            .set_recv_buffer_size(BACKPRESSURE_SOCKET_BUFFER_BYTES)
+            .expect("client receive buffer should be configurable");
+        let client_stream = client_socket
+            .connect(address)
+            .await
+            .expect("TCP should connect");
+        let (server_stream, client_address) = listener.accept().await.expect("TCP should accept");
+        socket2::SockRef::from(&server_stream)
+            .set_send_buffer_size(BACKPRESSURE_SOCKET_BUFFER_BYTES as usize)
+            .expect("server send buffer should be configurable");
+        let (snapshots, receiver) = watch::channel(initial_snapshot);
+        let slots = Arc::new(Semaphore::new(1));
+        let permit = slots
+            .clone()
+            .try_acquire_owned()
+            .expect("slot should be free");
+        let task = tokio::spawn(Server::handle_client(
+            server_stream,
+            client_address,
+            receiver,
+            Arc::new(Notify::new()),
+            permit,
+            false,
+        ));
+        let (client, _) = tokio_tungstenite::client_async(format!("ws://{address}"), client_stream)
+            .await
+            .expect("WebSocket handshake should complete");
+
+        BackpressureClient {
+            snapshots,
+            client,
+            task,
+            slots,
+        }
+    }
+
+    #[tokio::test]
+    async fn stalled_initial_write_releases_the_client_slot() {
+        let connection =
+            backpressure_client(Utf8Bytes::from("x".repeat(BACKPRESSURE_PAYLOAD_BYTES))).await;
+
+        tokio::time::timeout(TEST_TIMEOUT, connection.task)
+            .await
+            .expect("stalled initial write should terminate")
+            .expect("client task should not panic");
+        assert_eq!(connection.slots.available_permits(), 1);
+        drop(connection.client);
+    }
+
+    #[tokio::test]
+    async fn stalled_update_releases_the_client_slot() {
+        let mut connection =
+            backpressure_client(Utf8Bytes::from_static(EMPTY_DISPLAY_PAYLOAD_JSON)).await;
+        tokio::time::timeout(TEST_TIMEOUT, connection.client.next())
+            .await
+            .expect("initial snapshot should arrive")
+            .expect("client should remain connected")
+            .expect("initial snapshot should be valid");
+
+        connection
+            .snapshots
+            .send_replace(Utf8Bytes::from("x".repeat(BACKPRESSURE_PAYLOAD_BYTES)));
+        tokio::time::timeout(TEST_TIMEOUT, connection.task)
+            .await
+            .expect("stalled update should terminate")
+            .expect("client task should not panic");
+        assert_eq!(connection.slots.available_permits(), 1);
+        drop(connection.client);
+    }
 
     async fn next_observed_server_count(observer: &mut watch::Receiver<usize>) -> usize {
         tokio::time::timeout(TEST_TIMEOUT, observer.changed())

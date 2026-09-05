@@ -12,7 +12,10 @@
 
 use phase4::app::App;
 use phase4::config::DEFAULT_MAX_CLIENTS;
-use phase4::config::{AppConfig, ConfigInput, ConfigOutputs, OutputConfig, TestSignal};
+use phase4::config::{
+    AppConfig, AppConfigError, ConfigInput, ConfigOutputs, OutputConfig, TestSignal, VocoderConfig,
+};
+use phase4::dsp::Hertz;
 use std::io::ErrorKind;
 use std::net::{SocketAddr, UdpSocket};
 use std::thread;
@@ -21,6 +24,7 @@ use std::time::Duration;
 const FAILED_STARTUP_SHUTDOWN_GRACE: Duration = Duration::from_millis(250);
 const POST_FAILURE_OBSERVATION_TIMEOUT: Duration = Duration::from_millis(250);
 const OSC_TEST_RECEIVE_BUFFER_BYTES: usize = 32 * 1024;
+const UNSTABLE_LOW_FREQUENCY_HZ: f32 = 0.5;
 
 /// Builds a single-entry `ConfigOutputs` with a WebSocket transport listening
 /// on `addr`, for tests that only care about exercising `App::new`.
@@ -31,6 +35,44 @@ fn ws_outputs(addr: SocketAddr) -> ConfigOutputs {
         no_browser_origin: false,
     }])
     .expect("a single-element Vec is non-empty")
+}
+
+#[test]
+fn app_new_rejects_unstable_low_frequency_filters() {
+    let config = AppConfig {
+        vocoder_config: VocoderConfig {
+            freq_low: Hertz(UNSTABLE_LOW_FREQUENCY_HZ),
+            ..VocoderConfig::default()
+        },
+        ..AppConfig::default()
+    };
+
+    let error = App::new(&config)
+        .err()
+        .expect("unstable filters must fail during startup");
+    let config_error = error
+        .downcast_ref::<AppConfigError>()
+        .expect("filter instability must return a configuration error");
+    assert!(config_error.to_string().contains("stable"));
+}
+
+#[test]
+fn app_new_rejects_filter_q_that_rounds_poles_onto_the_unit_circle() {
+    let config = AppConfig {
+        vocoder_config: VocoderConfig {
+            filter_q: f32::MAX,
+            ..VocoderConfig::default()
+        },
+        ..AppConfig::default()
+    };
+
+    let error = App::new(&config)
+        .err()
+        .expect("undamped filters must fail during startup");
+    let config_error = error
+        .downcast_ref::<AppConfigError>()
+        .expect("filter instability must return a configuration error");
+    assert!(config_error.to_string().contains("stable"));
 }
 
 #[test]

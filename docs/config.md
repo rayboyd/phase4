@@ -33,6 +33,8 @@ vocoder:
   freq_high: 16000.0
 ```
 
+Vocoder settings must produce finite, stable `f32` filter coefficients at the resolved input sample rate. Phase4 checks all 32 bands before starting the audio pipeline and rejects configurations with poles on or outside the unit circle. Very low band frequencies or very high Q values can fail this check even when the numeric settings are otherwise valid. The error identifies the affected band and sample rate. Increase the lowest band frequency or reduce Q before retrying.
+
 A MIDI input device can be pinned the same way, see [MIDI](midi.md#enabling-midi-input).
 
 ## Named Config Files

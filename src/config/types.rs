@@ -197,6 +197,15 @@ pub enum AppConfigError {
     InvalidFilterQ { value: f32 },
 
     #[error(
+        "Invalid vocoder configuration: band {band} at {frequency_hz} Hz does not produce finite, stable f32 coefficients at {sample_rate} Hz. Increase the lowest band frequency or reduce the filter Q."
+    )]
+    InvalidVocoderBandCoefficients {
+        band: usize,
+        frequency_hz: f32,
+        sample_rate: u32,
+    },
+
+    #[error(
         "Invalid MIDI test tempo: must be finite, greater than 0 bpm, and produce a representable non-zero clock interval, got {value}"
     )]
     InvalidMidiTempo { value: f32 },
