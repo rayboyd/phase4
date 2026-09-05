@@ -10,7 +10,7 @@
 //! rather than per-window also gives lower latency and smoother animation
 //! than a windowed transform.
 
-use crate::config::VocoderConfig;
+use crate::config::{AppConfigError, VocoderConfig};
 use crate::dsp::units::{Hertz, Milliseconds};
 use crate::dsp::BAND_COUNT;
 use biquad::{Biquad, Coefficients, DirectForm1, ToHertz, Type};
@@ -62,6 +62,65 @@ pub(crate) fn envelope_coeff(time: Milliseconds, sample_rate: Hertz) -> f32 {
     -exponent.exp_m1() as f32
 }
 
+/// Builds the exact f32 coefficients used by the analyser and rejects poles
+/// on or outside the unit circle before the pipeline starts.
+pub(crate) fn bandpass_coefficients(
+    sample_rate: u32,
+    config: &VocoderConfig,
+) -> Result<[Coefficients<f32>; BAND_COUNT], AppConfigError> {
+    let log_low = config.freq_low.0.ln();
+    let log_high = config.freq_high.0.ln();
+    let mut coefficients = [Coefficients {
+        a1: 0.0,
+        a2: 0.0,
+        b0: 0.0,
+        b1: 0.0,
+        b2: 0.0,
+    }; BAND_COUNT];
+
+    for (band, coefficients) in coefficients.iter_mut().enumerate() {
+        let position = band as f32 / (BAND_COUNT as f32 - 1.0);
+        let frequency_hz = (log_low + position * (log_high - log_low)).exp();
+        let invalid_coefficients = || AppConfigError::InvalidVocoderBandCoefficients {
+            band,
+            frequency_hz,
+            sample_rate,
+        };
+        let candidate = Coefficients::<f32>::from_params(
+            Type::BandPass,
+            sample_rate.hz(),
+            frequency_hz.hz(),
+            config.filter_q,
+        )
+        .map_err(|_| invalid_coefficients())?;
+
+        if !coefficients_are_stable(&candidate) {
+            return Err(invalid_coefficients());
+        }
+        *coefficients = candidate;
+    }
+
+    Ok(coefficients)
+}
+
+fn coefficients_are_stable(coefficients: &Coefficients<f32>) -> bool {
+    let finite = [
+        coefficients.a1,
+        coefficients.a2,
+        coefficients.b0,
+        coefficients.b1,
+        coefficients.b2,
+    ]
+    .into_iter()
+    .all(f32::is_finite);
+
+    // Jury stability conditions for z*z + a1*z + a2. Widen the stored f32
+    // coefficients so cancellation cannot hide a pole at the boundary.
+    let a1 = f64::from(coefficients.a1);
+    let a2 = f64::from(coefficients.a2);
+    finite && 1.0 + a1 + a2 > 0.0 && 1.0 - a1 + a2 > 0.0 && 1.0 - a2 > 0.0
+}
+
 /// Per-channel vocoder analyser.
 ///
 /// Splits the input signal into [`BAND_COUNT`] logarithmically spaced
@@ -93,33 +152,14 @@ impl VocoderAnalyser {
     /// # Panics
     ///
     /// Panics if the supplied configuration violates the validated assumptions
-    /// required to construct the bandpass coefficients.
+    /// required to construct finite, stable bandpass coefficients.
     #[must_use]
     pub fn new(sample_rate: u32, config: &VocoderConfig) -> Self {
         let sr = Hertz(sample_rate as f32);
 
-        // Precompute the log-space bounds once. Each band centre below is
-        // exp(log_low + t * (log_high - log_low)) for t stepping evenly
-        // from 0 to 1, i.e. geometric (equal ratio) rather than equal Hz
-        // spacing between bands.
-        let log_low = config.freq_low.0.ln();
-        let log_high = config.freq_high.0.ln();
-
-        let filters = std::array::from_fn(|i| {
-            let t = i as f32 / (BAND_COUNT as f32 - 1.0);
-            let centre = (log_low + t * (log_high - log_low)).exp();
-
-            // filter_q sets the bandpass width. Higher Q narrows the
-            // band around centre, lower Q widens it.
-            let coefficients = Coefficients::<f32>::from_params(
-                Type::BandPass,
-                sample_rate.hz(),
-                centre.hz(),
-                config.filter_q,
-            )
-            .expect("validated vocoder configuration should produce valid biquad coefficients");
-            DirectForm1::new(coefficients)
-        });
+        let filters = bandpass_coefficients(sample_rate, config)
+            .expect("validated vocoder configuration should produce stable biquad coefficients")
+            .map(DirectForm1::new);
 
         let envelopes = std::array::from_fn(|_| EnvelopeFollower::new());
 
@@ -186,6 +226,42 @@ impl VocoderAnalyser {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const SUPPORTED_TEST_SAMPLE_RATES: [u32; 5] = [22_050, 44_100, 48_000, 96_000, 192_000];
+
+    #[test]
+    fn default_filters_remain_stable_across_audio_sample_rates() {
+        for sample_rate in SUPPORTED_TEST_SAMPLE_RATES {
+            bandpass_coefficients(sample_rate, &VocoderConfig::default())
+                .unwrap_or_else(|error| panic!("default filters failed at {sample_rate}: {error}"));
+        }
+    }
+
+    #[test]
+    fn stability_check_rejects_unit_circle_and_outside_poles() {
+        for (a1, a2) in [(-2.0, 1.0), (2.0, 1.0), (0.0, -1.0), (-1.5, 0.4)] {
+            let coefficients = Coefficients {
+                a1,
+                a2,
+                b0: 1.0,
+                b1: 0.0,
+                b2: 0.0,
+            };
+            assert!(!coefficients_are_stable(&coefficients));
+        }
+    }
+
+    #[test]
+    fn stability_check_rejects_non_finite_feedforward_coefficients() {
+        let coefficients = Coefficients {
+            a1: 0.0,
+            a2: 0.0,
+            b0: f32::NAN,
+            b1: 0.0,
+            b2: 0.0,
+        };
+        assert!(!coefficients_are_stable(&coefficients));
+    }
 
     #[test]
     fn envelope_coeff_remains_positive_for_the_largest_finite_time() {

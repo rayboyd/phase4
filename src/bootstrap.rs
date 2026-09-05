@@ -11,6 +11,7 @@ use crate::config::{
     AppConfigError, ConfigInput, ConfigMidiInput, ConfigOutputs, OutputConfig, TestSignal,
     CALIBRATION_SAMPLE_RATE_HZ,
 };
+use crate::dsp::vocoder::bandpass_coefficients;
 use crate::dsp::{DisplayPayload, RawPayload};
 use crate::managers::audio::{ChannelMode, StreamSink};
 use crate::managers::{
@@ -93,6 +94,7 @@ pub(crate) fn bootstrap(config: &AppConfig) -> Result<Bootstrapped> {
     // Validate. Must happen before ChannelMode::resolve below, which
     // takes the channel selection by value.
     validate_vocoder_sample_rate(config.vocoder_config.freq_high, hw_specs.sample_rate)?;
+    bandpass_coefficients(hw_specs.sample_rate, &config.vocoder_config)?;
     validate_channel_selection(resolved.analyse_channels.as_deref(), hw_specs)?;
 
     let mut analyser_specs = hw_specs;
