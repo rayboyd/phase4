@@ -59,9 +59,9 @@ struct State {
 
     /// Number of samples of a trailing partial frame carried over at the front
     /// of `transfer_buffer` from the previous chunk. Always less than
-    /// `channels`. The producers only commit whole frames, so this stays 0 in
-    /// practice; it is a second line of defence keeping one torn chunk from
-    /// rotating the channel alignment of every chunk after it.
+    /// `channels`. Selected-channel capture publishes samples individually,
+    /// so a read can end within a frame. Carrying those samples until the
+    /// frame is complete preserves channel alignment across chunks.
     pending: usize,
 
     /// Pre-allocated payload buffer, reused every frame to avoid per-call heap allocation.

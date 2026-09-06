@@ -3,11 +3,11 @@
 //! starting a stream, and [`Input::start_stream`] binds the device to
 //! an SPSC ringbuf producer for the analyser.
 //!
-//! The stream callback pushes f32 frames to the analyser producer. When the
-//! ring buffer is full, whole frames are dropped rather than partially
-//! committed. A torn frame would rotate the channel alignment of every
-//! subsequent frame the analyser reads and silently corrupt per-channel
-//! analysis, whereas a dropped whole frame is invisible to the user.
+//! The stream callback forwards f32 audio to the analyser through fixed,
+//! pre-allocated storage. It never waits for the analyser to make room. When
+//! there is insufficient space for a complete frame, incoming frames are
+//! discarded and buffered audio remains queued. Dropping complete frames
+//! preserves channel order, but introduces gaps in the analysed signal.
 //!
 //! [`Specs`] carries the hardware's native channel count and sample rate and
 //! is used throughout the pipeline for buffer sizing.
@@ -157,12 +157,16 @@ impl<P: Producer<Item = f32>> StreamSink<P> {
     /// `hw_channels` is the total interleaved channel count from cpal, used to
     /// stride across frames in both modes.
     ///
-    /// Only whole frames are ever committed. When the ring buffer cannot
-    /// accept a complete frame, that frame is dropped in its entirety. A
-    /// partially committed frame would rotate the channel alignment of every
-    /// subsequent frame the analyser reads. In the `All` path this means the
-    /// ring's item count stays a frame multiple; in the `Selected` path a
-    /// frame's worth is `indices.len()` items, not `hw_channels`.
+    /// Space is checked for complete frames, so overflow never drops only
+    /// part of a frame. Existing buffered audio is retained. In the `All`
+    /// path a frame contains `hw_channels` samples; in the `Selected` path
+    /// it contains `indices.len()` samples.
+    ///
+    /// `All` checks space once and publishes the accepted slice together.
+    /// `Selected` checks space for each frame, so it can use space freed
+    /// during the call, then publishes each selected sample individually.
+    /// The analyser can observe a partial selected frame between those
+    /// publications and carries it until the remaining samples arrive.
     ///
     /// Returns `true` if any frame was dropped.
     pub fn push(&mut self, data: &[f32], hw_channels: usize) -> bool {
@@ -213,10 +217,16 @@ impl Input {
     /// Creates a producer and consumer pair sized for approximately `buffer_ms`
     /// milliseconds of interleaved audio at `specs`.
     ///
-    /// The exact sample count is rounded up to the next power of two so the
-    /// underlying ring buffer can use bitmask wrapping in the audio callback hot
-    /// path. This means the actual capacity may be larger than the exact duration
-    /// requested.
+    /// Storage is allocated once here and reused by the producer and consumer
+    /// without growing during capture. The calculated sample count is rounded
+    /// up to the next power of two, increasing the available buffering
+    /// headroom when it is not already a power of two. The capacity remains
+    /// fixed for the lifetime of the buffer.
+    ///
+    /// For example, 500 ms at 48 kHz stereo requires 48,000 samples and rounds
+    /// up to 65,536 samples, approximately 683 ms. This is capacity for queued
+    /// audio, not a delay imposed on every sample. The rounding does not
+    /// guarantee bitmask wrapping in `ringbuf`.
     ///
     /// # Panics
     ///
@@ -231,10 +241,6 @@ impl Input {
         let samples_per_sec = specs.sample_rate as usize * specs.channels as usize;
         let capacity = (samples_per_sec * buffer_ms as usize) / 1000;
 
-        // Power-of-two capacity enables bitmask wrapping (index & (len-1)) inside
-        // the ringbuf, replacing modulo division on every push/pop. In the audio
-        // callback (hot path) integer division has variable latency that risks
-        // buffer underruns, where a single AND instruction is constant-time.
         ringbuf::HeapRb::<f32>::new(capacity.next_power_of_two()).split()
     }
 
@@ -453,12 +459,9 @@ impl Input {
 
         let stream = device.build_input_stream(
             stream_config,
-            // This callback runs on cpal's dedicated audio thread at hardware interrupt
-            // rate. It must be lock-free, allocation-free, and non-blocking. Any stall
-            // here will cause a buffer underrun and an audible glitch.
+            // Capture deadlines require this callback to remain allocation-free,
+            // lock-free and non-blocking, even when the analyser falls behind.
             move |data: &[f32], _| {
-                // Analyse path is intentionally lossy. A dropped analysis frame is
-                // invisible to the user.
                 let _ = analyse.push(data, hw_channels);
             },
             move |err| {
