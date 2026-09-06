@@ -2,7 +2,7 @@
 
 Install Rust with `rustup` from [rustup.rs](https://rustup.rs/). This repository selects the floating `stable` channel and the Clippy and rustfmt components in [rust-toolchain.toml](../rust-toolchain.toml). It does not pin a Rust version. Run `rustup update stable` to update an existing installation.
 
-The manifest declares Rust 1.87, but the current lockfile includes `time` 0.3.55, which requires Rust 1.88.0. The locked dependency set therefore cannot be built with Rust 1.87. Use an up-to-date stable toolchain. The declared minimum version still needs a separate manifest correction.
+The minimum supported Rust version is 1.88, matching the highest compiler requirement in the current locked dependencies (`time` 0.3.55 and its companion crates). This is a minimum, not a toolchain pin. Use an up-to-date stable toolchain for normal development.
 
 Clone the repository, and build a release version of Phase4.
 
