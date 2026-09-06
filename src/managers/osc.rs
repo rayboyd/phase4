@@ -261,7 +261,9 @@ impl OscRuntime {
                 };
                 for (ch_packets, channel) in bundle
                     .content
-                    .chunks_exact_mut(BAND_COUNT)
+                    .as_chunks_mut::<BAND_COUNT>()
+                    .0
+                    .iter_mut()
                     .zip(guard.channels.iter())
                 {
                     for (packet, &bin_value) in ch_packets.iter_mut().zip(channel.bins.iter()) {
