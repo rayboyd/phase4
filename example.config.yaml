@@ -21,10 +21,11 @@ network:
   # default: 8
   max_clients: 8
 
-  # OSC UDP target address. Phase4 sends to this address, it does not listen.
+  # OSC UDP target IP address and port. Phase4 sends to this address, it does not listen.
   # Omit to disable the OSC output.
-  # Emits one float message per bin per channel each broadcast frame.
-  # Addresses follow the scheme /phase4/ch/{n}/bin/{n} with a float in 0.0..=1.0.
+  # Bundles all 32 bins per analysed channel into one UDP datagram per frame.
+  # Addresses follow /phase4/ch/{n}/bin/{n}. Envelope floats are unnormalised
+  # and can exceed 1.0. MIDI messages, when enabled, are sent separately.
   # default: (disabled)
   # osc_addr: "127.0.0.1:7000"
 
@@ -38,16 +39,16 @@ audio:
   # default: (none, required unless running in calibration mode)
   # device_name_match: "Duet 3"
 
-  # Hardware channel indices forwarded to the analyser, as a list.
-  # Omit to forward all channels.
+  # Zero-based hardware channel indices forwarded to the analyser.
+  # Sorted and deduplicated. Outputs are indexed from zero in that order.
+  # Omit to forward all channels. Calibration ignores a non-empty selection.
   # default: (all channels)
   # analyse_channels: [0, 1]
 
 midi:
   # Partial or full name of the MIDI input device to use.
   # Exact matches are preferred; substring matches are used as a fallback.
-  # Mutually exclusive with --test-midi-clock, which stays CLI-only,
-  # it's a calibration flag, not persistent configuration.
+  # --test-midi-clock overrides this setting and stays CLI-only.
   # default: (none, MIDI input disabled unless set here or via --midi-device)
   # device_name_match: "Loopback"
 
@@ -67,11 +68,12 @@ vocoder:
   freq_low: 60.0
 
   # Highest filter bank centre frequency in Hz.
-  # Must be below 45 percent of the device sample rate.
+  # Must be at or below 45 percent of the resolved input sample rate.
   # default: 6000.0
   freq_high: 6000.0
 
-  # Bandpass filter Q factor. It must produce finite filter coefficients.
-  # Higher values produce narrower bands.
+  # Bandpass filter Q factor. All bands must have finite, stable f32
+  # coefficients at the resolved sample rate. Higher Q narrows bands
+  # and increases their gain.
   # default: 8.0
   filter_q: 8.0

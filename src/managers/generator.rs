@@ -6,9 +6,10 @@
 //! Two signal modes are supported, a fixed-frequency tone controlled by
 //! [`TestSignal::FixedTone`] and a logarithmic sine sweep driven by a sine LFO at
 //! [`TestSignal::Sweep`] Hz that scans from 20 Hz to just below the Nyquist frequency
-//! (0.45 * sample rate) to avoid aliasing artefacts at the sweep ceiling.
-//! Output level is fixed at `AMPLITUDE` (approximately -12 dBFS) to leave
-//! headroom for clipping in the downstream pipeline.
+//! (0.45 * sample rate). This limits instantaneous frequency, but does not
+//! guarantee alias-free modulation at high LFO rates. Output amplitude is
+//! fixed at `AMPLITUDE` (approximately -12 dBFS). Filter gain can still
+//! produce envelope values above one.
 
 use crate::app::AppState;
 use crate::config::{TestSignal, CALIBRATION_FREQUENCY_CEILING_RATIO};
@@ -23,12 +24,11 @@ use std::time::{Duration, Instant};
 /// Produces a synthetic test signal in place of hardware audio input.
 pub struct Generator;
 
-/// Calibration signal level. -12 dBFS leaves plenty of headroom and keeps the
-/// visualiser at a comfortable level.
+/// Peak calibration input amplitude, approximately -12 dBFS.
 const AMPLITUDE: f32 = 0.25;
 
-/// Duration of audio produced per loop iteration, matching the analyser's
-/// drain cadence.
+/// Target duration of audio produced per iteration, matching the analyser's
+/// maximum chunk duration.
 const CHUNK_MS: u32 = 10;
 
 /// Fills `buffer` with a sine-wave signal and returns the updated oscillator

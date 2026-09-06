@@ -149,7 +149,7 @@ Phase4 now requires an interactive terminal. Non-interactive and embedded proces
 
 Bin messages are now sent as a single OSC bundle per frame instead of one UDP packet per bin.
 
-If you're using [OSC In CHOP](https://derivative.ca/UserGuide/OSC_In_CHOP) in TouchDesigner, switch to [OSC In DAT](https://derivative.ca/UserGuide/OSC_In_DAT). CHOP does not unpack OSC bundles and will silently receive nothing from this release onward. See [docs/tutorials/osc.md](docs/tutorials/osc.md) for the updated setup.
+If you're using [OSC In CHOP](https://derivative.ca/UserGuide/OSC_In_CHOP) in TouchDesigner, switch to [OSC In DAT](https://derivative.ca/UserGuide/OSC_In_DAT). CHOP does not unpack OSC bundles and will silently receive nothing from this release onward. See [docs/osc.md](docs/osc.md) for the updated setup.
 
 MIDI messages (`/phase4/midi/*`) are unaffected, they're still sent individually.
 

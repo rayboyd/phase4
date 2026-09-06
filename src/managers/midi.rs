@@ -2,15 +2,16 @@
 //! synthetic clock at a configured tempo, mirroring the calibration or device
 //! split the audio input already has.
 //!
-//! Writes directly to two atomics on `AppState`. The mapper reads them
-//! once per broadcast frame it actually sends. Runs at a lower thread
-//! priority than the analyser.
+//! The real device callback or synthetic clock writes two atomics on
+//! `AppState`. The mapper samples them once per publication. The worker
+//! requests a lower priority value than the analyser, but the real MIDI
+//! callback runs on a separate backend thread whose priority is not set here.
 //!
 //! Raw bytes are matched directly against the four MIDI Real-Time codes
 //! phase4 cares about. Start, Stop, Continue, and a running 1/16 step
-//! count derived from Clock ticks. The step count is absolute since the
-//! most recent Start, read by the mapper as a snapshot, and reset only by
-//! Start.
+//! count derived from Clock ticks. Start resets the count, which otherwise
+//! advances for every six ticks, including ticks received while stopped,
+//! and wraps on u32 overflow. Transport stores only the most recent event.
 
 use crate::app::AppState;
 use crate::ListFormat;
@@ -36,9 +37,8 @@ struct MidiDeviceInfo {
 /// MIDI listener thread priority. Set lower than analyser.
 const MIDI_THREAD_PRIORITY: u8 = 20;
 
-/// Poll cadence for both the synthetic clock tick scheduling and the real
-/// device path shutdown check. `keep_running` is checked more often than any
-/// realistic tick interval.
+/// Maximum requested sleep between synthetic clock shutdown checks.
+/// Real-device holding threads park until the join loop unparks them.
 const MIDI_POLL_INTERVAL_MS: u64 = 10;
 
 /// Raw MIDI clock ticks (0xF8 bytes) per 1/16 note step, phase4's fixed
@@ -304,7 +304,7 @@ fn run_synthetic_clock(tick_interval: Duration, state: &Arc<AppState>) {
 fn run_real_device(_connection: midir::MidiInputConnection<u8>, state: &Arc<AppState>) {
     // midir delivers bytes on its own backend thread. Holding the connection keeps
     // that alive. This thread only needs to wait for shutdown, park the thread
-    // indefinitely so it remains asleep with 0% CPU footprint.
+    // until the shutdown join loop unparks it.
     while state.keep_running.load(Ordering::Acquire) {
         thread::park();
     }

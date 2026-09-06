@@ -60,8 +60,8 @@ where
 }
 
 /// Log a warning when setting thread priority fails, rather than silently
-/// discarding the error. On Linux without `CAP_SYS_NICE` the call always
-/// fails and this surfaces the reason without panicking.
+/// discarding the error. Success depends on OS scheduling policy and
+/// permissions. Failure leaves the worker running at its existing priority.
 pub(crate) fn log_priority_result(result: Result<(), thread_priority::Error>) {
     if let Err(e) = result {
         let thread = std::thread::current();

@@ -10,17 +10,20 @@ use serde::Serialize;
 /// One channel's peak and 32 logarithmically spaced frequency bands.
 #[derive(Debug, Clone, Copy, Default, Serialize)]
 pub struct ChannelLevel {
-    /// Peak absolute sample value for this channel over the analysis chunk.
+    /// Peak absolute sample value over the latest analysis chunk, not clamped.
+    /// Intermediate chunk peaks can be skipped before display publication.
     pub peak: f32,
 
-    /// Envelope value for each frequency band, ordered from low to high.
+    /// Unnormalised envelope values ordered from low to high frequency.
+    /// Values include filter gain and can exceed one.
     pub bins: [f32; BAND_COUNT],
 }
 
 /// Analysis output for every channel, published once per analysis frame.
 #[derive(Debug, Clone, Default)]
 pub struct RawPayload {
-    /// One entry per audio channel, in hardware channel order.
+    /// One entry per analysed channel, in selected-channel order.
+    /// Entries are contiguous output positions, not hardware channel indices.
     pub channels: Vec<ChannelLevel>,
 }
 
@@ -37,23 +40,26 @@ impl RawPayload {
 /// One frame's MIDI transport and step state.
 #[derive(Debug, Clone, Serialize)]
 pub struct MidiSnapshot {
-    /// "start", "stop", or "continue" if a transport event happened since
-    /// the previous broadcast frame. Omitted from JSON when nothing happened.
+    /// Last "start", "stop", or "continue" event since the previous mapper
+    /// publication. Omitted from JSON when none is pending. Events can be
+    /// overwritten before publication or skipped by a downstream receiver.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub transport: Option<&'static str>,
 
-    /// Absolute count of MIDI 1/16 note steps since the most recent Start
-    /// event. Monotonic across frames, reset only by Start.
+    /// MIDI 1/16 note steps counted since Start or initialisation.
+    /// Resets on Start and wraps on u32 overflow. Stop does not gate counting.
     pub steps: u32,
 }
 
-/// Output data published at 60 Hz and serialised for WebSocket and OSC.
+/// Output snapshots scheduled at 60 Hz for WebSocket and OSC.
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct DisplayPayload {
-    /// One entry per audio channel, in hardware channel order.
+    /// One entry per analysed channel, in selected-channel order.
+    /// Entries are contiguous output positions, not hardware channel indices.
     pub channels: Vec<ChannelLevel>,
 
-    /// Absent when MIDI input is not configured.
+    /// Absent when MIDI input is not configured or before the first
+    /// mapper publication.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub midi: Option<MidiSnapshot>,
 }

@@ -1,16 +1,16 @@
 //! Worker thread ownership and coordinated shutdown for the audio pipeline.
 //!
-//! [`WorkerThreads`] owns the [`JoinHandle`] for each pipeline stage plus a
+//! `WorkerThreads` owns the [`JoinHandle`] for each pipeline stage plus a
 //! dynamic list of output transport workers (WebSocket server, OSC sender,
-//! and any future transport). Shutdown is driven by [`WorkerThreads::shutdown`],
+//! and any future transport). Shutdown is driven by `WorkerThreads::shutdown`,
 //! which joins the fixed pipeline stages in order, then the output workers in
 //! the order they were spawned, waiting a bounded time for each one before
 //! detaching.
 //!
-//! Adding a new output transport requires only extending [`OutputWorker`] with
-//! a new variant, giving it a [`WorkerSpec`] in [`OutputWorker::spec`], and
-//! pushing its handle onto the `outputs` list passed to [`WorkerThreads::new`].
-//! Nothing about the shutdown loop or [`WorkerThreads`] itself needs to change.
+//! Registering a new output worker for shutdown requires extending `OutputWorker` with
+//! a new variant, giving it a `WorkerSpec` in `OutputWorker::spec`, and
+//! pushing its handle onto the `outputs` list passed to `WorkerThreads::new`.
+//! Nothing about the shutdown loop or `WorkerThreads` itself needs to change.
 
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
@@ -27,8 +27,8 @@ const ANALYSER_SHUTDOWN_TIMEOUT_MS: u64 = 1_000;
 /// Grace period for the mapper thread to observe analyser channel closure.
 const MAPPER_SHUTDOWN_TIMEOUT_MS: u64 = 1_000;
 
-/// Grace period for the MIDI input thread, which wakes on the same 10 ms
-/// cadence as the audio generator.
+/// Grace period for the MIDI input thread. The join loop unparks a real
+/// device holder so it can observe shutdown and release its connection.
 const MIDI_INPUT_SHUTDOWN_TIMEOUT_MS: u64 = 250;
 
 /// Grace period for the server thread to finish its bounded accept and client shutdown.
@@ -65,8 +65,7 @@ impl WorkerSpec {
     }
 }
 
-/// The fixed audio pipeline stages, present in every run regardless of which
-/// output transports are configured.
+/// Fixed pipeline slots. The generator slot is populated only in calibration mode.
 #[derive(Debug, Clone, Copy)]
 enum PipelineWorker {
     Generator = 0,
@@ -167,8 +166,9 @@ impl WorkerThreads {
         }
     }
 
-    /// Signals all workers to stop by joining the fixed pipeline stages first,
-    /// then every output transport worker, waiting a bounded time for each one.
+    /// Joins the fixed pipeline stages, MIDI input, then output workers,
+    /// waiting a bounded time for each one. The caller must first clear
+    /// `keep_running`. Joining does not set the shutdown flag.
     /// Workers that do not stop within their grace period are detached rather
     /// than blocking the main thread indefinitely.
     pub(crate) fn shutdown(&mut self) {

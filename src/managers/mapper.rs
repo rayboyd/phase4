@@ -1,12 +1,13 @@
 //! [`Mapper`] sits between the [`crate::managers::analyser`] and the front-end
 //! [`crate::managers::server`] and [`crate::managers::osc`]. It copies each
 //! 32-band analysis snapshot into the serialisable [`DisplayPayload`] shape
-//! and publishes the latest snapshot at a fixed 60 Hz.
+//! and schedules publication of the latest snapshot at 60 Hz.
 //!
 //! The output timer is independent of analyser updates. A slower or irregular
-//! analyser therefore changes data freshness without changing the public
-//! broadcast cadence. The latest snapshot is reused when no newer analysis
-//! frame is available.
+//! analyser changes data freshness independently of the timer. The latest
+//! snapshot is reused when no newer analysis frame is available. Missed timer
+//! ticks are skipped, and watch receivers can skip intermediate snapshots.
+//! Publication pauses while inactive and waits for analysis at startup.
 
 use crate::app::AppState;
 use crate::dsp::{DisplayPayload, MidiSnapshot, RawPayload};
@@ -19,7 +20,7 @@ use std::time::Duration;
 use tokio::sync::watch;
 use tokio::time::{Instant, MissedTickBehavior};
 
-/// Fixed number of display frames published per second.
+/// Target number of display publications per second while active.
 const BROADCAST_RATE_HZ: u64 = 60;
 
 /// Nanoseconds in one second, used to derive the fixed broadcast interval.

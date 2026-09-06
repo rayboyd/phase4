@@ -1,12 +1,12 @@
 //! [`Processor`] spawns a background thread that drains the analyse ringbuf in
-//! chunks of `CHUNK_SIZE_MS` milliseconds, runs per-channel peak measurement
+//! chunks of up to approximately `CHUNK_SIZE_MS` milliseconds, runs per-channel peak measurement
 //! and vocoder envelope analysis, then publishes the resulting
 //! [`crate::dsp::RawPayload`] via a [`tokio::sync::watch`] channel.
 //!
-//! The thread runs at elevated scheduling priority (`ANALYSER_THREAD_PRIORITY`)
-//! to avoid starvation. Denormal floating-point values are suppressed via
-//! [`no_denormals()`] to prevent CPU performance degradation under silence or
-//! very low signal levels.
+//! The thread requests `ANALYSER_THREAD_PRIORITY`. Mapping and permissions
+//! depend on the OS, and failure leaves the default priority in use.
+//! [`no_denormals()`] suppresses subnormal values to reduce their processing
+//! cost. Its `x86_64` floating-point environment safety remains unresolved.
 
 use super::audio::Specs;
 use crate::app::AppState;
@@ -160,7 +160,7 @@ impl State {
 /// Owns the analyser thread, spawning a loop that drains audio samples and
 /// publishing DSP results over the watch channel.
 pub struct Processor {
-    /// Vocoder configuration used to construct each channel's analyser in [`State::new`].
+    /// Vocoder configuration used to construct each channel's analyser.
     vocoder_config: VocoderConfig,
 }
 
@@ -176,7 +176,7 @@ impl Processor {
     /// Spawns the analyser background thread.
     ///
     /// The thread drains `consumer`, runs per-channel peak and vocoder envelope
-    /// analysis on each `CHUNK_SIZE_MS` block, and publishes the result to `raw_tx` when
+    /// analysis on each available whole-frame chunk, and publishes the result to `raw_tx` when
     /// `is_active` is set. The thread exits when `keep_running` is cleared
     /// and the ringbuf is empty.
     ///
@@ -208,9 +208,10 @@ impl Processor {
                 let mut dsp_state = State::new(specs, raw_tx, &self.vocoder_config);
                 let mut was_active = false;
 
-                // Set the CPU's FTZ (Flush-to-Zero) and DAZ (Denormals-Are-Zero) flags here.
-                // Prevents CPU spikes when processing near-silent audio signals (subnormal numbers).
-                // No other code on this thread relies on denormal behaviour, or will, so this is ok.
+                // Suppress subnormal values for the DSP loop. This changes FTZ/DAZ
+                // on `x86_64` and FPCR flush-to-zero flags on aarch64.
+                // TODO: resolve the `x86_64` Rust floating-point environment conflict
+                // documented by no_denormals. Thread-local intent is not a safety proof.
                 unsafe {
                     no_denormals(|| {
                         while state.keep_running.load(Ordering::Acquire) || !consumer.is_empty() {
@@ -218,8 +219,7 @@ impl Processor {
 
                             if !is_active {
                                 // Drain hardware samples so the ring buffer does not back up.
-                                // Any carried partial frame is stale once we discard, so drop
-                                // it too; the next active chunk starts frame-aligned.
+                                // Discard carried samples along with the queued audio.
                                 while consumer.pop_slice(&mut dsp_state.transfer_buffer) > 0 {}
                                 dsp_state.pending = 0;
                                 thread::sleep(Duration::from_millis(100));
@@ -243,10 +243,9 @@ impl Processor {
                             if samples > 0 {
                                 dsp_state.process(samples);
                             } else if state.keep_running.load(Ordering::Acquire) {
-                                // Idle backoff only, not a timing-critical path. Sample throughput is
-                                // governed by the producer (CPAL callback or generator), not by this
-                                // sleep. Drift here just adds up to 10 ms of wake-up latency, which
-                                // the ringbuf absorbs without data loss.
+                                // Idle backoff avoids busy-waiting. The OS may resume this thread
+                                // later than the requested sleep. The ring buffer absorbs that
+                                // delay only while enough free capacity remains.
                                 thread::sleep(Duration::from_millis(IDLE_SLEEP_MS));
                             }
                         }

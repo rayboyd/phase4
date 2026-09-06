@@ -1,11 +1,10 @@
 //! Configuration types, resolution, and validation.
 //!
-//! [`types`] holds the config types and errors, [`AppConfig`],
+//! The internal `types` module holds the config types and errors, [`AppConfig`],
 //! [`AppConfigError`], and the resolved and file-layer structs each field
-//! passes through. [`resolve`] merges the CLI, file, and default layers
-//! into an [`AppConfig`]. [`validate`] holds standalone validation, where
-//! each function takes already-resolved values and returns
-//! `Result<(), AppConfigError>`.
+//! passes through. `resolve` merges the CLI, file, and default layers
+//! into an [`AppConfig`]. `validate` checks resolved values and derives the
+//! validated MIDI tick interval. Failures use [`AppConfigError`].
 
 mod resolve;
 mod types;

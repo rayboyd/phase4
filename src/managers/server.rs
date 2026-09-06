@@ -5,12 +5,13 @@
 //!
 //! A dedicated serialiser task subscribes to a typed
 //! [`tokio::sync::watch`] channel of [`crate::dsp::DisplayPayload`],
-//! serialises once per frame into [`Utf8Bytes`], and publishes to a private
+//! serialises consumed snapshots into [`Utf8Bytes`], and publishes to a private
 //! watch channel that all client tasks subscribe to.
 //!
 //! Connected clients receive the current payload immediately after handshake,
-//! then subsequent updates as the mapper publishes them. Connected clients
-//! receive an RFC 6455 close frame on graceful shutdown. Phase4 services Ping,
+//! then the latest available updates. Intermediate snapshots can be skipped.
+//! Graceful shutdown attempts to send an RFC 6455 close frame within a bounded
+//! task shutdown period. Phase4 services Ping,
 //! Pong, and Close control frames but rejects inbound Text and Binary messages,
 //! preserving the outbound-only application protocol.
 //! Writes and flushes have a one-second deadline. A stalled client is dropped
@@ -180,9 +181,9 @@ impl Callback for OriginPolicyCallback {
 /// being caught here.
 ///
 /// Returns `None` when the payload is rejected. The caller is expected to
-/// leave the previously broadcast value in place in that case, connected
-/// clients continue receiving the last valid frame rather than a gap or a
-/// silent `null`.
+/// retain the previously broadcast snapshot without publishing an update
+/// for the rejected frame. Existing clients receive no new frame until
+/// another valid snapshot is published.
 fn serialise_display_payload(
     payload: &DisplayPayload,
     already_logged: &mut bool,
@@ -571,8 +572,8 @@ impl Server {
                         break;
                     }
 
-                    // The mapper has already serialised the payload to JSON. Clone the
-                    // shared text buffer and forward it directly.
+                    // The server serialiser owns JSON encoding. Clone its shared
+                    // text buffer for this client without encoding again.
                     let json: Utf8Bytes = watch_rx.borrow_and_update().clone();
                     let msg = Message::Text(json);
 

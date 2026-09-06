@@ -1,9 +1,9 @@
 //! Zero-cost unit newtypes for audio domain values.
 //!
 //! Wrapping raw `f32` values in these types lets the compiler enforce unit
-//! correctness at boundaries such as [`crate::config::VocoderConfig`] and
-//! [`crate::dsp::vocoder::envelope_coeff`]. At runtime the wrapper is erased
-//! entirely; each newtype compiles to the same machine code as a bare `f32`.
+//! correctness at boundaries such as [`crate::config::VocoderConfig`].
+//! Each wrapper stores one `f32` without heap allocation. The types distinguish
+//! units but do not validate numeric ranges or require finite values.
 
 /// A duration expressed in milliseconds.
 ///

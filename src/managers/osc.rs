@@ -3,16 +3,15 @@
 //!
 //! Addresses follow `/phase4/ch/{channel}/bin/{bin}` with a single `f` (float)
 //! argument carrying a non-negative, unnormalised envelope value that can
-//! exceed 1.0. The receiver maps these to its own
-//! parameters using its OSC shortcut editor (e.g. `TouchDesigner` OSC In DAT,
-//! which unpacks bundles; OSC In CHOP does not and requires individual
-//! messages).
+//! exceed 1.0. Receivers must unpack OSC bundles and map the addresses to
+//! their own parameters. Output channel indices are contiguous positions
+//! within the selected channel set, not original hardware indices.
 //!
 //! When MIDI input is configured, `/phase4/midi/steps` is sent alongside the
 //! bin bundle every frame, one `i` (int) argument, the current absolute step
 //! count. `/phase4/midi/start`, `/phase4/midi/stop`, and
 //! `/phase4/midi/continue` each carry one `i` argument (`1`, a conventional
-//! bang value) and are sent only on the frame their transport event fired.
+//! bang value) and are sent when the consumed snapshot contains that event.
 //! MIDI messages are sent individually, not folded into the bin bundle. They
 //! are low frequency and broadcast-channel based already, not the per-call
 //! cost the bundle exists to amortise.
@@ -24,15 +23,18 @@
 //! `sendto` call rather than one call per bin. At the default build (stereo,
 //! 32 bins, 64 bin messages), the encoded bundle runs roughly 2 to 2.5KB,
 //! over standard Ethernet's 1500 byte MTU. That's fine on loopback, whose MTU
-//! is far larger, but raises IP fragmentation risk if `--osc-addr` is ever
+//! is commonly larger, but raises IP fragmentation risk if `--osc-addr` is ever
 //! pointed at a non-loopback destination.
 //!
 //! The UDP socket is bound to an ephemeral local port and kept unconnected,
-//! so each send uses `socket.send_to(&bytes, target)`. A reusable Vec<u8>
-//! scratch buffer is cleared and reused for each frame's encoding, so the
-//! steady-state send loop performs no heap allocation.
+//! so each send uses `socket.send_to(&bytes, target)`. A reusable `Vec<u8>`
+//! grows during initial encoding, then retains its capacity. Successful
+//! steady-state encoding and sending reuse that storage. Error reporting
+//! can allocate.
 //!
-//! OSC uses UDP so no connection management, handshake, or backpressure exists.
+//! UDP provides no delivery acknowledgement or receiver backpressure.
+//! Local queue pressure can still delay the blocking socket send.
+//! This transport does not reject non-finite bin values.
 //! The sender is a plain OS thread with a minimal single-threaded Tokio runtime,
 //! required only to await the watch channel in the same pattern as the mapper.
 
@@ -53,7 +55,7 @@ use tokio::sync::watch;
 const OSC_MESSAGE_SIZE_ESTIMATE_BYTES: usize = 64;
 
 /// How many frames' worth of burst the send buffer should comfortably
-/// absorb, so an occasional slow drain by the OS doesn't stall `sendto`.
+/// absorb. This reduces queue pressure but does not make sends non-blocking.
 const OSC_SEND_BUFFER_FRAME_HEADROOM: usize = 4;
 
 /// Sends mapped display payloads as OSC bundles over UDP.
@@ -75,8 +77,7 @@ impl OscSender {
     /// The socket's send buffer is sized explicitly, scaled to the per-frame
     /// message burst (`channels * BAND_COUNT`, plus a MIDI allowance of the
     /// steps message and one transport bang), rather than left on the OS
-    /// default, so the burst that fires every frame doesn't block `sendto`
-    /// under queue pressure.
+    /// default. This provides queue headroom, not a guarantee against blocking.
     ///
     /// # Errors
     ///
@@ -186,7 +187,7 @@ impl OscSender {
 
 /// Pre-built MIDI packets, one per address, updated in place each frame
 /// `midi_enabled` is true. `steps_packet` is sent every frame, the other
-/// three are sent only on the frame their transport event fired.
+/// three are sent when the consumed snapshot contains their transport event.
 // The shared _packet suffix cannot be dropped. `continue` is a reserved
 // keyword, so the transport fields need a suffix to stay consistent.
 #[allow(clippy::struct_field_names)]
@@ -502,7 +503,7 @@ mod tests {
         );
     }
 
-    // The float value 0.0 and 1.0 (the range bounds) must encode cleanly.
+    // Zero and nominal full scale must encode cleanly, without implying clamping.
     #[test]
     fn osc_float_encodes_range_bounds() {
         for value in [0.0_f32, 1.0_f32] {

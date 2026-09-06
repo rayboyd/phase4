@@ -4,19 +4,19 @@
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://github.com/rayboyd/phase4/blob/main/LICENSE)
 [![Security Policy](https://img.shields.io/badge/Security-Policy-green.svg)](https://github.com/rayboyd/phase4/blob/main/SECURITY.md)
 
-Phase4 is a fast, lightweight tool for broadcasting real-time audio analysis and midi data over WebSocket and OSC.
+Phase4 is a fast, lightweight tool for broadcasting real-time audio analysis and MIDI transport and clock data over WebSocket and OSC.
 
 Any WebSocket-capable tooling, such as [TouchDesigner](https://derivative.ca/) or a browser using the [WebSocket API](https://developer.mozilla.org/en-US/docs/Web/API/WebSockets_API), can connect to the Phase4 server. OSC output can be sent to any UDP target, including TouchDesigner's [OSC In DAT](https://derivative.ca/UserGuide/OSC_In_DAT).
 
 ## Download
 
-Phase4 supports 64-bit [macOS](docs/compile.md#macos), [Windows](docs/compile.md#windows) and [Linux](docs/compile.md#linux).
+Phase4 targets 64-bit [macOS](docs/compile.md#macos), [Windows](docs/compile.md#windows) and [Linux](docs/compile.md#linux). CI runs the checks and tests on Linux. The release workflow builds Linux x86_64 and macOS Apple Silicon binaries, but does not build or test Windows.
 
 Pre-built binaries for macOS and Linux are on the [releases page](https://github.com/rayboyd/phase4/releases/latest). Windows users need to [compile from source](docs/compile.md). Check the [platform requirements section](docs/compile.md#platform-requirements) of the compile guide if you intend to build Phase4 from source.
 
 ## Getting Started
 
-List available input devices on your computer to find your device name. You can also confirm `f32` support.
+List available input devices to find your device name and check whether the default input configuration reports `F32`. Phase4 requires that application-facing format. It does not convert integer input formats or search for an alternative configuration. This requirement does not describe the hardware converter bit depth or audio quality.
 
 ```sh
 phase4 --audio-list
@@ -33,6 +33,8 @@ By default every hardware channel is analysed and broadcast. To analyse only spe
 ```sh
 phase4 --audio-device "Duet 3" --ws-addr 127.0.0.1:8889 --audio-analyse-channels 0,1
 ```
+
+Run Phase4 in an interactive terminal. Press `T` to pause or resume analysis and broadcasting, and `Ctrl+C` to shut down. Audio capture continues during a pause and queued samples are discarded.
 
 Calibration mode drives the full analysis pipeline with a synthetic sine wave. See [docs/calibration.md](docs/calibration.md).
 
@@ -55,6 +57,10 @@ See [docs/osc.md](docs/osc.md)
 ### MIDI
 
 See [docs/midi.md](docs/midi.md)
+
+## Architecture
+
+See [docs/lifecycle.md](docs/lifecycle.md) for buffering, snapshot delivery, worker ownership and shutdown behaviour.
 
 ## Licence
 

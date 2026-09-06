@@ -1,16 +1,16 @@
 //! Top-level application struct that owns and coordinates all subsystems.
 //!
-//! [`App`] is assembled from the pieces resolved by [`crate::bootstrap::bootstrap`],
-//! which queries the selected input device for its hardware capabilities,
-//! sizes the ringbufs accordingly, and spawns the analyser, WebSocket server,
-//! and (in calibration mode) the synthetic generator threads. `App` then
+//! [`App`] is assembled by the internal bootstrap function, which resolves
+//! input and output configuration, validates DSP coefficients, sizes the
+//! analysis ring buffer and starts the configured pipeline workers. `App` then
 //! hands control to the [`Controller`] for interactive keyboard handling.
 //!
 //! Shared runtime state is carried by [`AppState`], which holds a set of
 //! [`std::sync::atomic`] flags that the controller writes and the worker threads
-//! observe. On shutdown, all threads are signalled to stop and given a bounded
-//! grace period to exit, which prevents one stalled worker from hanging the
-//! main thread indefinitely.
+//! observe. After dropping the input stream, shutdown signals workers and
+//! gives each one a bounded join grace period. A worker that exceeds it is
+//! detached. These grace periods do not bound the device driver's stream-drop
+//! operation or guarantee that detached workers have stopped.
 
 use crate::bootstrap::bootstrap;
 use crate::config::AppConfig;
@@ -35,15 +35,15 @@ pub struct AppState {
     pub keep_running: AtomicBool,
 
     /// Last MIDI transport event seen, one of the `MIDI_TRANSPORT_*` codes.
-    /// Written by the MIDI listener thread, read and cleared by the mapper
+    /// Written by the MIDI callback or synthetic clock, read and cleared by the mapper
     /// each time it broadcasts a frame.
     pub midi_last_transport: AtomicU8,
 
     /// MIDI 1/16 note steps derived from incoming MIDI clock ticks.
     ///
-    /// Absolute monotonic count since the most recent Start event. Written by
-    /// the MIDI listener thread, read by the mapper as a snapshot, and reset
-    /// only by Start.
+    /// Count since Start or initialisation, written by the MIDI callback or
+    /// synthetic clock and read by the mapper. Resets on Start, wraps on u32
+    /// overflow, and continues if clock ticks arrive while transport is stopped.
     pub midi_steps: AtomicU32,
 }
 
@@ -98,7 +98,8 @@ impl App {
     /// limits, an audio or MIDI device cannot be opened, the audio input stream
     /// cannot be started, or a configured output transport cannot bind to its
     /// given address. If an output fails after earlier workers have started,
-    /// construction stops and joins those workers before returning the error.
+    /// construction signals those workers and attempts bounded joins before
+    /// returning the error. Workers exceeding their grace period are detached.
     ///
     /// # Panics
     ///

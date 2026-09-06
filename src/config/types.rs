@@ -7,7 +7,7 @@ use thiserror::Error;
 pub const DEFAULT_MAX_CLIENTS: usize = 8;
 
 /// Default calibration tone frequency in Hz (concert pitch A4). Used only by
-/// `AppConfig::default()`, which `resolve_config` always overwrites.
+/// `AppConfig::default()`. CLI resolution requires an explicit calibration flag.
 pub const DEFAULT_TEST_HZ: f32 = 440.0;
 
 /// Fixed sample rate used by the synthetic calibration input.
@@ -34,9 +34,9 @@ pub enum TestSignal {
     Sweep(f32),
 }
 
-/// The resolved input intent, built exactly once in `resolve_config`. Replaces
-/// the loose `device_name_match`, `test_hz`, and `test_sweep` fields so that
-/// hardware mode without a device name is unrepresentable.
+/// Audio input intent, produced by CLI resolution or constructed by library
+/// callers. The hardware variant requires a name field. `App::new` rejects
+/// an empty name before starting the pipeline.
 ///
 /// The analyser channel selection lives on the `Device` variant, not on
 /// `AppConfig`: it only means something against real hardware channels, and
@@ -91,7 +91,7 @@ pub enum OutputConfig {
 /// `--ws-addr` or `--osc-addr` (or their `config.yaml` equivalents), and
 /// both may be configured together. Each transport may appear at most once.
 ///
-/// The spawn loop in `App::new` iterates the collection and spawns one
+/// Bootstrap iterates the collection and spawns one
 /// worker per entry, so a `WebSocket` entry and an `Osc` entry both present
 /// results in both transports running side by side.
 #[derive(Debug, Clone, PartialEq)]

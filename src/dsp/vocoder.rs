@@ -1,4 +1,4 @@
-//! A cheap alternative to an FFT-based spectrum analyser, built from a bank
+//! A filter-bank analyser built from a bank
 //! of fixed bandpass filters, one per band, each followed by an envelope
 //! follower that tracks the band's amplitude over time. This is the classic analogue
 //! vocoder architecture, filter then rectify then smooth, run per audio
@@ -6,9 +6,10 @@
 //!
 //! Band centres are spaced logarithmically rather than linearly, since pitch
 //! perception is logarithmic, so a linear spacing would waste most of the
-//! bands on the highest octave. Running the envelope followers per-sample
-//! rather than per-window also gives lower latency and smoother animation
-//! than a windowed transform.
+//! bands on the highest octave. Per-sample envelope updates avoid an FFT
+//! window, but response time still depends on filter settling, attack and
+//! release, buffering and output scheduling. The envelopes are not normalised
+//! spectral magnitudes, and filter Q affects both bandwidth and gain.
 
 use crate::config::{AppConfigError, VocoderConfig};
 use crate::dsp::units::{Hertz, Milliseconds};

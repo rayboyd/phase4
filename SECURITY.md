@@ -38,7 +38,7 @@ A successful verification will show as.
 
 ```sh
 Signature and comment signature verified
-Trusted comment: phase4 <version>-<target>
+Trusted comment: phase4 <version>
 ```
 
 Install minisign via your package manager (`brew install minisign`, `apt install minisign`, etc.) or from the [minisign releases page](https://github.com/jedisct1/minisign/releases).

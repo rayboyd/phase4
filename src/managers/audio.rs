@@ -9,8 +9,10 @@
 //! discarded and buffered audio remains queued. Dropping complete frames
 //! preserves channel order, but introduces gaps in the analysed signal.
 //!
-//! [`Specs`] carries the hardware's native channel count and sample rate and
-//! is used throughout the pipeline for buffer sizing.
+//! [`Specs`] carries the stream channel count and sample rate for buffer
+//! sizing. Analyser specs use the selected channel count. The application
+//! accepts only a default input configuration reporting `F32`, which is the
+//! host-facing format rather than a statement about hardware converter depth.
 
 use crate::app::AppState;
 use crate::ListFormat;
@@ -38,7 +40,7 @@ pub enum DeviceError {
     )]
     NoMatch { query: String },
 
-    /// The device's native sample format is not f32.
+    /// The supplied input configuration does not report `F32`.
     #[error(
         "Device reports {format} sample format; phase4 requires f32 input. \
          Most professional audio interfaces deliver f32 natively. \
@@ -47,10 +49,10 @@ pub enum DeviceError {
     UnsupportedFormat { format: String },
 }
 
-/// Captured hardware info used for buffer sizing logic.
+/// Stream channel count and sample rate used for buffer sizing.
 #[derive(Clone, Copy)]
 pub struct Specs {
-    /// Number of interleaved hardware channels.
+    /// Number of interleaved channels at this pipeline stage.
     pub channels: u16,
 
     /// Hardware sample rate in Hz.
@@ -59,7 +61,7 @@ pub struct Specs {
 
 impl Specs {
     /// Returns the number of samples needed to cover `ms` milliseconds,
-    /// across all channels, at the card's native sample rate.
+    /// across all channels, at the configured stream sample rate.
     #[must_use]
     pub fn samples_for_ms(&self, ms: u32) -> usize {
         // Each as usize cast widens the u32/u16 inputs to 64-bit before the multiply.
@@ -69,11 +71,10 @@ impl Specs {
 
     /// Like [`samples_for_ms`], rounded up to a whole frame multiple.
     ///
-    /// Stride-based consumers (the analyser) and frame-writing producers (the
-    /// generator) require buffers whose length is a multiple of the channel
-    /// count, otherwise a chunk can end mid-frame and rotate the channel
-    /// alignment of everything that follows. `samples_for_ms` alone does not
-    /// guarantee this. 22050 Hz stereo at 10 ms yields 441 samples.
+    /// The generator writes complete frames, and an aligned analyser buffer
+    /// allows full chunks to end at a frame boundary. The analyser separately
+    /// carries partial reads. `samples_for_ms` alone does not guarantee an
+    /// aligned size. 22050 Hz stereo at 10 ms yields 441 samples.
     ///
     /// [`samples_for_ms`]: Specs::samples_for_ms
     #[must_use]
@@ -103,7 +104,7 @@ struct DeviceInfo {
     /// Number of hardware input channels.
     channels: Option<u16>,
 
-    /// Native sample format reported by the device, e.g. "F32".
+    /// Sample format of the default input configuration, e.g. "F32".
     sample_format: Option<String>,
 
     /// Whether the device's default configuration is `f32`, phase4's required sample format.
@@ -432,7 +433,7 @@ impl Input {
     ///
     /// # Errors
     ///
-    /// Returns an error if the device does not support `f32` sample format,
+    /// Returns an error if the supplied configuration is not `F32`,
     /// or if the input stream cannot be built or started.
     pub fn start_stream<P>(
         &mut self,
