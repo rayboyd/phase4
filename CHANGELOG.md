@@ -2,6 +2,12 @@
 
 All notable changes to Phase4 will be documented in this file.
 
+## 0.0.18
+
+### Documentation
+
+- Restore reasons and drop caveats in comments ([68a159e](https://github.com/rayboyd/phase4/commit/68a159e77d656bafbe3cedc044d93b0e222c82cd))
+
 ## 0.0.17
 
 ### Breaking Changes
