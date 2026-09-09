@@ -1,8 +1,8 @@
 //! Interactive runtime controller.
 //!
 //! [`Controller`] puts the terminal into raw mode for its lifetime and polls
-//! for key events at a fixed `POLL_RATE_MS` interval. Key presses toggle the
-//! corresponding atomic flags on [`AppState`].
+//! for key events at a fixed `POLL_RATE_MS` interval. Ctrl+C requests shutdown
+//! through [`AppState`].
 
 use crate::app::AppState;
 use anyhow::Result;
@@ -35,7 +35,7 @@ impl Controller {
     pub fn run(&self) -> Result<()> {
         enable_raw_mode()?;
 
-        log::info!("Ready. Press T to toggle engine, Ctrl+C to exit.");
+        log::info!("Ready. Press Ctrl+C to exit.");
 
         while self.state.keep_running.load(Ordering::Acquire) {
             if event::poll(Duration::from_millis(POLL_RATE_MS))? {
@@ -53,19 +53,10 @@ impl Controller {
             return;
         }
 
-        match key.code {
-            KeyCode::Char('t' | 'T') => {
-                let was_active = self.state.is_active.load(Ordering::Acquire);
-                self.state.is_active.store(!was_active, Ordering::Release);
-                let status = if was_active { "PAUSED" } else { "ACTIVE" };
-                log::info!("Engine Status: {status}");
-            }
-
-            KeyCode::Char('c' | 'C') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                self.state.keep_running.store(false, Ordering::Release);
-            }
-
-            _ => {}
+        if matches!(key.code, KeyCode::Char('c' | 'C'))
+            && key.modifiers.contains(KeyModifiers::CONTROL)
+        {
+            self.state.keep_running.store(false, Ordering::Release);
         }
     }
 }
@@ -113,45 +104,38 @@ mod tests {
     }
 
     #[test]
-    fn press_event_toggles_broadcasting_once() {
+    fn former_pause_keys_are_ignored() {
         let (controller, state) = controller_with_state();
+        testing_logger::setup();
 
-        controller.handle_key_event(KeyEvent::new_with_kind(
-            KeyCode::Char('t'),
-            KeyModifiers::NONE,
-            KeyEventKind::Press,
-        ));
-
-        // is_active starts true; pressing 't' toggles it to false.
-        assert!(!state.is_active.load(Ordering::Acquire));
+        for character in ['t', 'T'] {
+            controller.handle_key_event(KeyEvent::new_with_kind(
+                KeyCode::Char(character),
+                KeyModifiers::NONE,
+                KeyEventKind::Press,
+            ));
+            assert!(state.keep_running.load(Ordering::Acquire));
+        }
+        testing_logger::validate(|captured_logs| {
+            assert!(
+                captured_logs.is_empty(),
+                "unused keys must not change engine status"
+            );
+        });
     }
 
     #[test]
-    fn release_event_does_not_toggle_broadcasting() {
+    fn release_and_repeat_events_do_not_signal_shutdown() {
         let (controller, state) = controller_with_state();
 
-        controller.handle_key_event(KeyEvent::new_with_kind(
-            KeyCode::Char('t'),
-            KeyModifiers::NONE,
-            KeyEventKind::Release,
-        ));
-
-        // Release events do not toggle; is_active remains true.
-        assert!(state.is_active.load(Ordering::Acquire));
-    }
-
-    #[test]
-    fn repeat_event_does_not_toggle_broadcasting() {
-        let (controller, state) = controller_with_state();
-
-        controller.handle_key_event(KeyEvent::new_with_kind(
-            KeyCode::Char('t'),
-            KeyModifiers::NONE,
-            KeyEventKind::Repeat,
-        ));
-
-        // Repeat events do not toggle; is_active remains true.
-        assert!(state.is_active.load(Ordering::Acquire));
+        for kind in [KeyEventKind::Release, KeyEventKind::Repeat] {
+            controller.handle_key_event(KeyEvent::new_with_kind(
+                KeyCode::Char('c'),
+                KeyModifiers::CONTROL,
+                kind,
+            ));
+            assert!(state.keep_running.load(Ordering::Acquire));
+        }
     }
 
     #[test]

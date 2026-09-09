@@ -23,7 +23,7 @@ network:
   osc_addr: "127.0.0.1:7000"
 ```
 
-Phase4 binds an ephemeral local UDP port using the target's IPv4 or IPv6 address family, then sends the latest available display snapshot when the mapper publishes. OSC and WebSocket share a 60 Hz publication target. The sender can skip intermediate snapshots if it falls behind, and regular publications stop while the engine is paused.
+Phase4 binds an ephemeral local UDP port using the target's IPv4 or IPv6 address family, then sends the latest available display snapshot when the mapper publishes. OSC and WebSocket share a 60 Hz publication target. The sender can skip intermediate snapshots if it falls behind.
 
 ## Address Scheme
 

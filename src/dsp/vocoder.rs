@@ -211,8 +211,7 @@ impl VocoderAnalyser {
 
     /// Clears filter and envelope state.
     ///
-    /// Called when analysis resumes after being paused, so residual energy
-    /// from before the pause does not leak into the first frames back.
+    /// Subsequent processing starts without retained signal history.
     pub fn reset(&mut self) {
         for filter in &mut self.filters {
             filter.reset_state();

@@ -8,13 +8,13 @@ Buffer capacity is calculated from 500 ms of audio at the resolved sample rate a
 
 The analyser consumes queued audio in FIFO order. When the buffer is full, the callback drops incoming complete frames and retains older queued audio. This preserves channel order during overflow but introduces gaps in analysis. The capture callback currently discards the overflow indicator, so the output does not report those gaps.
 
-The analyser processes available whole frames in chunks of up to approximately 10 ms and sleeps when empty. Filter and envelope state persists across chunks. The all-channel callback publishes accepted slices together. Selected-channel capture publishes samples individually, and the active analyser carries partial frames between reads.
+The analyser processes available whole frames in chunks of up to approximately 10 ms and sleeps when empty. Filter and envelope state persists across chunks. The all-channel callback publishes accepted slices together. Selected-channel capture publishes samples individually, and the analyser carries partial frames between reads.
 
 Raw and display payloads use watch channels that retain the latest snapshot rather than a queue of every analysis result. The mapper schedules display publication at 60 Hz and skips missed timer ticks. It can repeat the latest analysis values or skip intermediate analysis chunks. Neither output includes an audio timestamp or sequence number.
 
 The allocation-free, lock-free requirement applies to the sample callback. Downstream watch channels use synchronisation. The analyser and mapper reuse payload storage, the WebSocket serialiser allocates shared JSON text, and OSC reuses its encoding buffer after initial growth. Resource use depends on sample rate, selected channels and connected clients.
 
-The `T` key pauses analysis and regular display publication. Audio capture and MIDI input continue, while the analyser discards queued audio. Filters reset when the analyser observes resumption. Output consumers retain their previous values unless they implement their own paused or stale-data handling.
+Analysis and display publication run continuously after startup. The controller handles `Ctrl+C` to request shutdown.
 
 ## Startup Lifecycle
 
@@ -120,9 +120,9 @@ flowchart LR
 		G --> L[OSC sender thread]
 		L --> M[UDP target]
 
-		J[Controller thread] -->|toggle atomics| C2
-		J -->|toggle atomics| F
-		J -->|toggle atomics| H
+		J[Controller thread] -->|request shutdown| C2
+		J -->|request shutdown| F
+		J -->|request shutdown| H
 
 ```
 
@@ -146,11 +146,7 @@ flowchart LR
 stateDiagram-v2
 		[*] --> Running
 
-		state Running {
-			[*] --> Flags
-			Flags --> Flags: T key toggles is_active
-			Flags --> ExitRequested: Ctrl+C sets keep_running=false
-		}
+		Running --> ExitRequested: Ctrl+C sets keep_running=false
 
 		ExitRequested --> Shutdown
 		Shutdown --> [*]

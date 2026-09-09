@@ -34,7 +34,7 @@ By default every hardware channel is analysed and broadcast. To analyse only spe
 phase4 --audio-device "Duet 3" --ws-addr 127.0.0.1:8889 --audio-analyse-channels 0,1
 ```
 
-Run Phase4 in an interactive terminal. Press `T` to pause or resume analysis and broadcasting, and `Ctrl+C` to shut down. Audio capture continues during a pause and queued samples are discarded.
+Run Phase4 in an interactive terminal. Analysis and broadcasting run continuously. Press `Ctrl+C` to shut down.
 
 Calibration mode drives the full analysis pipeline with a synthetic sine wave. See [docs/calibration.md](docs/calibration.md).
 

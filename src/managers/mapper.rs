@@ -7,7 +7,7 @@
 //! analyser changes data freshness independently of the timer. The latest
 //! snapshot is reused when no newer analysis frame is available. Missed timer
 //! ticks are skipped, and watch receivers can skip intermediate snapshots.
-//! Publication pauses while inactive and waits for analysis at startup.
+//! Publication waits for the first analysis update at startup.
 
 use crate::app::AppState;
 use crate::dsp::{DisplayPayload, MidiSnapshot, RawPayload};
@@ -20,7 +20,7 @@ use std::time::Duration;
 use tokio::sync::watch;
 use tokio::time::{Instant, MissedTickBehavior};
 
-/// Target number of display publications per second while active.
+/// Target number of display publications per second.
 const BROADCAST_RATE_HZ: u64 = 60;
 
 /// Nanoseconds in one second, used to derive the fixed broadcast interval.
@@ -87,10 +87,6 @@ impl Mapper {
                     latest_frame_available = !raw_rx.borrow_and_update().channels.is_empty();
                 }
                 _ = broadcast_timer.tick() => {
-                    if !state.is_active.load(Ordering::Acquire) {
-                        latest_frame_available = false;
-                        continue;
-                    }
                     if !latest_frame_available {
                         continue;
                     }
