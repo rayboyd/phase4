@@ -6,11 +6,21 @@ All notable changes to Phase4 will be documented in this file.
 
 ### Breaking Change
 
+- Shorten OSC bin addresses from `/phase4/ch/{channel}/bin/{bin}` to
+  `/ch/{channel}/bin/{bin}`. MIDI addresses are unchanged.
+
 - Remove engine pause support. Analysis and broadcasting run continuously,
   and `T` no longer toggles the engine. `Ctrl+C` still shuts down Phase4.
   The public Rust field `AppState::is_active` is removed without a replacement.
   Removing the paused audio drain also removes the selected-channel alignment
   failure caused by discarding partial frames during pause.
+
+### Bug Fixes
+
+- Build and encode the OSC bin bundle during startup, rejecting output above
+  the supported 65,507-byte UDP payload limit with a clear error. Reuse the
+  prepared bundle and encoding buffer for subsequent frames. The compact
+  addresses allow a complete 64-channel, 32-band frame in one datagram.
 
 ## 0.0.16
 

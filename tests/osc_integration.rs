@@ -18,9 +18,9 @@ use tokio::net::UdpSocket;
 use tokio::sync::watch;
 use tokio::time::{sleep, timeout};
 
-/// Receive buffer size, generous enough for a full 32-bin test bundle.
+/// Receive buffer size covering the supported UDP payload ceiling.
 /// Heap-allocated so it does not inflate the async functions' future size.
-const MAX_DATAGRAM_BYTES: usize = 32 * 1024;
+const MAX_DATAGRAM_BYTES: usize = 65_507;
 
 /// Binds an ephemeral local UDP socket for the test to receive on.
 async fn bind_receiver() -> (UdpSocket, SocketAddr) {
@@ -32,7 +32,7 @@ async fn bind_receiver() -> (UdpSocket, SocketAddr) {
 }
 
 /// Receives one OSC bundle carrying `count` bin messages and returns each
-/// decoded message's bin index, parsed from its address, mapped to its
+/// decoded message's channel and bin indices, parsed from its address, mapped to its
 /// float argument.
 ///
 /// All bin messages for a frame now arrive as a single UDP packet (one OSC
@@ -40,7 +40,7 @@ async fn bind_receiver() -> (UdpSocket, SocketAddr) {
 /// datagram and decodes its bundle content. Parsing into a map rather than
 /// assuming content order avoids depending on the bundle's internal message
 /// ordering.
-async fn receive_bin_values(socket: &UdpSocket, count: usize) -> HashMap<usize, f32> {
+async fn receive_bin_values(socket: &UdpSocket, count: usize) -> HashMap<(usize, usize), f32> {
     let mut buffer = vec![0u8; MAX_DATAGRAM_BYTES];
 
     let (length, _from) = timeout(Duration::from_secs(1), socket.recv_from(&mut buffer))
@@ -48,8 +48,12 @@ async fn receive_bin_values(socket: &UdpSocket, count: usize) -> HashMap<usize, 
         .expect("timed out waiting for an OSC bundle")
         .expect("failed to receive an OSC bundle");
 
-    let (_remainder, packet) =
+    let (remainder, packet) =
         rosc::decoder::decode_udp(&buffer[..length]).expect("failed to decode OSC packet");
+    assert!(
+        remainder.is_empty(),
+        "datagram must contain exactly one bundle"
+    );
 
     let OscPacket::Bundle(bundle) = packet else {
         panic!("expected an OSC bundle, got a single message");
@@ -67,18 +71,23 @@ async fn receive_bin_values(socket: &UdpSocket, count: usize) -> HashMap<usize, 
             panic!("bundle content must only contain messages, not nested bundles");
         };
 
-        let bin = message
-            .addr
-            .rsplit('/')
-            .next()
-            .and_then(|segment| segment.parse::<usize>().ok())
-            .unwrap_or_else(|| panic!("failed to parse bin index from address {}", message.addr));
+        let segments: Vec<_> = message.addr.split('/').collect();
+        let ["", "ch", channel, "bin", bin] = segments.as_slice() else {
+            panic!("unexpected bin address {}", message.addr);
+        };
+        let channel = channel
+            .parse::<usize>()
+            .expect("channel index must be numeric");
+        let bin = bin.parse::<usize>().expect("bin index must be numeric");
 
-        let Some(OscType::Float(value)) = message.args.first() else {
-            panic!("expected a float argument, got {:?}", message.args);
+        let [OscType::Float(value)] = message.args.as_slice() else {
+            panic!("expected one float argument, got {:?}", message.args);
         };
 
-        values.insert(bin, *value);
+        assert!(
+            values.insert((channel, bin), *value).is_none(),
+            "duplicate channel {channel}, bin {bin}"
+        );
     }
 
     values
@@ -160,8 +169,8 @@ async fn sender_transmits_bin_values_matching_display_payload() {
         BAND_COUNT,
         "expected one packet per display bin"
     );
-    assert_eq!(first_values.get(&0).copied(), Some(0.25));
-    assert_eq!(first_values.get(&1).copied(), Some(0.75));
+    assert_eq!(first_values.get(&(0, 0)).copied(), Some(0.25));
+    assert_eq!(first_values.get(&(0, 1)).copied(), Some(0.75));
 
     let mut second_payload = DisplayPayload::new(channels);
     second_payload.channels[0].bins[0] = 0.1;
@@ -171,12 +180,80 @@ async fn sender_transmits_bin_values_matching_display_payload() {
         .expect("second update should reach the OSC sender");
 
     let second_values = receive_bin_values(&receiver, BAND_COUNT).await;
-    assert_eq!(second_values.get(&0).copied(), Some(0.1));
-    assert_eq!(second_values.get(&1).copied(), Some(0.9));
+    assert_eq!(second_values.get(&(0, 0)).copied(), Some(0.1));
+    assert_eq!(second_values.get(&(0, 1)).copied(), Some(0.9));
 
     state.keep_running.store(false, Ordering::Release);
     drop(display_tx);
     join_sender_bounded(handle).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn sender_transmits_complete_64_channel_bundle() {
+    const CHANNELS: usize = 64;
+
+    let (receiver, receiver_address) = bind_receiver().await;
+    let (display_tx, display_rx) = watch::channel(DisplayPayload::new(CHANNELS));
+    let state = Arc::new(AppState::new());
+    let handle = OscSender::new(receiver_address)
+        .spawn(display_rx, CHANNELS, state.clone(), false)
+        .expect("64-channel OSC sender should start");
+
+    let mut payload = DisplayPayload::new(CHANNELS);
+    for (channel_index, channel) in payload.channels.iter_mut().enumerate() {
+        for (bin_index, value) in channel.bins.iter_mut().enumerate() {
+            *value = (channel_index * BAND_COUNT + bin_index) as f32;
+        }
+    }
+    display_tx
+        .send(payload)
+        .expect("update should reach the sender");
+
+    let values = receive_bin_values(&receiver, CHANNELS * BAND_COUNT).await;
+    state.keep_running.store(false, Ordering::Release);
+    drop(display_tx);
+    join_sender_bounded(handle).await;
+
+    for channel in 0..CHANNELS {
+        for bin in 0..BAND_COUNT {
+            assert_eq!(
+                values.get(&(channel, bin)).copied(),
+                Some((channel * BAND_COUNT + bin) as f32)
+            );
+        }
+    }
+}
+
+#[test]
+fn sender_rejects_oversized_bundle_during_startup() {
+    const CHANNELS: usize = 74;
+
+    for target in ["127.0.0.1:7000", "[::1]:7000"] {
+        let (display_tx, display_rx) = watch::channel(DisplayPayload::new(CHANNELS));
+        let state = Arc::new(AppState::new());
+        let result = OscSender::new(target.parse().expect("valid target")).spawn(
+            display_rx,
+            CHANNELS,
+            state.clone(),
+            false,
+        );
+        state.keep_running.store(false, Ordering::Release);
+        drop(display_tx);
+
+        let error = match result {
+            Ok(handle) => {
+                handle.join().expect("sender should stop");
+                panic!("oversized OSC bundle must fail during startup");
+            }
+            Err(error) => error,
+        };
+        assert_eq!(
+            error.to_string(),
+            "OSC output for 74 audio channels and 32 bands encodes to 65920 bytes, \
+             exceeding the supported UDP payload limit of 65507 bytes. \
+             Select fewer audio channels or use WebSocket output."
+        );
+    }
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

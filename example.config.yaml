@@ -24,7 +24,8 @@ network:
   # OSC UDP target IP address and port. Phase4 sends to this address, it does not listen.
   # Omit to disable the OSC output.
   # Bundles all 32 bins per analysed channel into one UDP datagram per frame.
-  # Addresses follow /phase4/ch/{n}/bin/{n}. Envelope floats are unnormalised
+  # Startup rejects bundles above the supported 65,507-byte payload limit.
+  # Addresses follow /ch/{n}/bin/{n}. Envelope floats are unnormalised
   # and can exceed 1.0. MIDI messages, when enabled, are sent separately.
   # default: (disabled)
   # osc_addr: "127.0.0.1:7000"

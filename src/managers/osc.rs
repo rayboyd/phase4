@@ -1,7 +1,7 @@
 //! [`OscSender`] receives the mapped [`DisplayPayload`] over a watch channel
 //! and emits all bin messages for a frame as a single OSC bundle over UDP.
 //!
-//! Addresses follow `/phase4/ch/{channel}/bin/{bin}` with a single `f` (float)
+//! Addresses follow `/ch/{channel}/bin/{bin}` with a single `f` (float)
 //! argument carrying a non-negative, unnormalised envelope value that can
 //! exceed 1.0. Receivers must unpack OSC bundles and map the addresses to
 //! their own parameters. Output channel indices are contiguous positions
@@ -16,19 +16,20 @@
 //! are low frequency and broadcast-channel based already, not the per-call
 //! cost the bundle exists to amortise.
 //!
-//! All `channels * BAND_COUNT` bin messages are pre-built once, as the
-//! `content` of a single persistent `OscPacket::Bundle`, before the send
-//! loop, not rebuilt per frame. Each frame, only the float arguments are
+//! All `channels * BAND_COUNT` bin messages are pre-built and encoded once
+//! during startup, as a single persistent `OscPacket::Bundle`. Startup rejects
+//! an encoded bundle above the supported 65,507-byte UDP payload limit for
+//! either address family. The bundle is not rebuilt per frame. Each frame, only the float arguments are
 //! mutated in place, then the whole bundle is encoded and sent as one
 //! `sendto` call rather than one call per bin. At the default build (stereo,
-//! 32 bins, 64 bin messages), the encoded bundle runs roughly 2 to 2.5KB,
+//! 32 bins, 64 bin messages), the encoded bundle is 1,728 bytes,
 //! over standard Ethernet's 1500 byte MTU. That's fine on loopback, whose MTU
 //! is commonly larger, but raises IP fragmentation risk if `--osc-addr` is ever
 //! pointed at a non-loopback destination.
 //!
 //! The UDP socket is bound to an ephemeral local port and kept unconnected,
 //! so each send uses `socket.send_to(&bytes, target)`. A reusable `Vec<u8>`
-//! grows during initial encoding, then retains its capacity. Successful
+//! is filled during startup encoding, then retains its capacity. Successful
 //! steady-state encoding and sending reuse that storage. Error reporting
 //! can allocate.
 //!
@@ -50,13 +51,17 @@ use tokio::sync::watch;
 
 /// Conservative upper bound on the encoded byte size of a single OSC message
 /// (address string, type tag, and one float or int argument). Measured
-/// messages run roughly 32 to 40 bytes; this leaves headroom so longer
+/// messages run roughly 24 to 40 bytes; this leaves headroom so longer
 /// future addresses don't undercut the send buffer sizing below.
 const OSC_MESSAGE_SIZE_ESTIMATE_BYTES: usize = 64;
 
 /// How many frames' worth of burst the send buffer should comfortably
 /// absorb. This reduces queue pressure but does not make sends non-blocking.
 const OSC_SEND_BUFFER_FRAME_HEADROOM: usize = 4;
+
+/// Shared IPv4 and IPv6 payload ceiling, using the conventional IPv4 maximum.
+/// This bounds datagram size, not path MTU or receiver capacity.
+const OSC_UDP_PAYLOAD_LIMIT_BYTES: usize = 65_507;
 
 /// Sends mapped display payloads as OSC bundles over UDP.
 pub struct OscSender {
@@ -72,6 +77,10 @@ impl OscSender {
 
     /// Spawns the OSC sender on a dedicated background thread.
     ///
+    /// Builds and encodes the bin bundle before opening the socket or spawning
+    /// the sender. Rejects bundles above the supported UDP payload limit and
+    /// retains the encoding buffer for subsequent frames.
+    ///
     /// Binds an ephemeral local UDP socket eagerly so any bind error surfaces
     /// here as a `Result` rather than panicking inside the spawned thread.
     /// The socket's send buffer is sized explicitly, scaled to the per-frame
@@ -81,8 +90,8 @@ impl OscSender {
     ///
     /// # Errors
     ///
-    /// Returns an error if the local UDP socket cannot be bound or if the
-    /// send buffer size cannot be set.
+    /// Returns an error if the bundle cannot be encoded, exceeds the supported
+    /// UDP payload limit, or the local socket cannot be created, configured or bound.
     ///
     /// # Panics
     ///
@@ -95,6 +104,7 @@ impl OscSender {
         state: Arc<AppState>,
         midi_enabled: bool,
     ) -> Result<JoinHandle<()>> {
+        let (bin_bundle, scratch) = Self::prepare_bin_bundle(channels)?;
         let messages_per_frame = channels * BAND_COUNT + if midi_enabled { 2 } else { 0 };
         let send_buffer_size =
             messages_per_frame * OSC_MESSAGE_SIZE_ESTIMATE_BYTES * OSC_SEND_BUFFER_FRAME_HEADROOM;
@@ -113,7 +123,6 @@ impl OscSender {
             .context("Failed to bind UDP socket for OSC output")?;
         let socket: UdpSocket = raw_socket.into();
 
-        let bin_bundle = Self::build_bin_bundle(channels);
         let midi_packets = midi_enabled.then(Self::build_midi_packets);
         let target = self.target;
         let handle = super::spawn_async_worker("osc-sender", async move {
@@ -123,7 +132,7 @@ impl OscSender {
                 target,
                 bin_bundle,
                 midi_packets,
-                scratch: Vec::new(),
+                scratch,
                 state,
                 send_failure_logged: false,
                 encode_failure_logged: false,
@@ -135,6 +144,21 @@ impl OscSender {
         Ok(handle)
     }
 
+    /// Encodes and validates the fixed bin bundle, retaining both for the sender.
+    fn prepare_bin_bundle(channels: usize) -> Result<(OscPacket, Vec<u8>)> {
+        let bin_bundle = Self::build_bin_bundle(channels);
+        let scratch = rosc::encoder::encode(&bin_bundle)
+            .context("Failed to encode OSC bin bundle during startup")?;
+        anyhow::ensure!(
+            scratch.len() <= OSC_UDP_PAYLOAD_LIMIT_BYTES,
+            "OSC output for {channels} audio channels and {BAND_COUNT} bands encodes to {} bytes, \
+             exceeding the supported UDP payload limit of {OSC_UDP_PAYLOAD_LIMIT_BYTES} bytes. \
+             Select fewer audio channels or use WebSocket output.",
+            scratch.len()
+        );
+        Ok((bin_bundle, scratch))
+    }
+
     /// Pre-builds the packet table for a given channel count.
     ///
     /// Each packet is an `OscMessage` with address and a placeholder float argument.
@@ -143,7 +167,7 @@ impl OscSender {
         let mut packets = Vec::with_capacity(channels * BAND_COUNT);
         for ch in 0..channels {
             for bin in 0..BAND_COUNT {
-                let addr = format!("/phase4/ch/{ch}/bin/{bin}");
+                let addr = format!("/ch/{ch}/bin/{bin}");
                 packets.push(OscPacket::Message(OscMessage {
                     addr,
                     args: vec![OscType::Float(0.0)],
@@ -381,6 +405,61 @@ impl OscRuntime {
 mod tests {
     use super::*;
 
+    #[test]
+    fn startup_accepts_bundles_within_the_encoded_payload_limit() {
+        const EXPECTED_BUNDLE_SIZES: [(usize, usize); 3] = [(2, 1_728), (64, 56_960), (73, 65_024)];
+
+        for (channels, expected_bytes) in EXPECTED_BUNDLE_SIZES {
+            let (bundle, encoded) = OscSender::prepare_bin_bundle(channels)
+                .expect("bundle within the supported payload limit should be accepted");
+            assert_eq!(encoded.len(), expected_bytes);
+            let (remainder, decoded) = rosc::decoder::decode_udp(&encoded)
+                .expect("startup buffer should contain a valid OSC bundle");
+            assert!(remainder.is_empty());
+            assert_eq!(decoded, bundle);
+        }
+    }
+
+    #[test]
+    fn startup_rejects_the_first_oversized_channel_count() {
+        const CHANNELS: usize = 74;
+        const EXPECTED_BUNDLE_BYTES: usize = 65_920;
+
+        let encoded = rosc::encoder::encode(&OscSender::build_bin_bundle(CHANNELS))
+            .expect("oversized bundle should still be encodable");
+        assert_eq!(encoded.len(), EXPECTED_BUNDLE_BYTES);
+        assert!(OscSender::prepare_bin_bundle(CHANNELS).is_err());
+    }
+
+    #[test]
+    fn startup_encoding_buffer_is_reused_for_updated_bin_values() {
+        const CHANNELS: usize = 64;
+
+        let (mut packet, mut scratch) =
+            OscSender::prepare_bin_bundle(CHANNELS).expect("64-channel bundle should be accepted");
+        let encoded_bytes = scratch.len();
+        let capacity = scratch.capacity();
+        let allocation = scratch.as_ptr();
+
+        for value in [f32::MAX, f32::MIN, f32::INFINITY, f32::NAN, 0.0] {
+            let OscPacket::Bundle(bundle) = &mut packet else {
+                panic!("expected a bin bundle");
+            };
+            for element in &mut bundle.content {
+                let OscPacket::Message(message) = element else {
+                    panic!("expected a bin message");
+                };
+                message.args[0] = OscType::Float(value);
+            }
+            scratch.clear();
+            rosc::encoder::encode_into(&packet, &mut scratch)
+                .expect("updated values should encode successfully");
+            assert_eq!(scratch.len(), encoded_bytes);
+            assert_eq!(scratch.capacity(), capacity);
+            assert_eq!(scratch.as_ptr(), allocation);
+        }
+    }
+
     // Pre-built packet table must have the right shape and structure.
     #[test]
     fn pre_built_address_table_has_correct_shape() {
@@ -399,7 +478,7 @@ mod tests {
         let ch_1_sampled_bin_idx = BAND_COUNT + sampled_bin;
 
         if let OscPacket::Message(msg) = &packets[ch_0_bin_0_idx] {
-            assert_eq!(msg.addr, "/phase4/ch/0/bin/0");
+            assert_eq!(msg.addr, "/ch/0/bin/0");
             assert_eq!(msg.args.len(), 1);
             assert!(matches!(msg.args[0], OscType::Float(_)));
         } else {
@@ -407,7 +486,7 @@ mod tests {
         }
 
         if let OscPacket::Message(msg) = &packets[ch_1_sampled_bin_idx] {
-            assert_eq!(msg.addr, format!("/phase4/ch/1/bin/{sampled_bin}"));
+            assert_eq!(msg.addr, format!("/ch/1/bin/{sampled_bin}"));
             assert_eq!(msg.args.len(), 1);
             assert!(matches!(msg.args[0], OscType::Float(_)));
         } else {
@@ -433,7 +512,7 @@ mod tests {
         );
 
         if let OscPacket::Message(msg) = &bundle.content[0] {
-            assert_eq!(msg.addr, "/phase4/ch/0/bin/0");
+            assert_eq!(msg.addr, "/ch/0/bin/0");
         } else {
             panic!("bundle content[0] must be an OscMessage");
         }
@@ -462,16 +541,16 @@ mod tests {
         }
     }
 
-    // Address strings must follow the /phase4/ch/{n}/bin/{n} scheme exactly.
+    // Address strings must follow the /ch/{n}/bin/{n} scheme exactly.
     #[test]
     fn osc_address_format_is_correct() {
         assert_eq!(
-            format!("/phase4/ch/{ch}/bin/{bin}", ch = 0, bin = 0),
-            "/phase4/ch/0/bin/0"
+            format!("/ch/{ch}/bin/{bin}", ch = 0, bin = 0),
+            "/ch/0/bin/0"
         );
         assert_eq!(
-            format!("/phase4/ch/{ch}/bin/{bin}", ch = 1, bin = 63),
-            "/phase4/ch/1/bin/63"
+            format!("/ch/{ch}/bin/{bin}", ch = 1, bin = 63),
+            "/ch/1/bin/63"
         );
     }
 
@@ -480,7 +559,7 @@ mod tests {
     #[test]
     fn osc_float_encodes_with_encode_into() {
         let packet = OscPacket::Message(OscMessage {
-            addr: "/phase4/ch/0/bin/0".to_string(),
+            addr: "/ch/0/bin/0".to_string(),
             args: vec![OscType::Float(0.5_f32)],
         });
 
@@ -494,7 +573,7 @@ mod tests {
         // Second encode into the same cleared buffer.
         scratch.clear();
         let packet2 = OscPacket::Message(OscMessage {
-            addr: "/phase4/ch/1/bin/10".to_string(),
+            addr: "/ch/1/bin/10".to_string(),
             args: vec![OscType::Float(0.75_f32)],
         });
         let result2 = rosc::encoder::encode_into(&packet2, &mut scratch);
@@ -510,7 +589,7 @@ mod tests {
     fn osc_float_encodes_range_bounds() {
         for value in [0.0_f32, 1.0_f32] {
             let packet = OscPacket::Message(OscMessage {
-                addr: "/phase4/ch/0/bin/0".to_string(),
+                addr: "/ch/0/bin/0".to_string(),
                 args: vec![OscType::Float(value)],
             });
             let mut scratch = Vec::new();
