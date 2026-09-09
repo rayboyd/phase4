@@ -2,6 +2,16 @@
 
 All notable changes to Phase4 will be documented in this file.
 
+## Unreleased
+
+### Breaking Change
+
+- Remove engine pause support. Analysis and broadcasting run continuously,
+  and `T` no longer toggles the engine. `Ctrl+C` still shuts down Phase4.
+  The public Rust field `AppState::is_active` is removed without a replacement.
+  Removing the paused audio drain also removes the selected-channel alignment
+  failure caused by discarding partial frames during pause.
+
 ## 0.0.16
 
 ### Build

@@ -14,7 +14,7 @@ Phase4 streams real-time audio analysis data as a one-way JSON broadcast. Any to
 
 The listen address must be a loopback IP address and port. Remote and wildcard listen addresses are rejected. The default client limit is eight, configured with `--max-clients` or `network.max_clients`. Handshakes must complete within one second.
 
-A client receives the current snapshot after its handshake, then the latest available updates. Slow consumers can skip intermediate snapshots. A snapshot can repeat the same analysis values when no newer analysis is available. Pausing stops regular publications but keeps connections and control-frame handling active. A newly connected client can still receive the retained snapshot while paused.
+A client receives the current snapshot after its handshake, then the latest available updates. Slow consumers can skip intermediate snapshots. A snapshot can repeat the same analysis values when no newer analysis is available. Control frames are handled independently of snapshot updates.
 
 Every write or flush must complete within one second, including the initial snapshot and control-frame replies. Phase4 disconnects clients that exceed this deadline and releases their connection slots. A timed-out connection is dropped without waiting for a close handshake. Healthy clients continue receiving updates independently.
 

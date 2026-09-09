@@ -177,9 +177,9 @@ impl Processor {
     /// Spawns the analyser background thread.
     ///
     /// The thread drains `consumer`, runs per-channel peak and vocoder envelope
-    /// analysis on each available whole-frame chunk, and publishes the result to `raw_tx` when
-    /// `is_active` is set. The thread exits when `keep_running` is cleared
-    /// and the ringbuf is empty.
+    /// analysis on each available whole-frame chunk, and publishes the result
+    /// to `raw_tx`. The thread exits when `keep_running` is cleared and the
+    /// ringbuf is empty.
     ///
     /// # Panics
     ///
@@ -207,7 +207,6 @@ impl Processor {
                 ));
 
                 let mut dsp_state = State::new(specs, raw_tx, &self.vocoder_config);
-                let mut was_active = false;
 
                 // Suppress subnormal values for the DSP loop. This changes FTZ/DAZ
                 // on `x86_64` and FPCR flush-to-zero flags on aarch64.
@@ -216,26 +215,6 @@ impl Processor {
                 unsafe {
                     no_denormals(|| {
                         while state.keep_running.load(Ordering::Acquire) || !consumer.is_empty() {
-                            let is_active = state.is_active.load(Ordering::Acquire);
-
-                            if !is_active {
-                                // Drain hardware samples so the ring buffer does not back up.
-                                // Discard carried samples along with the queued audio.
-                                while consumer.pop_slice(&mut dsp_state.transfer_buffer) > 0 {}
-                                dsp_state.pending = 0;
-                                thread::sleep(Duration::from_millis(100));
-                                was_active = false;
-                                continue;
-                            }
-
-                            // If we just transitioned from inactive to active, reset analysis history.
-                            if !was_active {
-                                for analyser in &mut dsp_state.analysers {
-                                    analyser.reset();
-                                }
-                            }
-                            was_active = true;
-
                             // Drain the ringbuf, or sleep briefly when empty to avoid  spinning the CPU
                             // with nothing to process. New samples land after any carried
                             // partial frame so processing stays frame-aligned.

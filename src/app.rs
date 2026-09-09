@@ -5,9 +5,9 @@
 //! analysis ring buffer and starts the configured pipeline workers. `App` then
 //! hands control to the [`Controller`] for interactive keyboard handling.
 //!
-//! Shared runtime state is carried by [`AppState`], which holds a set of
-//! [`std::sync::atomic`] flags that the controller writes and the worker threads
-//! observe. After dropping the input stream, shutdown signals workers and
+//! Shared runtime state is carried by [`AppState`], which holds the shutdown
+//! flag and MIDI atomics used by the controller and worker threads.
+//! After dropping the input stream, shutdown signals workers and
 //! gives each one a bounded join grace period. A worker that exceeds it is
 //! detached. These grace periods do not bound the device driver's stream-drop
 //! operation or guarantee that detached workers have stopped.
@@ -26,10 +26,6 @@ use std::sync::{
 
 /// Shared application state flags for cross-thread synchronisation.
 pub struct AppState {
-    /// Whether the analyser is currently processing samples.
-    /// Toggled by the controller (T key), read by the analyser thread.
-    pub is_active: AtomicBool,
-
     /// Signals every worker thread to exit.
     /// Set false by the controller (Ctrl+C) or `App::shutdown`.
     pub keep_running: AtomicBool,
@@ -50,7 +46,6 @@ pub struct AppState {
 impl Default for AppState {
     fn default() -> Self {
         Self {
-            is_active: AtomicBool::new(true),
             keep_running: AtomicBool::new(true),
             midi_last_transport: AtomicU8::new(MIDI_TRANSPORT_NONE),
             midi_steps: AtomicU32::new(0),
@@ -76,7 +71,7 @@ pub struct App {
     /// All worker threads owned by the application runtime.
     workers: WorkerThreads,
 
-    /// Keyboard input handler, drives all runtime state transitions.
+    /// Keyboard input handler for shutdown requests.
     controller: Controller,
 
     /// Tracks whether shutdown has already started, so drop remains idempotent.

@@ -240,7 +240,7 @@ async fn idle_tcp_client_is_closed_after_handshake_timeout() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn client_control_frames_are_serviced_while_display_is_paused() {
+async fn client_control_frames_are_serviced_without_display_updates() {
     const CONTROL_FRAME_TIMEOUT: Duration = Duration::from_millis(250);
     const RECONNECT_ATTEMPTS: usize = 50;
     const RECONNECT_RETRY_DELAY: Duration = Duration::from_millis(10);
@@ -293,7 +293,7 @@ async fn client_control_frames_are_serviced_while_display_is_paused() {
 
     assert!(
         ping_was_answered && replacement_client.is_some(),
-        "the paused server did not service client control frames: pong received = \
+        "the server did not service client control frames without display updates: pong received = \
          {ping_was_answered}, replacement client connected = {}",
         replacement_client.is_some()
     );

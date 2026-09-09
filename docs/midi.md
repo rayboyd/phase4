@@ -48,7 +48,7 @@ When MIDI input is configured, mapper publications carry a top-level `midi` obje
 
 `steps` counts one MIDI 1/16 note step for every six received clock ticks. Start resets both the step count and partial tick count. Stop and Continue do not reset or gate clock counting, so steps still advance if the source sends clocks while stopped. Clients detect new steps by comparing successive values. The unsigned 32-bit count wraps after `4,294,967,295`.
 
-MIDI continues being received while the engine is paused, but the mapper does not publish or clear the pending transport event during the pause. Snapshot replacement can lose a transport event before a client observes it, and a newly connected client can receive a retained event. This stream is not a lossless MIDI event log.
+Snapshot replacement can lose a transport event before a client observes it, and a newly connected client can receive a retained event. This stream is not a lossless MIDI event log.
 
 When MIDI input is not configured, the `midi` key is absent, so clients that only read `channels` are unaffected.
 

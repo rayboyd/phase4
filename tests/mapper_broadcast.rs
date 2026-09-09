@@ -156,41 +156,23 @@ async fn midi_steps_are_sampled_on_every_broadcast_frame() {
 
 #[tokio::test]
 #[allow(clippy::float_cmp)]
-async fn resume_waits_for_a_fresh_analysis_snapshot() {
-    const PAUSE_SETTLE_TIME: Duration = Duration::from_millis(50);
-
+async fn publication_waits_for_the_first_analysis_update() {
     let channels = 1usize;
     let (raw_tx, raw_rx) = watch::channel(RawPayload::new(channels));
     let (display_tx, mut display_rx) = display_channel(channels);
     let state = Arc::new(AppState::new());
     let handle = Mapper::spawn(raw_rx, display_tx, channels, state.clone(), false);
 
-    tokio::time::sleep(MAPPER_STARTUP_DELAY).await;
-    send_frame(&raw_tx, channels, 0.1);
-    tokio::time::timeout(UPDATE_TIMEOUT, display_rx.changed())
-        .await
-        .expect("initial display frame timed out")
-        .expect("display channel closed");
-    display_rx.borrow_and_update();
-
-    state.is_active.store(false, Ordering::Release);
-    send_frame(&raw_tx, channels, 0.2);
-    tokio::time::sleep(PAUSE_SETTLE_TIME).await;
-    while display_rx.has_changed().unwrap_or(false) {
-        display_rx.borrow_and_update();
-    }
-
-    state.is_active.store(true, Ordering::Release);
-    let stale_update = tokio::time::timeout(PAUSE_SETTLE_TIME, display_rx.changed()).await;
+    let initial_update = tokio::time::timeout(UPDATE_TIMEOUT, display_rx.changed()).await;
     assert!(
-        stale_update.is_err(),
-        "resume must not publish the pre-resume snapshot"
+        initial_update.is_err(),
+        "the mapper must wait for analysis before publishing"
     );
 
     send_frame(&raw_tx, channels, 0.3);
     tokio::time::timeout(UPDATE_TIMEOUT, display_rx.changed())
         .await
-        .expect("fresh post-resume frame timed out")
+        .expect("first analysis frame timed out")
         .expect("display channel closed");
     assert_eq!(display_rx.borrow_and_update().channels[0].peak, 0.3);
 
