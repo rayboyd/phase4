@@ -38,7 +38,7 @@ If the device is missing, check its connection, driver and audio-input permissio
 
 The current dependencies restrict builds to x86_64 and aarch64. CI runs on Linux, release builds cover Linux x86_64 and macOS aarch64, and Windows is not built or tested by the repository workflows.
 
-The analyser currently uses `no_denormals` to alter floating-point processor flags. On x86_64, its use conflicts with [Rust's documented floating-point environment requirements](https://doc.rust-lang.org/core/arch/x86_64/fn._mm_setcsr.html). This is an unresolved portability issue, even when a build and soak test succeed.
+The analyser retains `no_denormals` to suppress subnormal arithmetic. Its documented Rust compiler-contract limitation is accepted with behavioural regression coverage. See [denormal handling](denormals.md) for the scope of that acceptance, debug and release test commands, and native x86_64 validation requirements. Passing tests do not resolve the compiler-contract limitation.
 
 ### Linux
 

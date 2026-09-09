@@ -6,7 +6,8 @@
 //! The thread requests `ANALYSER_THREAD_PRIORITY`. Mapping and permissions
 //! depend on the OS, and failure leaves the default priority in use.
 //! [`no_denormals()`] suppresses subnormal values to reduce their processing
-//! cost. Its `x86_64` floating-point environment safety remains unresolved.
+//! cost. Its `x86_64` compiler-contract limitation is accepted with behavioural
+//! regression coverage. See `docs/denormals.md` for the validation policy.
 
 use super::audio::Specs;
 use crate::app::AppState;
@@ -210,8 +211,8 @@ impl Processor {
 
                 // Suppress subnormal values for the DSP loop. This changes FTZ/DAZ
                 // on `x86_64` and FPCR flush-to-zero flags on aarch64.
-                // TODO: resolve the `x86_64` Rust floating-point environment conflict
-                // documented by no_denormals. Thread-local intent is not a safety proof.
+                // The documented compiler-contract limitation is accepted with
+                // regression coverage. See docs/denormals.md for the validation policy.
                 unsafe {
                     no_denormals(|| {
                         while state.keep_running.load(Ordering::Acquire) || !consumer.is_empty() {

@@ -57,3 +57,6 @@ jobs:
 
       - name: Test
         run: cargo ci-test
+
+      - name: Denormal release regression tests
+        run: cargo test --locked --release --test denormals
