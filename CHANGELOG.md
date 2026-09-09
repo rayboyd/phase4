@@ -22,6 +22,22 @@ All notable changes to Phase4 will be documented in this file.
   prepared bundle and encoding buffer for subsequent frames. The compact
   addresses allow a complete 64-channel, 32-band frame in one datagram.
 
+### Refactor
+
+- Share device enumeration between text and JSON listings for audio and MIDI.
+  Consolidate MIDI worker startup while preserving device-listing output and
+  thread behaviour.
+
+### Testing
+
+- Strengthen worker shutdown coverage for handle consumption, join order,
+  MIDI unparking, absent workers and repeated shutdown. Remove redundant
+  OSC address-format and ring-buffer tests covered by production-path checks.
+
+### Documentation
+
+- Replace stale implementation comments with descriptions of current behaviour.
+
 ## 0.0.16
 
 ### Build

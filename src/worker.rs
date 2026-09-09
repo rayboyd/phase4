@@ -1,11 +1,9 @@
 //! Worker thread ownership and coordinated shutdown for the audio pipeline.
 //!
-//! `WorkerThreads` owns the [`JoinHandle`] for each pipeline stage plus a
-//! dynamic list of output transport workers (WebSocket server, OSC sender,
-//! and any future transport). Shutdown is driven by `WorkerThreads::shutdown`,
-//! which joins the fixed pipeline stages in order, then the output workers in
-//! the order they were spawned, waiting a bounded time for each one before
-//! detaching.
+//! `WorkerThreads` owns the [`JoinHandle`] for each pipeline stage, MIDI input
+//! and configured output transport. Shutdown joins the generator, analyser,
+//! mapper and MIDI input, then the output workers in registration order.
+//! Each join has a grace period, after which an unfinished worker is detached.
 //!
 //! Registering a new output worker for shutdown requires extending `OutputWorker` with
 //! a new variant, giving it a `WorkerSpec` in `OutputWorker::spec`, and
@@ -279,20 +277,123 @@ mod tests {
     }
 
     #[test]
-    fn shutdown_joins_midi_input_when_present() {
-        let (tx, rx) = mpsc::channel();
+    fn shutdown_unparks_and_joins_midi_input() {
+        const READY_TIMEOUT: Duration = Duration::from_secs(1);
+
+        testing_logger::setup();
+        let keep_running = Arc::new(AtomicBool::new(true));
+        let exited = Arc::new(AtomicBool::new(false));
+        let thread_keep_running = Arc::clone(&keep_running);
+        let thread_exited = Arc::clone(&exited);
+        let (ready_tx, ready_rx) = mpsc::channel();
         let handle = thread::spawn(move || {
-            tx.send(())
-                .expect("midi-input exit signal should be delivered");
+            ready_tx.send(()).expect("ready signal should be delivered");
+            loop {
+                thread::park();
+                if !thread_keep_running.load(Ordering::Acquire) {
+                    break;
+                }
+            }
+            thread_exited.store(true, Ordering::Release);
         });
+        ready_rx
+            .recv_timeout(READY_TIMEOUT)
+            .expect("worker should start");
 
         let mut workers = WorkerThreads {
             midi_input: Some(handle),
             ..WorkerThreads::default()
         };
+        keep_running.store(false, Ordering::Release);
         workers.shutdown();
 
-        rx.recv_timeout(Duration::from_millis(200))
-            .expect("midi_input handle should have been joined by shutdown");
+        assert!(
+            workers.midi_input.is_none(),
+            "shutdown must consume the handle"
+        );
+        assert!(
+            exited.load(Ordering::Acquire),
+            "worker must finish before shutdown returns"
+        );
+        testing_logger::validate(|logs| {
+            assert_eq!(logs.len(), 1);
+            assert_eq!(logs[0].level, log::Level::Info);
+            assert_eq!(logs[0].body, "- MIDI input shutdown complete");
+        });
+    }
+
+    #[test]
+    fn shutdown_preserves_join_order_and_consumes_handles_once() {
+        for outputs in [
+            [OutputWorker::WebSocket, OutputWorker::Osc],
+            [OutputWorker::Osc, OutputWorker::WebSocket],
+        ] {
+            testing_logger::setup();
+            let mut workers = WorkerThreads::new(
+                Some(thread::spawn(|| {})),
+                Some(thread::spawn(|| {})),
+                Some(thread::spawn(|| {})),
+                Some(thread::spawn(|| {})),
+                outputs
+                    .into_iter()
+                    .map(|worker| (worker, thread::spawn(|| {})))
+                    .collect(),
+            );
+            let expected_outputs = match outputs[0] {
+                OutputWorker::WebSocket => [
+                    "- WebSocket server shutdown complete",
+                    "- OSC sender shutdown complete",
+                ],
+                OutputWorker::Osc => [
+                    "- OSC sender shutdown complete",
+                    "- WebSocket server shutdown complete",
+                ],
+            };
+            let expected_messages = [
+                "- Generator shutdown complete",
+                "- Analyser shutdown complete",
+                "- Mapper shutdown complete",
+                "- MIDI input shutdown complete",
+                expected_outputs[0],
+                expected_outputs[1],
+            ];
+
+            workers.shutdown();
+            assert!(workers.pipeline.iter().all(Option::is_none));
+            assert!(workers.midi_input.is_none());
+            assert!(workers.outputs.is_empty());
+            workers.shutdown();
+
+            testing_logger::validate(|logs| {
+                let messages: Vec<_> = logs.iter().map(|entry| entry.body.as_str()).collect();
+                assert_eq!(messages, expected_messages);
+                assert!(logs.iter().all(|entry| entry.level == log::Level::Info));
+            });
+        }
+    }
+
+    #[test]
+    fn shutdown_skips_absent_workers() {
+        testing_logger::setup();
+        let mut workers = WorkerThreads::new(
+            None,
+            Some(thread::spawn(|| {})),
+            Some(thread::spawn(|| {})),
+            None,
+            Vec::new(),
+        );
+        workers.shutdown();
+        assert!(workers.pipeline.iter().all(Option::is_none));
+        assert!(workers.midi_input.is_none());
+        assert!(workers.outputs.is_empty());
+
+        testing_logger::validate(|logs| {
+            let messages: Vec<_> = logs.iter().map(|entry| entry.body.as_str()).collect();
+            assert_eq!(
+                messages,
+                ["- Analyser shutdown complete", "- Mapper shutdown complete"]
+            );
+            assert!(logs.iter().all(|entry| entry.level == log::Level::Info));
+        });
     }
 }
