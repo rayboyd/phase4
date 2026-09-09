@@ -2,9 +2,9 @@
 
 All notable changes to Phase4 will be documented in this file.
 
-## Unreleased
+## 0.0.17
 
-### Breaking Change
+### Breaking Changes
 
 - Shorten OSC bin addresses from `/phase4/ch/{channel}/bin/{bin}` to
   `/ch/{channel}/bin/{bin}`. MIDI addresses are unchanged.
@@ -17,26 +17,31 @@ All notable changes to Phase4 will be documented in this file.
 
 ### Bug Fixes
 
-- Build and encode the OSC bin bundle during startup, rejecting output above
-  the supported 65,507-byte UDP payload limit with a clear error. Reuse the
-  prepared bundle and encoding buffer for subsequent frames. The compact
-  addresses allow a complete 64-channel, 32-band frame in one datagram.
+- Reject unstable vocoder coefficients at startup ([ec513d5](https://github.com/rayboyd/phase4/commit/ec513d59d5c9aa9d1cd157c176703cd5a0cae4a1))
+- Bound client writes and flushes ([91728c7](https://github.com/rayboyd/phase4/commit/91728c779b440142b9ce91d7a3618bee06e62525))
+- Compact bin addresses and validate UDP payload size ([952745e](https://github.com/rayboyd/phase4/commit/952745ecf5e80de7ffab88829db2dd2b8ec8d51f))
 
-### Refactor
+### Build
 
-- Share device enumeration between text and JSON listings for audio and MIDI.
-  Consolidate MIDI worker startup while preserving device-listing output and
-  thread behaviour.
-
-### Testing
-
-- Strengthen worker shutdown coverage for handle consumption, join order,
-  MIDI unparking, absent workers and repeated shutdown. Remove redundant
-  OSC address-format and ring-buffer tests covered by production-path checks.
+- Raise minimum Rust version to 1.88 ([c0122e4](https://github.com/rayboyd/phase4/commit/c0122e4ceee68a9d63b183f5a74971570bbeaa52))
+- Align Clippy with Rust 1.88 ([8fbcdc0](https://github.com/rayboyd/phase4/commit/8fbcdc05a2557b53cc82d0ae98052bfb971bad9f))
 
 ### Documentation
 
-- Replace stale implementation comments with descriptions of current behaviour.
+- Correct the unnormalised bin value range ([8035135](https://github.com/rayboyd/phase4/commit/8035135bc7e4d2249b9312ff06649ee8f0f06f68))
+- Clarify bounded buffering and callback guarantees ([80df3c5](https://github.com/rayboyd/phase4/commit/80df3c5a83183d2b7b27cb5b1a975ace19d9432f))
+- Align documentation with runtime behaviour ([4ca78df](https://github.com/rayboyd/phase4/commit/4ca78dff14cd774fe1412f5d5e5deb8bc5f35619))
+
+### Refactor
+
+- Remove engine pause support ([1640890](https://github.com/rayboyd/phase4/commit/1640890544b1e8d22f7772088eca7e4a28030d57))
+- Tidy device setup and strengthen shutdown coverage ([e1de269](https://github.com/rayboyd/phase4/commit/e1de269f24ed658b060acdfda3eec7d6fd488e17))
+- Consolidate worker thread ownership ([322a9cd](https://github.com/rayboyd/phase4/commit/322a9cd27491b47f70c45cd10b210c20589221db))
+- Extract snapshot serialiser loop ([b7e1000](https://github.com/rayboyd/phase4/commit/b7e10003ba95f57d62faee1c5a28bdf1ea3ba8e2))
+
+### Testing
+
+- Cover denormal handling and document accepted risk ([9ac1e70](https://github.com/rayboyd/phase4/commit/9ac1e70e112b97fdd156bab93cc8f499e4c3c5a1))
 
 ## 0.0.16
 
