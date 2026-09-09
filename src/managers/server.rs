@@ -351,7 +351,7 @@ impl Server {
 
     async fn run(
         std_listener: std::net::TcpListener,
-        mut display_rx: watch::Receiver<DisplayPayload>,
+        display_rx: watch::Receiver<DisplayPayload>,
         state: Arc<AppState>,
         no_browser_origin: bool,
         max_clients: usize,
@@ -376,61 +376,18 @@ impl Server {
         let initial_serialised =
             initial_serialised_snapshot(&display_rx.borrow(), &mut serialise_failure_logged);
         let (serialised_tx, serialised_rx) = watch::channel(initial_serialised);
-        let (snapshot_refresh_tx, mut snapshot_refresh_rx) =
+        let (snapshot_refresh_tx, snapshot_refresh_rx) =
             mpsc::channel::<SnapshotRefreshRequest>(SNAPSHOT_REFRESH_QUEUE_CAPACITY);
         #[cfg(test)]
         advance_serialiser_progress(serialiser_progress_observer.as_ref());
-        join_set.spawn(async move {
-            loop {
-                let refresh_completion = tokio::select! {
-                    changed = display_rx.changed() => {
-                        if changed.is_err() {
-                            break;
-                        }
-                        None
-                    }
-                    request = snapshot_refresh_rx.recv() => {
-                        let Some(completion) = request else {
-                            break;
-                        };
-                        Some(completion)
-                    }
-                };
-
-                if refresh_completion.is_none()
-                    && !has_connected_clients(serialised_tx.receiver_count())
-                {
-                    // Mark the frame consumed and skip the encode, nobody is
-                    // listening. A new connection requests a current snapshot
-                    // before its client task starts.
-                    let _ = display_rx.borrow_and_update();
-                    #[cfg(test)]
-                    advance_serialiser_progress(serialiser_progress_observer.as_ref());
-                    continue;
-                }
-
-                // Avoid a per-frame DisplayPayload clone, the serialised output still needs
-                // a fresh owned buffer per frame for fan-out to client tasks.
-                if let Some(json) = serialise_display_payload(
-                    &display_rx.borrow_and_update(),
-                    &mut serialise_failure_logged,
-                ) {
-                    let snapshot_changed = refresh_completion.is_none() || {
-                        let current_snapshot = serialised_tx.borrow();
-                        current_snapshot.as_str() != json.as_str()
-                    };
-                    if snapshot_changed {
-                        serialised_tx.send_replace(json);
-                    }
-                }
-
-                if let Some(completion) = refresh_completion {
-                    let _ = completion.send(());
-                }
-                #[cfg(test)]
-                advance_serialiser_progress(serialiser_progress_observer.as_ref());
-            }
-        });
+        join_set.spawn(Self::run_serialiser(
+            display_rx,
+            serialised_tx,
+            snapshot_refresh_rx,
+            serialise_failure_logged,
+            #[cfg(test)]
+            serialiser_progress_observer,
+        ));
 
         loop {
             reap_completed_tasks(&mut join_set);
@@ -483,6 +440,67 @@ impl Server {
             while join_set.join_next().await.is_some() {}
         })
         .await;
+    }
+
+    /// Publishes serialised snapshots for connected clients and acknowledges
+    /// explicit refresh requests before a new client starts. The initial
+    /// snapshot and subsequent frames share one serialisation failure streak.
+    async fn run_serialiser(
+        mut display_rx: watch::Receiver<DisplayPayload>,
+        serialised_tx: watch::Sender<Utf8Bytes>,
+        mut snapshot_refresh_rx: mpsc::Receiver<SnapshotRefreshRequest>,
+        mut serialise_failure_logged: bool,
+        #[cfg(test)] serialiser_progress_observer: Option<watch::Sender<usize>>,
+    ) {
+        loop {
+            let refresh_completion = tokio::select! {
+                changed = display_rx.changed() => {
+                    if changed.is_err() {
+                        break;
+                    }
+                    None
+                }
+                request = snapshot_refresh_rx.recv() => {
+                    let Some(completion) = request else {
+                        break;
+                    };
+                    Some(completion)
+                }
+            };
+
+            if refresh_completion.is_none()
+                && !has_connected_clients(serialised_tx.receiver_count())
+            {
+                // Mark the frame consumed and skip the encode, nobody is
+                // listening. A new connection requests a current snapshot
+                // before its client task starts.
+                let _ = display_rx.borrow_and_update();
+                #[cfg(test)]
+                advance_serialiser_progress(serialiser_progress_observer.as_ref());
+                continue;
+            }
+
+            // Avoid a per-frame DisplayPayload clone, the serialised output still needs
+            // a fresh owned buffer per frame for fan-out to client tasks.
+            if let Some(json) = serialise_display_payload(
+                &display_rx.borrow_and_update(),
+                &mut serialise_failure_logged,
+            ) {
+                let snapshot_changed = refresh_completion.is_none() || {
+                    let current_snapshot = serialised_tx.borrow();
+                    current_snapshot.as_str() != json.as_str()
+                };
+                if snapshot_changed {
+                    serialised_tx.send_replace(json);
+                }
+            }
+
+            if let Some(completion) = refresh_completion {
+                let _ = completion.send(());
+            }
+            #[cfg(test)]
+            advance_serialiser_progress(serialiser_progress_observer.as_ref());
+        }
     }
 
     async fn handle_client(
