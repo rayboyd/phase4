@@ -139,36 +139,21 @@ impl MidiListener {
     /// Returns an error if MIDI input cannot be initialised, or if JSON
     /// encoding of the device list fails.
     pub fn list_devices(format: ListFormat) -> Result<()> {
+        let entries = Self::enumerate_devices()?;
         match format {
-            ListFormat::Text => Self::list_devices_text(),
-            ListFormat::Json => Self::list_devices_json(),
+            ListFormat::Text => {
+                Self::list_devices_text(&entries);
+                Ok(())
+            }
+            ListFormat::Json => Self::list_devices_json(&entries),
         }
     }
 
-    fn list_devices_text() -> Result<()> {
+    fn enumerate_devices() -> Result<Vec<MidiDeviceInfo>> {
         let midi_in = midir::MidiInput::new("phase4").context("Failed to initialise MIDI input")?;
         let ports = midi_in.ports();
 
-        if ports.is_empty() {
-            log::warn!("[*] No MIDI input devices detected.");
-            return Ok(());
-        }
-
-        for (index, port) in ports.iter().enumerate() {
-            let name = midi_in
-                .port_name(port)
-                .unwrap_or_else(|_| "Unknown Device".to_string());
-            log::info!("[{index}] {name}");
-        }
-
-        Ok(())
-    }
-
-    fn list_devices_json() -> Result<()> {
-        let midi_in = midir::MidiInput::new("phase4").context("Failed to initialise MIDI input")?;
-        let ports = midi_in.ports();
-
-        let entries: Vec<MidiDeviceInfo> = ports
+        Ok(ports
             .iter()
             .enumerate()
             .map(|(index, port)| MidiDeviceInfo {
@@ -177,12 +162,24 @@ impl MidiListener {
                     .port_name(port)
                     .unwrap_or_else(|_| "Unknown Device".to_string()),
             })
-            .collect();
+            .collect())
+    }
 
+    fn list_devices_text(entries: &[MidiDeviceInfo]) {
+        if entries.is_empty() {
+            log::warn!("[*] No MIDI input devices detected.");
+            return;
+        }
+
+        for entry in entries {
+            log::info!("[{}] {}", entry.index, entry.name);
+        }
+    }
+
+    fn list_devices_json(entries: &[MidiDeviceInfo]) -> Result<()> {
         let json =
-            serde_json::to_string(&entries).context("Failed to serialise MIDI device list")?;
+            serde_json::to_string(entries).context("Failed to serialise MIDI device list")?;
         println!("{json}");
-
         Ok(())
     }
 
@@ -192,22 +189,18 @@ impl MidiListener {
     ///
     /// Panics if the OS thread cannot be spawned.
     pub(crate) fn spawn(source: MidiInputSource, state: Arc<AppState>) -> JoinHandle<()> {
-        match source {
-            MidiInputSource::TestClock { tick_interval, .. } => thread::Builder::new()
-                .name("midi-input".into())
-                .spawn(move || {
-                    set_midi_thread_priority();
-                    run_synthetic_clock(tick_interval, &state);
-                })
-                .expect("failed to spawn midi-input thread"),
-            MidiInputSource::Hardware(connection) => thread::Builder::new()
-                .name("midi-input".into())
-                .spawn(move || {
-                    set_midi_thread_priority();
-                    run_real_device(connection, &state);
-                })
-                .expect("failed to spawn midi-input thread"),
-        }
+        thread::Builder::new()
+            .name("midi-input".into())
+            .spawn(move || {
+                set_midi_thread_priority();
+                match source {
+                    MidiInputSource::TestClock { tick_interval, .. } => {
+                        run_synthetic_clock(tick_interval, &state);
+                    }
+                    MidiInputSource::Hardware(connection) => run_real_device(connection, &state),
+                }
+            })
+            .expect("failed to spawn midi-input thread")
     }
 }
 
@@ -313,6 +306,41 @@ fn run_real_device(_connection: midir::MidiInputConnection<u8>, state: &Arc<AppS
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn text_device_listing_preserves_device_indices_and_names() {
+        testing_logger::setup();
+        let entries = [
+            MidiDeviceInfo {
+                index: 0,
+                name: "MIDI input".to_string(),
+            },
+            MidiDeviceInfo {
+                index: 1,
+                name: "Unknown Device".to_string(),
+            },
+        ];
+        MidiListener::list_devices_text(&entries);
+
+        testing_logger::validate(|logs| {
+            assert_eq!(logs.len(), entries.len());
+            assert_eq!(logs[0].body, "[0] MIDI input");
+            assert_eq!(logs[1].body, "[1] Unknown Device");
+            assert!(logs.iter().all(|entry| entry.level == log::Level::Info));
+        });
+    }
+
+    #[test]
+    fn empty_text_device_listing_reports_no_devices() {
+        testing_logger::setup();
+        MidiListener::list_devices_text(&[]);
+
+        testing_logger::validate(|logs| {
+            assert_eq!(logs.len(), 1);
+            assert_eq!(logs[0].level, log::Level::Warn);
+            assert_eq!(logs[0].body, "[*] No MIDI input devices detected.");
+        });
+    }
 
     #[test]
     fn connect_midi_device_fails_for_an_unmatched_name() {
@@ -494,10 +522,16 @@ mod tests {
     #[test]
     fn synthetic_clock_exits_promptly_when_keep_running_clears() {
         let state = Arc::new(AppState::new());
-        let thread_state = state.clone();
         let tick_interval = crate::config::midi_tick_interval(120.0)
             .expect("120 bpm should produce a valid tick interval");
-        let handle = thread::spawn(move || run_synthetic_clock(tick_interval, &thread_state));
+        let handle = MidiListener::spawn(
+            MidiInputSource::TestClock {
+                bpm: 120.0,
+                tick_interval,
+            },
+            Arc::clone(&state),
+        );
+        assert_eq!(handle.thread().name(), Some("midi-input"));
 
         thread::sleep(Duration::from_millis(20));
         let start = Instant::now();

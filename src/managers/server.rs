@@ -40,9 +40,7 @@ use tokio_tungstenite::tungstenite::{
     Message, Utf8Bytes,
 };
 
-/// How long the TCP listener blocks before yielding to check the `keep_running` flag.
-/// Matches `Controller::POLL_RATE_MS`, the app's existing threshold for "responsive
-/// enough to feel instant, cheap enough to poll continuously".
+/// Interval between shutdown flag checks while waiting for a TCP connection.
 const ACCEPT_TIMEOUT_MS: u64 = 100;
 
 /// How long a newly accepted TCP client has to complete the WebSocket handshake.

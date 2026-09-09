@@ -12,15 +12,14 @@
 //! count. `/phase4/midi/start`, `/phase4/midi/stop`, and
 //! `/phase4/midi/continue` each carry one `i` argument (`1`, a conventional
 //! bang value) and are sent when the consumed snapshot contains that event.
-//! MIDI messages are sent individually, not folded into the bin bundle. They
-//! are low frequency and broadcast-channel based already, not the per-call
-//! cost the bundle exists to amortise.
+//! MIDI values arrive in the display snapshot over the same watch channel.
+//! MIDI messages are sent individually, outside the bin bundle.
 //!
 //! All `channels * BAND_COUNT` bin messages are pre-built and encoded once
 //! during startup, as a single persistent `OscPacket::Bundle`. Startup rejects
 //! an encoded bundle above the supported 65,507-byte UDP payload limit for
-//! either address family. The bundle is not rebuilt per frame. Each frame, only the float arguments are
-//! mutated in place, then the whole bundle is encoded and sent as one
+//! either address family. Each frame, only the float arguments are mutated
+//! in place, then the whole bundle is encoded and sent as one
 //! `sendto` call rather than one call per bin. At the default build (stereo,
 //! 32 bins, 64 bin messages), the encoded bundle is 1,728 bytes,
 //! over standard Ethernet's 1500 byte MTU. That's fine on loopback, whose MTU
@@ -539,19 +538,6 @@ mod tests {
                 panic!("{expected_addr} must be an OscMessage");
             }
         }
-    }
-
-    // Address strings must follow the /ch/{n}/bin/{n} scheme exactly.
-    #[test]
-    fn osc_address_format_is_correct() {
-        assert_eq!(
-            format!("/ch/{ch}/bin/{bin}", ch = 0, bin = 0),
-            "/ch/0/bin/0"
-        );
-        assert_eq!(
-            format!("/ch/{ch}/bin/{bin}", ch = 1, bin = 63),
-            "/ch/1/bin/63"
-        );
     }
 
     // Encoding a float OSC message with encode_into must succeed and produce

@@ -129,9 +129,7 @@ fn coefficients_are_stable(coefficients: &Coefficients<f32>) -> bool {
 /// [`BAND_COUNT`] envelope values, one per logarithmically spaced band.
 pub struct VocoderAnalyser {
     /// One bandpass filter per band, coefficients from the Audio EQ Cookbook
-    /// (Robert Bristow-Johnson) via the `biquad` crate. `DirectForm1` mirrors
-    /// the previous hand-written state layout while delegating the
-    /// coefficient maths.
+    /// (Robert Bristow-Johnson) via the `biquad` crate, using `DirectForm1` state.
     filters: [DirectForm1<f32>; BAND_COUNT],
 
     /// One envelope follower per band, tracking its filter's rectified output.

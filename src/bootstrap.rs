@@ -1,9 +1,8 @@
 //! Resolves an [`AppConfig`] into running workers and shared state.
 //!
-//! [`bootstrap`] is the first half of what `App::new` used to do in one
-//! function. It queries hardware, validates it, sizes the ringbufs, and
-//! spawns every worker thread. `App::new` calls it once, then assembles the
-//! [`App`](crate::app::App) value from the result.
+//! [`bootstrap`] queries hardware, validates configuration, sizes the ring
+//! buffers and starts the configured workers. [`App::new`](crate::app::App::new)
+//! assembles the application from the returned state and worker handles.
 
 use crate::app::AppState;
 use crate::config::{
@@ -48,8 +47,7 @@ enum InputSource {
 /// Everything `App::new` needs to finish construction once configuration has
 /// been resolved and every worker thread spawned.
 pub(crate) struct Bootstrapped {
-    /// Kept alive until dropped. Dropping the stream stops audio capture,
-    /// and wraps the device in an Option so the caller can drop it on command.
+    /// Owns the input stream. Dropping it stops audio capture.
     pub(crate) input_device: Input,
 
     /// Shared atomic flags for cross-thread coordination.

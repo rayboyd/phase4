@@ -170,9 +170,8 @@ impl App {
 }
 
 impl Drop for App {
-    // Keep drop lightweight and idempotent by delegating to the explicit
-    // shutdown path. This gives callers a best effort fallback when they
-    // do not call shutdown() themselves.
+    // Fallback for callers that omit explicit shutdown. This can wait for
+    // the device stream to drop and for each worker's join grace period.
     fn drop(&mut self) {
         self.shutdown();
     }

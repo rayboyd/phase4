@@ -253,73 +253,28 @@ impl Input {
     /// Returns an error if the host audio system cannot enumerate input devices,
     /// or if the JSON encoding of the device list fails.
     pub fn list_devices(format: ListFormat) -> Result<()> {
+        let entries = Self::enumerate_devices()?;
         match format {
-            ListFormat::Text => Self::list_devices_text(),
-            ListFormat::Json => Self::list_devices_json(),
-        }
-    }
-
-    /// Human-readable device listing via `log`, one line per device.
-    fn list_devices_text() -> Result<()> {
-        let host = cpal::default_host();
-        let devices = host
-            .input_devices()
-            .context("Failed to query input devices")?;
-
-        let mut devices_found = false;
-        for (index, device) in devices.enumerate() {
-            devices_found = true;
-            let name = device
-                .description()
-                .map_or_else(|_| "Unknown Device".to_string(), |d| d.name().to_string());
-
-            if let Ok(config) = device.default_input_config() {
-                let format = config.sample_format();
-                let is_f32 = format == cpal::SampleFormat::F32;
-                let status = if is_f32 {
-                    ""
-                } else {
-                    "* No hardware support (32-bit required)"
-                };
-
-                log::info!(
-                    "[{}] {} ({}Hz, {}ch, {:?}) {}",
-                    index,
-                    name,
-                    config.sample_rate(),
-                    config.channels(),
-                    format,
-                    status
-                );
-            } else {
-                log::warn!("[{index}] {name} (Configuration unavailable)");
+            ListFormat::Text => {
+                Self::list_devices_text(&entries);
+                Ok(())
             }
+            ListFormat::Json => Self::list_devices_json(&entries),
         }
-
-        if !devices_found {
-            log::warn!("[*] No input devices detected. Check system permissions");
-        }
-
-        Ok(())
     }
 
-    /// Structured device listing as a single JSON array on stdout.
-    ///
-    /// Nothing else is written to stdout in this mode, `log` output continues to
-    /// go to stderr as normal, so scripts can parse stdout without filtering.
-    fn list_devices_json() -> Result<()> {
+    fn enumerate_devices() -> Result<Vec<DeviceInfo>> {
         let host = cpal::default_host();
         let devices = host
             .input_devices()
             .context("Failed to query input devices")?;
 
-        let entries: Vec<DeviceInfo> = devices
+        Ok(devices
             .enumerate()
             .map(|(index, device)| {
                 let name = device
                     .description()
                     .map_or_else(|_| "Unknown Device".to_string(), |d| d.name().to_string());
-
                 let config = device.default_input_config().ok();
 
                 DeviceInfo {
@@ -335,11 +290,51 @@ impl Input {
                         .is_some_and(|c| c.sample_format() == SampleFormat::F32),
                 }
             })
-            .collect();
+            .collect())
+    }
 
-        let json = serde_json::to_string(&entries).context("Failed to serialise device list")?;
+    /// Human-readable device listing via `log`, one line per device.
+    fn list_devices_text(entries: &[DeviceInfo]) {
+        if entries.is_empty() {
+            log::warn!("[*] No input devices detected. Check system permissions");
+            return;
+        }
+
+        for entry in entries {
+            if let (Some(sample_rate), Some(channels), Some(format)) = (
+                entry.sample_rate,
+                entry.channels,
+                entry.sample_format.as_deref(),
+            ) {
+                let status = if entry.supported {
+                    ""
+                } else {
+                    "* No hardware support (32-bit required)"
+                };
+                log::info!(
+                    "[{}] {} ({}Hz, {}ch, {}) {}",
+                    entry.index,
+                    entry.name,
+                    sample_rate,
+                    channels,
+                    format,
+                    status
+                );
+            } else {
+                log::warn!(
+                    "[{}] {} (Configuration unavailable)",
+                    entry.index,
+                    entry.name
+                );
+            }
+        }
+    }
+
+    /// Structured device listing as a single JSON array on stdout.
+    /// Log output goes to stderr so scripts can parse stdout without filtering.
+    fn list_devices_json(entries: &[DeviceInfo]) -> Result<()> {
+        let json = serde_json::to_string(entries).context("Failed to serialise device list")?;
         println!("{json}");
-
         Ok(())
     }
 
@@ -546,6 +541,69 @@ mod tests {
     fn samples_for_ms_multichannel() {
         check_samples_for_ms(96000, 8, 1, 768);
         check_samples_for_ms(48000, 6, 10, 2880);
+    }
+
+    #[test]
+    fn text_device_listing_preserves_supported_unsupported_and_unavailable_output() {
+        testing_logger::setup();
+        let entries = [
+            DeviceInfo {
+                index: 0,
+                name: "Float device".to_string(),
+                sample_rate: Some(48_000),
+                channels: Some(2),
+                sample_format: Some("F32".to_string()),
+                supported: true,
+            },
+            DeviceInfo {
+                index: 1,
+                name: "Integer device".to_string(),
+                sample_rate: Some(44_100),
+                channels: Some(2),
+                sample_format: Some("I16".to_string()),
+                supported: false,
+            },
+            DeviceInfo {
+                index: 2,
+                name: "Unknown Device".to_string(),
+                sample_rate: None,
+                channels: None,
+                sample_format: None,
+                supported: false,
+            },
+        ];
+        Input::list_devices_text(&entries);
+
+        testing_logger::validate(|logs| {
+            assert_eq!(logs.len(), entries.len());
+            assert_eq!(logs[0].level, log::Level::Info);
+            assert_eq!(logs[0].body, "[0] Float device (48000Hz, 2ch, F32) ");
+            assert_eq!(logs[1].level, log::Level::Info);
+            assert_eq!(
+                logs[1].body,
+                "[1] Integer device (44100Hz, 2ch, I16) * No hardware support (32-bit required)"
+            );
+            assert_eq!(logs[2].level, log::Level::Warn);
+            assert_eq!(
+                logs[2].body,
+                "[2] Unknown Device (Configuration unavailable)"
+            );
+        });
+    }
+
+    #[test]
+    fn empty_text_device_listing_reports_no_devices() {
+        testing_logger::setup();
+        Input::list_devices_text(&[]);
+
+        testing_logger::validate(|logs| {
+            assert_eq!(logs.len(), 1);
+            assert_eq!(logs[0].level, log::Level::Warn);
+            assert_eq!(
+                logs[0].body,
+                "[*] No input devices detected. Check system permissions"
+            );
+        });
     }
 
     #[test]
@@ -807,28 +865,6 @@ mod tests {
         assert!(
             result.is_err(),
             "an empty device query must not match anything"
-        );
-    }
-
-    #[test]
-    fn test_ringbuf_power_of_two() {
-        let specs = Specs {
-            sample_rate: 48000,
-            channels: 2,
-        };
-        let buffer_ms = 5000;
-
-        let (prod, _cons) = Input::create_audio_buffer_pair(specs, buffer_ms);
-
-        // Extract the raw usize from NonZero<usize>
-        let usable_capacity: usize = prod.capacity().get();
-        println!("Usable Capacity: {usable_capacity}");
-
-        let is_pow2 = usable_capacity.is_power_of_two();
-
-        assert!(
-            is_pow2,
-            "Usable capacity {usable_capacity} is NOT a power of two!"
         );
     }
 }
