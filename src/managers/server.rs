@@ -610,6 +610,12 @@ mod tests {
     use super::*;
     use futures_util::StreamExt;
 
+    const CLIENT_RECONNECT_ATTEMPTS: usize = 50;
+    const CLIENT_RECONNECT_DELAY: Duration = Duration::from_millis(20);
+    const TEST_TIMEOUT: Duration = Duration::from_secs(2);
+    const BACKPRESSURE_SOCKET_BUFFER_BYTES: u32 = 1_024;
+    const BACKPRESSURE_PAYLOAD_BYTES: usize = 256 * 1_024;
+
     struct BackpressureClient {
         snapshots: watch::Sender<Utf8Bytes>,
         client: tokio_tungstenite::WebSocketStream<tokio::net::TcpStream>,
@@ -617,11 +623,22 @@ mod tests {
         slots: Arc<Semaphore>,
     }
 
-    const CLIENT_RECONNECT_ATTEMPTS: usize = 50;
-    const CLIENT_RECONNECT_DELAY: Duration = Duration::from_millis(20);
-    const TEST_TIMEOUT: Duration = Duration::from_secs(2);
-    const BACKPRESSURE_SOCKET_BUFFER_BYTES: u32 = 1_024;
-    const BACKPRESSURE_PAYLOAD_BYTES: usize = 256 * 1_024;
+    async fn next_observed_server_count(observer: &mut watch::Receiver<usize>) -> usize {
+        tokio::time::timeout(TEST_TIMEOUT, observer.changed())
+            .await
+            .expect("timed out waiting for an observed server count to change")
+            .expect("server dropped a count observer unexpectedly");
+        *observer.borrow_and_update()
+    }
+
+    async fn join_server(handle: JoinHandle<()>) {
+        let join_task = tokio::task::spawn_blocking(move || handle.join());
+        tokio::time::timeout(TEST_TIMEOUT, join_task)
+            .await
+            .expect("server thread did not stop within the test timeout")
+            .expect("blocking join task panicked")
+            .expect("server thread panicked");
+    }
 
     async fn backpressure_client(initial_snapshot: Utf8Bytes) -> BackpressureClient {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
@@ -666,57 +683,6 @@ mod tests {
             task,
             slots,
         }
-    }
-
-    #[tokio::test]
-    async fn stalled_initial_write_releases_the_client_slot() {
-        let connection =
-            backpressure_client(Utf8Bytes::from("x".repeat(BACKPRESSURE_PAYLOAD_BYTES))).await;
-
-        tokio::time::timeout(TEST_TIMEOUT, connection.task)
-            .await
-            .expect("stalled initial write should terminate")
-            .expect("client task should not panic");
-        assert_eq!(connection.slots.available_permits(), 1);
-        drop(connection.client);
-    }
-
-    #[tokio::test]
-    async fn stalled_update_releases_the_client_slot() {
-        let mut connection =
-            backpressure_client(Utf8Bytes::from_static(EMPTY_DISPLAY_PAYLOAD_JSON)).await;
-        tokio::time::timeout(TEST_TIMEOUT, connection.client.next())
-            .await
-            .expect("initial snapshot should arrive")
-            .expect("client should remain connected")
-            .expect("initial snapshot should be valid");
-
-        connection
-            .snapshots
-            .send_replace(Utf8Bytes::from("x".repeat(BACKPRESSURE_PAYLOAD_BYTES)));
-        tokio::time::timeout(TEST_TIMEOUT, connection.task)
-            .await
-            .expect("stalled update should terminate")
-            .expect("client task should not panic");
-        assert_eq!(connection.slots.available_permits(), 1);
-        drop(connection.client);
-    }
-
-    async fn next_observed_server_count(observer: &mut watch::Receiver<usize>) -> usize {
-        tokio::time::timeout(TEST_TIMEOUT, observer.changed())
-            .await
-            .expect("timed out waiting for an observed server count to change")
-            .expect("server dropped a count observer unexpectedly");
-        *observer.borrow_and_update()
-    }
-
-    async fn join_server(handle: JoinHandle<()>) {
-        let join_task = tokio::task::spawn_blocking(move || handle.join());
-        tokio::time::timeout(TEST_TIMEOUT, join_task)
-            .await
-            .expect("server thread did not stop within the test timeout")
-            .expect("blocking join task panicked")
-            .expect("server thread panicked");
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -833,6 +799,40 @@ mod tests {
             (received_peak - f64::from(LATEST_PEAK)).abs() < f64::EPSILON,
             "the first client must receive the latest consumed frame rather than the startup snapshot"
         );
+    }
+
+    #[tokio::test]
+    async fn stalled_initial_write_releases_the_client_slot() {
+        let connection =
+            backpressure_client(Utf8Bytes::from("x".repeat(BACKPRESSURE_PAYLOAD_BYTES))).await;
+
+        tokio::time::timeout(TEST_TIMEOUT, connection.task)
+            .await
+            .expect("stalled initial write should terminate")
+            .expect("client task should not panic");
+        assert_eq!(connection.slots.available_permits(), 1);
+        drop(connection.client);
+    }
+
+    #[tokio::test]
+    async fn stalled_update_releases_the_client_slot() {
+        let mut connection =
+            backpressure_client(Utf8Bytes::from_static(EMPTY_DISPLAY_PAYLOAD_JSON)).await;
+        tokio::time::timeout(TEST_TIMEOUT, connection.client.next())
+            .await
+            .expect("initial snapshot should arrive")
+            .expect("client should remain connected")
+            .expect("initial snapshot should be valid");
+
+        connection
+            .snapshots
+            .send_replace(Utf8Bytes::from("x".repeat(BACKPRESSURE_PAYLOAD_BYTES)));
+        tokio::time::timeout(TEST_TIMEOUT, connection.task)
+            .await
+            .expect("stalled update should terminate")
+            .expect("client task should not panic");
+        assert_eq!(connection.slots.available_permits(), 1);
+        drop(connection.client);
     }
 
     #[test]

@@ -2,8 +2,8 @@
 //!
 //! Wrapping raw `f32` values in these types lets the compiler enforce unit
 //! correctness at boundaries such as [`crate::config::VocoderConfig`].
-//! Each wrapper stores one `f32` without heap allocation. The types distinguish
-//! units but do not validate numeric ranges or require finite values.
+//! They carry the unit only. Range and finiteness checks live in config
+//! validation.
 
 /// A duration expressed in milliseconds.
 ///

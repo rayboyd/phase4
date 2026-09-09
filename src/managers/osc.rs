@@ -2,41 +2,33 @@
 //! and emits all bin messages for a frame as a single OSC bundle over UDP.
 //!
 //! Addresses follow `/ch/{channel}/bin/{bin}` with a single `f` (float)
-//! argument carrying a non-negative, unnormalised envelope value that can
-//! exceed 1.0. Receivers must unpack OSC bundles and map the addresses to
-//! their own parameters. Output channel indices are contiguous positions
-//! within the selected channel set, not original hardware indices.
+//! argument carrying the unnormalised envelope value, which can exceed 1.0.
+//! Receivers must unpack OSC bundles and map the addresses to their own
+//! parameters. Channel indices follow [`DisplayPayload`] ordering.
 //!
 //! When MIDI input is configured, `/phase4/midi/steps` is sent alongside the
 //! bin bundle every frame, one `i` (int) argument, the current absolute step
 //! count. `/phase4/midi/start`, `/phase4/midi/stop`, and
 //! `/phase4/midi/continue` each carry one `i` argument (`1`, a conventional
-//! bang value) and are sent when the consumed snapshot contains that event.
-//! MIDI values arrive in the display snapshot over the same watch channel.
+//! bang value) and are sent on the frame whose snapshot carries that event.
 //! MIDI messages are sent individually, outside the bin bundle.
 //!
 //! All `channels * BAND_COUNT` bin messages are pre-built and encoded once
-//! during startup, as a single persistent `OscPacket::Bundle`. Startup rejects
-//! an encoded bundle above the supported 65,507-byte UDP payload limit for
-//! either address family. Each frame, only the float arguments are mutated
-//! in place, then the whole bundle is encoded and sent as one
-//! `sendto` call rather than one call per bin. At the default build (stereo,
-//! 32 bins, 64 bin messages), the encoded bundle is 1,728 bytes,
-//! over standard Ethernet's 1500 byte MTU. That's fine on loopback, whose MTU
-//! is commonly larger, but raises IP fragmentation risk if `--osc-addr` is ever
+//! at startup, as a single persistent `OscPacket::Bundle`. Startup rejects
+//! a bundle whose encoding exceeds the 65,507-byte UDP payload limit. Each
+//! frame, only the float arguments are mutated in place, then the whole
+//! bundle is encoded into the same `Vec<u8>` and sent as one `sendto` call
+//! rather than one call per bin, so the steady-state loop does not allocate.
+//! At the default build (stereo, 32 bins, 64 bin messages) the encoded
+//! bundle is 1,728 bytes, over standard Ethernet's 1500 byte MTU. Loopback
+//! has a larger MTU, so this only risks IP fragmentation if `--osc-addr` is
 //! pointed at a non-loopback destination.
 //!
 //! The UDP socket is bound to an ephemeral local port and kept unconnected,
-//! so each send uses `socket.send_to(&bytes, target)`. A reusable `Vec<u8>`
-//! is filled during startup encoding, then retains its capacity. Successful
-//! steady-state encoding and sending reuse that storage. Error reporting
-//! can allocate.
-//!
-//! UDP provides no delivery acknowledgement or receiver backpressure.
-//! Local queue pressure can still delay the blocking socket send.
-//! This transport does not reject non-finite bin values.
-//! The sender is a plain OS thread with a minimal single-threaded Tokio runtime,
-//! required only to await the watch channel in the same pattern as the mapper.
+//! so each send uses `socket.send_to(&bytes, target)`. UDP has no delivery
+//! acknowledgement or receiver backpressure. The sender is a plain OS thread
+//! with a minimal single-threaded Tokio runtime, required only to await the
+//! watch channel in the same pattern as the mapper.
 
 use crate::app::AppState;
 use crate::dsp::{DisplayPayload, BAND_COUNT};
@@ -54,12 +46,13 @@ use tokio::sync::watch;
 /// future addresses don't undercut the send buffer sizing below.
 const OSC_MESSAGE_SIZE_ESTIMATE_BYTES: usize = 64;
 
-/// How many frames' worth of burst the send buffer should comfortably
-/// absorb. This reduces queue pressure but does not make sends non-blocking.
+/// How many frames' worth of burst the send buffer should absorb before
+/// `sendto` blocks on a slow OS drain.
 const OSC_SEND_BUFFER_FRAME_HEADROOM: usize = 4;
 
-/// Shared IPv4 and IPv6 payload ceiling, using the conventional IPv4 maximum.
-/// This bounds datagram size, not path MTU or receiver capacity.
+/// Largest UDP payload a single datagram can carry, the IPv4 maximum. IPv6
+/// allows more, but one limit for both families keeps startup validation
+/// independent of the target address.
 const OSC_UDP_PAYLOAD_LIMIT_BYTES: usize = 65_507;
 
 /// Sends mapped display payloads as OSC bundles over UDP.
@@ -76,16 +69,12 @@ impl OscSender {
 
     /// Spawns the OSC sender on a dedicated background thread.
     ///
-    /// Builds and encodes the bin bundle before opening the socket or spawning
-    /// the sender. Rejects bundles above the supported UDP payload limit and
-    /// retains the encoding buffer for subsequent frames.
-    ///
-    /// Binds an ephemeral local UDP socket eagerly so any bind error surfaces
-    /// here as a `Result` rather than panicking inside the spawned thread.
-    /// The socket's send buffer is sized explicitly, scaled to the per-frame
-    /// message burst (`channels * BAND_COUNT`, plus a MIDI allowance of the
-    /// steps message and one transport bang), rather than left on the OS
-    /// default. This provides queue headroom, not a guarantee against blocking.
+    /// Encodes the bin bundle and binds the UDP socket before spawning, so an
+    /// oversized bundle or a bind error returns from here as a `Result`
+    /// rather than panicking inside the thread. The socket's send buffer is
+    /// sized to the per-frame message burst (`channels * BAND_COUNT`, plus
+    /// the MIDI steps message and one transport bang) rather than left on
+    /// the OS default.
     ///
     /// # Errors
     ///
@@ -143,7 +132,8 @@ impl OscSender {
         Ok(handle)
     }
 
-    /// Encodes and validates the fixed bin bundle, retaining both for the sender.
+    /// Builds the bin bundle and encodes it once. The encoded bytes become the
+    /// sender's reusable scratch buffer, already at full capacity.
     fn prepare_bin_bundle(channels: usize) -> Result<(OscPacket, Vec<u8>)> {
         let bin_bundle = Self::build_bin_bundle(channels);
         let scratch = rosc::encoder::encode(&bin_bundle)
@@ -210,7 +200,7 @@ impl OscSender {
 
 /// Pre-built MIDI packets, one per address, updated in place each frame
 /// `midi_enabled` is true. `steps_packet` is sent every frame, the other
-/// three are sent when the consumed snapshot contains their transport event.
+/// three on the frame whose snapshot carries their transport event.
 // The shared _packet suffix cannot be dropped. `continue` is a reserved
 // keyword, so the transport fields need a suffix to stay consistent.
 #[allow(clippy::struct_field_names)]
@@ -282,11 +272,11 @@ impl OscRuntime {
                 let OscPacket::Bundle(bundle) = &mut self.bin_bundle else {
                     unreachable!("bin_bundle is always built as OscPacket::Bundle");
                 };
+                // The as_chunks_mut form clippy suggests reads worse for no gain here.
+                #[allow(clippy::chunks_exact_to_as_chunks)]
                 for (ch_packets, channel) in bundle
                     .content
-                    .as_chunks_mut::<BAND_COUNT>()
-                    .0
-                    .iter_mut()
+                    .chunks_exact_mut(BAND_COUNT)
                     .zip(guard.channels.iter())
                 {
                     for (packet, &bin_value) in ch_packets.iter_mut().zip(channel.bins.iter()) {

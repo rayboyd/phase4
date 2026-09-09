@@ -1,13 +1,14 @@
 //! [`Processor`] spawns a background thread that drains the analyse ringbuf in
-//! chunks of up to approximately `CHUNK_SIZE_MS` milliseconds, runs per-channel peak measurement
-//! and vocoder envelope analysis, then publishes the resulting
+//! chunks of up to `CHUNK_SIZE_MS` milliseconds, runs per-channel peak
+//! measurement and vocoder envelope analysis, then publishes the resulting
 //! [`crate::dsp::RawPayload`] via a [`tokio::sync::watch`] channel.
 //!
-//! The thread requests `ANALYSER_THREAD_PRIORITY`. Mapping and permissions
-//! depend on the OS, and failure leaves the default priority in use.
-//! [`no_denormals()`] suppresses subnormal values to reduce their processing
-//! cost. Its `x86_64` compiler-contract limitation is accepted with behavioural
-//! regression coverage. See `docs/denormals.md` for the validation policy.
+//! The thread asks for `ANALYSER_THREAD_PRIORITY` so the OS does not starve
+//! it. If the OS refuses, it runs at default priority. [`no_denormals()`]
+//! flushes subnormal values, which on x86 otherwise trigger a microcode
+//! assist per operation once the filters decay into silence. The `x86_64`
+//! compiler-contract risk of that guard is accepted and covered by
+//! `tests/denormals.rs`. See `docs/denormals.md`.
 
 use super::audio::Specs;
 use crate::app::AppState;
@@ -60,9 +61,9 @@ struct State {
 
     /// Number of samples of a trailing partial frame carried over at the front
     /// of `transfer_buffer` from the previous chunk. Always less than
-    /// `channels`. Selected-channel capture publishes samples individually,
-    /// so a read can end within a frame. Carrying those samples until the
-    /// frame is complete preserves channel alignment across chunks.
+    /// `channels`. Selected-channel capture pushes samples one at a time, so
+    /// a pop can end mid-frame. Carrying the remainder keeps every chunk
+    /// frame-aligned.
     pending: usize,
 
     /// Pre-allocated payload buffer, reused every frame to avoid per-call heap allocation.
@@ -208,10 +209,11 @@ impl Processor {
 
                 let mut dsp_state = State::new(specs, raw_tx, &self.vocoder_config);
 
-                // Suppress subnormal values for the DSP loop. This changes FTZ/DAZ
-                // on `x86_64` and FPCR flush-to-zero flags on aarch64.
-                // The documented compiler-contract limitation is accepted with
-                // regression coverage. See docs/denormals.md for the validation policy.
+                // Flush subnormals for the whole DSP loop. Near-silent input
+                // drives the filter state subnormal and x86 handles each such
+                // multiply with a slow assist. Nothing else on this thread relies on
+                // subnormal behaviour. See docs/denormals.md for the accepted
+                // compiler-contract risk.
                 unsafe {
                     no_denormals(|| {
                         while state.keep_running.load(Ordering::Acquire) || !consumer.is_empty() {
@@ -223,9 +225,8 @@ impl Processor {
                             if samples > 0 {
                                 dsp_state.process(samples);
                             } else if state.keep_running.load(Ordering::Acquire) {
-                                // Idle backoff avoids busy-waiting. The OS may resume this thread
-                                // later than the requested sleep. The ring buffer absorbs that
-                                // delay only while enough free capacity remains.
+                                // Idle backoff, not a timing path. Throughput is set by the
+                                // producer, and the ring buffer absorbs a late wake-up.
                                 thread::sleep(Duration::from_millis(IDLE_SLEEP_MS));
                             }
                         }

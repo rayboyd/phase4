@@ -1,14 +1,12 @@
 //! Worker thread ownership and coordinated shutdown for the audio pipeline.
 //!
-//! `WorkerThreads` owns the [`JoinHandle`] for each pipeline stage, MIDI input
-//! and configured output transport. Shutdown joins the generator, analyser,
-//! mapper and MIDI input, then the output workers in registration order.
-//! Each join has a grace period, after which an unfinished worker is detached.
+//! `WorkerThreads` owns the [`JoinHandle`] for every worker. Bootstrap
+//! registers each worker as it starts, in the order shutdown should join
+//! them, so a later startup failure can still stop the ones already running.
+//! Each join has a grace period, after which the worker is detached.
 //!
-//! Workers are registered in shutdown order through `WorkerThreads::register`.
-//! The collection owns each handle and its shutdown metadata until shutdown
-//! drains it. Adding a worker requires a `WorkerKind` and registration at
-//! its startup site.
+//! Adding a worker means adding a `WorkerKind` variant and registering the
+//! handle where the worker is spawned.
 
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
@@ -25,8 +23,8 @@ const ANALYSER_SHUTDOWN_TIMEOUT_MS: u64 = 1_000;
 /// Grace period for the mapper thread to observe analyser channel closure.
 const MAPPER_SHUTDOWN_TIMEOUT_MS: u64 = 1_000;
 
-/// Grace period for the MIDI input thread. The join loop unparks a real
-/// device holder so it can observe shutdown and release its connection.
+/// Grace period for the MIDI input thread. The join loop unparks it so a
+/// parked device holder sees the shutdown flag.
 const MIDI_INPUT_SHUTDOWN_TIMEOUT_MS: u64 = 250;
 
 /// Grace period for the server thread to finish its bounded accept and client shutdown.
@@ -56,6 +54,12 @@ struct WorkerSpec {
     timeout_ms: u64,
 }
 
+impl WorkerSpec {
+    fn timeout(self) -> Duration {
+        Duration::from_millis(self.timeout_ms)
+    }
+}
+
 /// Identifies a worker's shutdown metadata. Registration determines join order.
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum WorkerKind {
@@ -65,6 +69,43 @@ pub(crate) enum WorkerKind {
     MidiInput,
     WebSocket,
     Osc,
+}
+
+impl WorkerKind {
+    fn spec(self) -> WorkerSpec {
+        match self {
+            Self::Generator => WorkerSpec {
+                name: "generator",
+                success_message: "- Generator shutdown complete",
+                timeout_ms: GENERATOR_SHUTDOWN_TIMEOUT_MS,
+            },
+            Self::Analyser => WorkerSpec {
+                name: "analyser",
+                success_message: "- Analyser shutdown complete",
+                timeout_ms: ANALYSER_SHUTDOWN_TIMEOUT_MS,
+            },
+            Self::Mapper => WorkerSpec {
+                name: "mapper",
+                success_message: "- Mapper shutdown complete",
+                timeout_ms: MAPPER_SHUTDOWN_TIMEOUT_MS,
+            },
+            Self::MidiInput => WorkerSpec {
+                name: "midi-input",
+                success_message: "- MIDI input shutdown complete",
+                timeout_ms: MIDI_INPUT_SHUTDOWN_TIMEOUT_MS,
+            },
+            Self::WebSocket => WorkerSpec {
+                name: "websocket-server",
+                success_message: "- WebSocket server shutdown complete",
+                timeout_ms: SERVER_SHUTDOWN_TIMEOUT_MS,
+            },
+            Self::Osc => WorkerSpec {
+                name: "osc-sender",
+                success_message: "- OSC sender shutdown complete",
+                timeout_ms: OSC_SENDER_SHUTDOWN_TIMEOUT_MS,
+            },
+        }
+    }
 }
 
 /// Owns worker handles and shutdown metadata in registration order.
@@ -82,9 +123,9 @@ impl WorkerThreads {
     }
 
     /// Joins workers in registration order, waiting a bounded time for each.
-    /// The caller must first clear `keep_running`. Joining does not set the
-    /// shutdown flag. Workers that exceed their grace period are detached.
-    /// Draining the collection makes repeated shutdown calls harmless.
+    /// The caller clears `keep_running` first. Workers that exceed their grace
+    /// period are detached. The collection is drained, so a second call is a
+    /// no-op.
     pub(crate) fn shutdown(&mut self) {
         for (spec, handle) in self.registered_workers.drain(..) {
             Self::join_and_log(spec, handle);
@@ -132,49 +173,6 @@ impl WorkerThreads {
             let remaining = deadline.saturating_duration_since(now);
             thread::sleep(remaining.min(Duration::from_millis(SHUTDOWN_POLL_MS)));
         }
-    }
-}
-
-impl WorkerKind {
-    fn spec(self) -> WorkerSpec {
-        match self {
-            Self::Generator => WorkerSpec {
-                name: "generator",
-                success_message: "- Generator shutdown complete",
-                timeout_ms: GENERATOR_SHUTDOWN_TIMEOUT_MS,
-            },
-            Self::Analyser => WorkerSpec {
-                name: "analyser",
-                success_message: "- Analyser shutdown complete",
-                timeout_ms: ANALYSER_SHUTDOWN_TIMEOUT_MS,
-            },
-            Self::Mapper => WorkerSpec {
-                name: "mapper",
-                success_message: "- Mapper shutdown complete",
-                timeout_ms: MAPPER_SHUTDOWN_TIMEOUT_MS,
-            },
-            Self::MidiInput => WorkerSpec {
-                name: "midi-input",
-                success_message: "- MIDI input shutdown complete",
-                timeout_ms: MIDI_INPUT_SHUTDOWN_TIMEOUT_MS,
-            },
-            Self::WebSocket => WorkerSpec {
-                name: "websocket-server",
-                success_message: "- WebSocket server shutdown complete",
-                timeout_ms: SERVER_SHUTDOWN_TIMEOUT_MS,
-            },
-            Self::Osc => WorkerSpec {
-                name: "osc-sender",
-                success_message: "- OSC sender shutdown complete",
-                timeout_ms: OSC_SENDER_SHUTDOWN_TIMEOUT_MS,
-            },
-        }
-    }
-}
-
-impl WorkerSpec {
-    fn timeout(self) -> Duration {
-        Duration::from_millis(self.timeout_ms)
     }
 }
 

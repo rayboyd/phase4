@@ -104,7 +104,7 @@ mod tests {
     }
 
     #[test]
-    fn former_pause_keys_are_ignored() {
+    fn unbound_keys_are_ignored() {
         let (controller, state) = controller_with_state();
         testing_logger::setup();
 
@@ -119,7 +119,7 @@ mod tests {
         testing_logger::validate(|captured_logs| {
             assert!(
                 captured_logs.is_empty(),
-                "unused keys must not change engine status"
+                "unbound keys must not log or change state"
             );
         });
     }

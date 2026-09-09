@@ -2,16 +2,17 @@
 //! synthetic clock at a configured tempo, mirroring the calibration or device
 //! split the audio input already has.
 //!
-//! The real device callback or synthetic clock writes two atomics on
-//! `AppState`. The mapper samples them once per publication. The worker
-//! requests a lower priority value than the analyser, but the real MIDI
-//! callback runs on a separate backend thread whose priority is not set here.
+//! The device callback or synthetic clock writes two atomics on `AppState`.
+//! The mapper samples them once per published frame. The synthetic clock
+//! runs on this worker at a lower priority than the analyser. A real device
+//! delivers bytes on midir's own backend thread, and this worker only holds
+//! the connection open.
 //!
 //! Raw bytes are matched directly against the four MIDI Real-Time codes
 //! phase4 cares about. Start, Stop, Continue, and a running 1/16 step
-//! count derived from Clock ticks. Start resets the count, which otherwise
-//! advances for every six ticks, including ticks received while stopped,
-//! and wraps on u32 overflow. Transport stores only the most recent event.
+//! count derived from Clock ticks. Start resets the count. It advances once
+//! per six ticks, including ticks received while stopped, and wraps on u32
+//! overflow. Transport stores only the most recent event.
 
 use crate::app::AppState;
 use crate::ListFormat;
@@ -37,8 +38,7 @@ struct MidiDeviceInfo {
 /// MIDI listener thread priority. Set lower than analyser.
 const MIDI_THREAD_PRIORITY: u8 = 20;
 
-/// Maximum requested sleep between synthetic clock shutdown checks.
-/// Real-device holding threads park until the join loop unparks them.
+/// Longest sleep between shutdown checks in the synthetic clock loop.
 const MIDI_POLL_INTERVAL_MS: u64 = 10;
 
 /// Raw MIDI clock ticks (0xF8 bytes) per 1/16 note step, phase4's fixed
@@ -295,9 +295,9 @@ fn run_synthetic_clock(tick_interval: Duration, state: &Arc<AppState>) {
 }
 
 fn run_real_device(_connection: midir::MidiInputConnection<u8>, state: &Arc<AppState>) {
-    // midir delivers bytes on its own backend thread. Holding the connection keeps
-    // that alive. This thread only needs to wait for shutdown, park the thread
-    // until the shutdown join loop unparks it.
+    // midir delivers bytes on its own backend thread. Holding the connection
+    // keeps that alive. This thread only waits for shutdown, so it parks
+    // until the join loop unparks it.
     while state.keep_running.load(Ordering::Acquire) {
         thread::park();
     }

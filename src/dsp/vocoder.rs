@@ -1,15 +1,13 @@
-//! A filter-bank analyser built from a bank
-//! of fixed bandpass filters, one per band, each followed by an envelope
-//! follower that tracks the band's amplitude over time. This is the classic analogue
-//! vocoder architecture, filter then rectify then smooth, run per audio
-//! sample rather than per FFT window.
+//! A filter-bank analyser built from fixed bandpass filters, one per band,
+//! each followed by an envelope follower that tracks the band's amplitude
+//! over time. This is the classic analogue vocoder architecture, filter then
+//! rectify then smooth, run per audio sample rather than per FFT window.
 //!
 //! Band centres are spaced logarithmically rather than linearly, since pitch
 //! perception is logarithmic, so a linear spacing would waste most of the
-//! bands on the highest octave. Per-sample envelope updates avoid an FFT
-//! window, but response time still depends on filter settling, attack and
-//! release, buffering and output scheduling. The envelopes are not normalised
-//! spectral magnitudes, and filter Q affects both bandwidth and gain.
+//! bands on the highest octave. Envelope values are raw follower output,
+//! not normalised magnitudes, and filter Q sets both bandwidth and gain, so
+//! a band can read above 1.0.
 
 use crate::config::{AppConfigError, VocoderConfig};
 use crate::dsp::units::{Hertz, Milliseconds};
@@ -79,7 +77,8 @@ pub(crate) fn bandpass_coefficients(
         b2: 0.0,
     }; BAND_COUNT];
 
-    for (band, coefficients) in coefficients.iter_mut().enumerate() {
+    for (band, band_coefficients) in coefficients.iter_mut().enumerate() {
+        // Equal steps in log space give geometric (equal ratio) band spacing.
         let position = band as f32 / (BAND_COUNT as f32 - 1.0);
         let frequency_hz = (log_low + position * (log_high - log_low)).exp();
         let invalid_coefficients = || AppConfigError::InvalidVocoderBandCoefficients {
@@ -98,7 +97,7 @@ pub(crate) fn bandpass_coefficients(
         if !coefficients_are_stable(&candidate) {
             return Err(invalid_coefficients());
         }
-        *coefficients = candidate;
+        *band_coefficients = candidate;
     }
 
     Ok(coefficients)
@@ -207,9 +206,7 @@ impl VocoderAnalyser {
         &self.bins
     }
 
-    /// Clears filter and envelope state.
-    ///
-    /// Subsequent processing starts without retained signal history.
+    /// Clears filter and envelope state so the next sample starts from silence.
     pub fn reset(&mut self) {
         for filter in &mut self.filters {
             filter.reset_state();

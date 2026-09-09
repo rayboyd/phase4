@@ -11,19 +11,19 @@ use serde::Serialize;
 #[derive(Debug, Clone, Copy, Default, Serialize)]
 pub struct ChannelLevel {
     /// Peak absolute sample value over the latest analysis chunk, not clamped.
-    /// Intermediate chunk peaks can be skipped before display publication.
     pub peak: f32,
 
-    /// Unnormalised envelope values ordered from low to high frequency.
-    /// Values include filter gain and can exceed one.
+    /// Envelope value per band, low to high frequency. Raw follower output
+    /// including filter gain, so a value can exceed 1.0.
     pub bins: [f32; BAND_COUNT],
 }
 
 /// Analysis output for every channel, published once per analysis frame.
 #[derive(Debug, Clone, Default)]
 pub struct RawPayload {
-    /// One entry per analysed channel, in selected-channel order.
-    /// Entries are contiguous output positions, not hardware channel indices.
+    /// One entry per analysed channel, in selected-channel order. With
+    /// `--audio-analyse-channels 3,5` entry 0 is hardware channel 3 and
+    /// entry 1 is 5.
     pub channels: Vec<ChannelLevel>,
 }
 
@@ -41,21 +41,20 @@ impl RawPayload {
 #[derive(Debug, Clone, Serialize)]
 pub struct MidiSnapshot {
     /// Last "start", "stop", or "continue" event since the previous mapper
-    /// publication. Omitted from JSON when none is pending. Events can be
-    /// overwritten before publication or skipped by a downstream receiver.
+    /// publication, or `None`. Two events inside one frame keep only the
+    /// later one.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub transport: Option<&'static str>,
 
-    /// MIDI 1/16 note steps counted since Start or initialisation.
-    /// Resets on Start and wraps on u32 overflow. Stop does not gate counting.
+    /// MIDI 1/16 note steps since the last Start. Stop does not pause the
+    /// count, and it wraps on u32 overflow.
     pub steps: u32,
 }
 
-/// Output snapshots scheduled at 60 Hz for WebSocket and OSC.
+/// Output snapshot published at 60 Hz and serialised for WebSocket and OSC.
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct DisplayPayload {
-    /// One entry per analysed channel, in selected-channel order.
-    /// Entries are contiguous output positions, not hardware channel indices.
+    /// One entry per analysed channel, in the same order as [`RawPayload`].
     pub channels: Vec<ChannelLevel>,
 
     /// Absent when MIDI input is not configured or before the first

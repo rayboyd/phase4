@@ -3,16 +3,16 @@
 //! starting a stream, and [`Input::start_stream`] binds the device to
 //! an SPSC ringbuf producer for the analyser.
 //!
-//! The stream callback forwards f32 audio to the analyser through fixed,
-//! pre-allocated storage. It never waits for the analyser to make room. When
-//! there is insufficient space for a complete frame, incoming frames are
-//! discarded and buffered audio remains queued. Dropping complete frames
-//! preserves channel order, but introduces gaps in the analysed signal.
+//! The stream callback pushes f32 frames into a pre-allocated ring buffer and
+//! never waits for the analyser. When the buffer cannot take a whole frame,
+//! the callback drops that frame. A partially written frame would rotate the
+//! channel alignment of every frame the analyser reads after it, whereas a
+//! dropped whole frame is a gap in the analysed signal and nothing more.
 //!
 //! [`Specs`] carries the stream channel count and sample rate for buffer
-//! sizing. Analyser specs use the selected channel count. The application
-//! accepts only a default input configuration reporting `F32`, which is the
-//! host-facing format rather than a statement about hardware converter depth.
+//! sizing. The analyser's specs use the selected channel count. The device's
+//! default input configuration must report `F32`, which is the format cpal
+//! hands to the callback, not the converter depth of the hardware.
 
 use crate::app::AppState;
 use crate::ListFormat;
@@ -71,10 +71,10 @@ impl Specs {
 
     /// Like [`samples_for_ms`], rounded up to a whole frame multiple.
     ///
-    /// The generator writes complete frames, and an aligned analyser buffer
-    /// allows full chunks to end at a frame boundary. The analyser separately
-    /// carries partial reads. `samples_for_ms` alone does not guarantee an
-    /// aligned size. 22050 Hz stereo at 10 ms yields 441 samples.
+    /// The generator writes whole frames and the analyser drains whole
+    /// frames, so both want a buffer whose length is a channel multiple.
+    /// `samples_for_ms` alone can return an odd count. 22050 Hz stereo at
+    /// 10 ms yields 441 samples.
     ///
     /// [`samples_for_ms`]: Specs::samples_for_ms
     #[must_use]
@@ -158,16 +158,14 @@ impl<P: Producer<Item = f32>> StreamSink<P> {
     /// `hw_channels` is the total interleaved channel count from cpal, used to
     /// stride across frames in both modes.
     ///
-    /// Space is checked for complete frames, so overflow never drops only
-    /// part of a frame. Existing buffered audio is retained. In the `All`
-    /// path a frame contains `hw_channels` samples; in the `Selected` path
-    /// it contains `indices.len()` samples.
+    /// Only whole frames are committed, so overflow never rotates the
+    /// analyser's channel alignment. A frame is `hw_channels` samples in the
+    /// `All` path and `indices.len()` samples in the `Selected` path.
     ///
-    /// `All` checks space once and publishes the accepted slice together.
-    /// `Selected` checks space for each frame, so it can use space freed
-    /// during the call, then publishes each selected sample individually.
-    /// The analyser can observe a partial selected frame between those
-    /// publications and carries it until the remaining samples arrive.
+    /// `All` checks space once and pushes the accepted slice in one call.
+    /// `Selected` checks space per frame and pushes each selected sample on
+    /// its own, so the analyser can read a partial frame mid-push. The
+    /// analyser carries that partial frame until the rest arrives.
     ///
     /// Returns `true` if any frame was dropped.
     pub fn push(&mut self, data: &[f32], hw_channels: usize) -> bool {
@@ -218,16 +216,10 @@ impl Input {
     /// Creates a producer and consumer pair sized for approximately `buffer_ms`
     /// milliseconds of interleaved audio at `specs`.
     ///
-    /// Storage is allocated once here and reused by the producer and consumer
-    /// without growing during capture. The calculated sample count is rounded
-    /// up to the next power of two, increasing the available buffering
-    /// headroom when it is not already a power of two. The capacity remains
-    /// fixed for the lifetime of the buffer.
-    ///
-    /// For example, 500 ms at 48 kHz stereo requires 48,000 samples and rounds
-    /// up to 65,536 samples, approximately 683 ms. This is capacity for queued
-    /// audio, not a delay imposed on every sample. The rounding does not
-    /// guarantee bitmask wrapping in `ringbuf`.
+    /// The buffer is allocated once and never grows. Its capacity is the
+    /// requested sample count rounded up to the next power of two, so it
+    /// holds at least `buffer_ms` and usually more. 500 ms at 48 kHz stereo
+    /// asks for 48,000 samples and gets 65,536, about 683 ms.
     ///
     /// # Panics
     ///
@@ -455,8 +447,10 @@ impl Input {
 
         let stream = device.build_input_stream(
             stream_config,
-            // Capture deadlines require this callback to remain allocation-free,
-            // lock-free and non-blocking, even when the analyser falls behind.
+            // cpal calls this on its audio thread at hardware interrupt rate.
+            // It must stay allocation-free, lock-free and non-blocking, so a
+            // full buffer drops the frame rather than waiting. A dropped
+            // analysis frame is invisible to the user, hence the ignored flag.
             move |data: &[f32], _| {
                 let _ = analyse.push(data, hw_channels);
             },

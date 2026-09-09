@@ -6,11 +6,10 @@
 //! hands control to the [`Controller`] for interactive keyboard handling.
 //!
 //! Shared runtime state is carried by [`AppState`], which holds the shutdown
-//! flag and MIDI atomics used by the controller and worker threads.
-//! After dropping the input stream, shutdown signals workers and
-//! gives each one a bounded join grace period. A worker that exceeds it is
-//! detached. These grace periods do not bound the device driver's stream-drop
-//! operation or guarantee that detached workers have stopped.
+//! flag and MIDI atomics used by the controller and worker threads. Shutdown
+//! drops the input stream, clears the flag, then joins each worker with a
+//! grace period so one stalled worker cannot hang the main thread. The
+//! stream drop itself runs inside the device driver and has no timeout.
 
 use crate::bootstrap::bootstrap;
 use crate::config::AppConfig;
@@ -93,8 +92,7 @@ impl App {
     /// limits, an audio or MIDI device cannot be opened, the audio input stream
     /// cannot be started, or a configured output transport cannot bind to its
     /// given address. If an output fails after earlier workers have started,
-    /// construction signals those workers and attempts bounded joins before
-    /// returning the error. Workers exceeding their grace period are detached.
+    /// construction shuts those workers down before returning the error.
     ///
     /// # Panics
     ///
@@ -170,8 +168,7 @@ impl App {
 }
 
 impl Drop for App {
-    // Fallback for callers that omit explicit shutdown. This can wait for
-    // the device stream to drop and for each worker's join grace period.
+    // Fallback for callers that omit explicit shutdown.
     fn drop(&mut self) {
         self.shutdown();
     }
