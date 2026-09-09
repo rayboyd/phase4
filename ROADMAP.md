@@ -9,11 +9,3 @@
   DSP or build-setting changes. Native x86_64 validation precedes assurances
   to users on that architecture. Revisit the implementation if a regression
   is reproduced.
-
-## Low
-
-- **`WorkerThreads` storage consolidation** (`src/worker.rs`). Three storage
-  strategies exist for one concept, a fixed pipeline array indexed by enum
-  with a manually-synced `COUNT`, a special-cased `midi_input` field, and a
-  `Vec` of output workers. A single ordered `Vec<(WorkerSpec, JoinHandle)>`
-  preserves shutdown order.

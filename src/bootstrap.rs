@@ -16,7 +16,7 @@ use crate::managers::audio::{ChannelMode, StreamSink};
 use crate::managers::{
     Generator, Input, Mapper, MidiInputSource, MidiListener, OscSender, Processor, Server, Specs,
 };
-use crate::worker::{OutputWorker, WorkerThreads};
+use crate::worker::{WorkerKind, WorkerThreads};
 use anyhow::Result;
 use std::net::SocketAddr;
 use std::sync::{atomic::Ordering, Arc};
@@ -24,10 +24,6 @@ use tokio::sync::watch;
 
 /// Safety buffer for the analyse ringbuf, headroom for analysis accumulation.
 const ANALYSE_BUFFER_MS: u32 = 500;
-
-/// One spawned output transport worker's identity and thread handle, one
-/// entry per configured [`OutputConfig`].
-type OutputThreads = Vec<(OutputWorker, std::thread::JoinHandle<()>)>;
 
 /// Builds the calibration mode announcement for the given test signal.
 fn calibration_announcement(signal: TestSignal) -> String {
@@ -104,6 +100,7 @@ pub(crate) fn bootstrap(config: &AppConfig) -> Result<Bootstrapped> {
     let (raw_tx, raw_rx) = watch::channel(RawPayload::new(display_channels));
     let (display_tx, display_rx) = watch::channel(DisplayPayload::new(display_channels));
 
+    let mut workers = WorkerThreads::default();
     let generator_thread = spawn_audio_input(
         input_source,
         hw_specs,
@@ -114,26 +111,33 @@ pub(crate) fn bootstrap(config: &AppConfig) -> Result<Bootstrapped> {
         &mut input_device,
     )?;
 
+    if let Some(handle) = generator_thread {
+        workers.register(WorkerKind::Generator, handle);
+    }
+
     let analyser = Processor::new(config.vocoder_config);
-    let analyser_thread = Some(analyser.spawn(analyse_rx, raw_tx, analyser_specs, analyser_state));
-
-    let mapper_thread = Some(Mapper::spawn(
-        raw_rx,
-        display_tx,
-        display_channels,
-        mapper_state,
-        midi_enabled,
-    ));
-
-    let midi_thread = midi_source.map(|source| spawn_midi_input(source, state.clone()));
-
-    let mut workers = WorkerThreads::new(
-        generator_thread,
-        analyser_thread,
-        mapper_thread,
-        midi_thread,
-        Vec::new(),
+    workers.register(
+        WorkerKind::Analyser,
+        analyser.spawn(analyse_rx, raw_tx, analyser_specs, analyser_state),
     );
+
+    workers.register(
+        WorkerKind::Mapper,
+        Mapper::spawn(
+            raw_rx,
+            display_tx,
+            display_channels,
+            mapper_state,
+            midi_enabled,
+        ),
+    );
+
+    if let Some(source) = midi_source {
+        workers.register(
+            WorkerKind::MidiInput,
+            spawn_midi_input(source, state.clone()),
+        );
+    }
 
     // Retain each output handle as it starts so a later output failure can
     // shut down every worker through the normal bounded join path.
@@ -143,7 +147,7 @@ pub(crate) fn bootstrap(config: &AppConfig) -> Result<Bootstrapped> {
         display_channels,
         &state,
         midi_enabled,
-        &mut workers.outputs,
+        &mut workers,
     ) {
         Ok(bound_addr) => bound_addr,
         Err(error) => {
@@ -166,9 +170,9 @@ pub(crate) fn bootstrap(config: &AppConfig) -> Result<Bootstrapped> {
 /// [`OutputConfig`] descriptor to its spawn call.
 ///
 /// Returns the WebSocket listener's actually bound address (`None` if no
-/// WebSocket output is configured). Each spawned thread handle is appended
-/// to `output_threads` immediately so the caller retains ownership if a later
-/// output fails to start.
+/// WebSocket output is configured). Each started output is registered with
+/// `workers` immediately so the caller retains ownership if a later output
+/// fails to start.
 ///
 /// # Errors
 ///
@@ -180,7 +184,7 @@ fn spawn_outputs(
     display_channels: usize,
     state: &Arc<AppState>,
     midi_enabled: bool,
-    output_threads: &mut OutputThreads,
+    workers: &mut WorkerThreads,
 ) -> Result<Option<SocketAddr>> {
     let mut ws_bound_addr = None;
 
@@ -195,7 +199,7 @@ fn spawn_outputs(
                 let (bound_addr, handle) = server.spawn(display_rx.clone(), Arc::clone(state))?;
                 log::info!("WebSocket server listening on ws://{bound_addr}");
                 ws_bound_addr = Some(bound_addr);
-                output_threads.push((OutputWorker::WebSocket, handle));
+                workers.register(WorkerKind::WebSocket, handle);
             }
             OutputConfig::Osc { addr } => {
                 let sender = OscSender::new(*addr);
@@ -206,7 +210,7 @@ fn spawn_outputs(
                     midi_enabled,
                 )?;
                 log::info!("OSC sender transmitting to udp://{addr}");
-                output_threads.push((OutputWorker::Osc, handle));
+                workers.register(WorkerKind::Osc, handle);
             }
         }
     }

@@ -16,6 +16,8 @@ The allocation-free, lock-free requirement applies to the sample callback. Downs
 
 Analysis and display publication run continuously after startup. The controller handles `Ctrl+C` to request shutdown.
 
+Worker handles and their shutdown metadata are stored in one private ordered collection. Startup registers the generator when present, then the analyser, mapper, MIDI input when present and each configured output. Shutdown drains that collection in registration order, preserving each worker's existing timeout and unparking behaviour. A repeated shutdown has no remaining handles to join.
+
 ## Startup Lifecycle
 
 OSC startup builds and encodes the bin bundle for the selected channels, then checks its actual size against the supported 65,507-byte UDP payload limit. Oversized bundles return an error before the OSC socket or sender thread is created. Construction failures stop any workers already started. The prepared bundle and encoding buffer move into the sender for reuse.

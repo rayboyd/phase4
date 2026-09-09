@@ -194,17 +194,19 @@ mod tests {
         let thread_state = state.clone();
         let thread_exit_count = exit_count.clone();
 
-        let generator_thread = Some(thread::spawn(move || {
+        let generator_thread = thread::spawn(move || {
             while thread_state.keep_running.load(Ordering::Acquire) {
                 thread::sleep(Duration::from_millis(5));
             }
             thread_exit_count.fetch_add(1, Ordering::AcqRel);
-        }));
+        });
+        let mut workers = WorkerThreads::default();
+        workers.register(crate::worker::WorkerKind::Generator, generator_thread);
 
         let mut app = App {
             input_device: None,
             state: state.clone(),
-            workers: WorkerThreads::new(generator_thread, None, None, None, Vec::new()),
+            workers,
             controller: Controller::new(state.clone()),
             shutdown_started: false,
             ws_bound_addr: None,
@@ -216,8 +218,7 @@ mod tests {
         assert!(app.shutdown_started);
         assert!(!state.keep_running.load(Ordering::Acquire));
         assert_eq!(exit_count.load(Ordering::Acquire), 1);
-        assert!(app.workers.pipeline.iter().all(Option::is_none));
-        assert!(app.workers.outputs.is_empty());
+        assert!(app.workers.is_empty());
 
         drop(app);
 
