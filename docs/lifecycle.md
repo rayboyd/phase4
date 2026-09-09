@@ -12,11 +12,13 @@ The analyser processes available whole frames in chunks of up to approximately 1
 
 Raw and display payloads use watch channels that retain the latest snapshot rather than a queue of every analysis result. The mapper schedules display publication at 60 Hz and skips missed timer ticks. It can repeat the latest analysis values or skip intermediate analysis chunks. Neither output includes an audio timestamp or sequence number.
 
-The allocation-free, lock-free requirement applies to the sample callback. Downstream watch channels use synchronisation. The analyser and mapper reuse payload storage, the WebSocket serialiser allocates shared JSON text, and OSC reuses its encoding buffer after initial growth. Resource use depends on sample rate, selected channels and connected clients.
+The allocation-free, lock-free requirement applies to the sample callback. Downstream watch channels use synchronisation. The analyser and mapper reuse payload storage, the WebSocket serialiser allocates shared JSON text, and OSC reuses the encoding buffer prepared during startup. Resource use depends on sample rate, selected channels and connected clients.
 
 Analysis and display publication run continuously after startup. The controller handles `Ctrl+C` to request shutdown.
 
 ## Startup Lifecycle
+
+OSC startup builds and encodes the bin bundle for the selected channels, then checks its actual size against the supported 65,507-byte UDP payload limit. Oversized bundles return an error before the OSC socket or sender thread is created. Construction failures stop any workers already started. The prepared bundle and encoding buffer move into the sender for reuse.
 
 ```mermaid
 %%{init: {
@@ -72,7 +74,10 @@ flowchart TD
 		P -->|yes| P2[Spawn WebSocket server thread]
 		P -->|no| Q
 		P2 --> Q{--osc-addr configured?}
-		Q -->|yes| Q2[Spawn OSC sender thread]
+		Q -->|yes| Q3[Build and encode OSC bin bundle]
+		Q3 --> Q4{Encoded payload at most 65,507 bytes?}
+		Q4 -->|yes| Q2[Bind UDP socket and spawn OSC sender thread]
+		Q4 -->|no| Q5[Stop started workers and return startup error]
 		Q -->|no| R[Run interactive controller loop until shutdown]
 		Q2 --> R
 		R --> S[Shutdown: drop input, signal keep_running=false, join workers with timeouts]

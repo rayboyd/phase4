@@ -52,6 +52,8 @@ With `--config`, the file must exist, a missing file is a startup error.
 
 At least one output address is required. WebSocket accepts only loopback IP addresses, such as `127.0.0.1` or `::1`. OSC can target a local or remote IP address. Both settings require an IP address and port, not a DNS hostname.
 
+OSC startup rejects a bin bundle whose actual encoded size exceeds the supported 65,507-byte UDP payload limit. The check uses the selected audio channels and does not apply to WebSocket-only output. See [OSC output](osc.md) for the address format and bundle sizes.
+
 Audio device matching prefers a case-sensitive exact name, then the first case-insensitive substring match. MIDI matching is case-insensitive for both exact and substring matches. Neither falls back to the system default when no device matches.
 
 `audio.analyse_channels` contains zero-based hardware indices. The list is sorted and deduplicated, and an empty list or an unavailable hardware index is rejected. Outputs contain only the selected channels in ascending hardware order, with contiguous output indices. Selecting `3,1,3` therefore sends hardware channel 1 as output channel 0 and hardware channel 3 as output channel 1.
