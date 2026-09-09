@@ -5,10 +5,10 @@
 //! mapper and MIDI input, then the output workers in registration order.
 //! Each join has a grace period, after which an unfinished worker is detached.
 //!
-//! Registering a new output worker for shutdown requires extending `OutputWorker` with
-//! a new variant, giving it a `WorkerSpec` in `OutputWorker::spec`, and
-//! pushing its handle onto the `outputs` list passed to `WorkerThreads::new`.
-//! Nothing about the shutdown loop or `WorkerThreads` itself needs to change.
+//! Workers are registered in shutdown order through `WorkerThreads::register`.
+//! The collection owns each handle and its shutdown metadata until shutdown
+//! drains it. Adding a worker requires a `WorkerKind` and registration at
+//! its startup site.
 
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
@@ -48,8 +48,7 @@ enum JoinOutcome {
 }
 
 /// A worker thread's display name, shutdown grace period, and success log line.
-/// Shared between the fixed pipeline stages and the dynamic output transports
-/// so both are joined through the same code path.
+/// Stored with each registered handle and used by the shared join path.
 #[derive(Debug, Clone, Copy)]
 struct WorkerSpec {
     name: &'static str,
@@ -57,133 +56,44 @@ struct WorkerSpec {
     timeout_ms: u64,
 }
 
-impl WorkerSpec {
-    fn timeout(self) -> Duration {
-        Duration::from_millis(self.timeout_ms)
-    }
-}
-
-/// Fixed pipeline slots. The generator slot is populated only in calibration mode.
+/// Identifies a worker's shutdown metadata. Registration determines join order.
 #[derive(Debug, Clone, Copy)]
-enum PipelineWorker {
-    Generator = 0,
-    Analyser = 1,
-    Mapper = 2,
-}
-
-impl PipelineWorker {
-    /// Total number of variants. Keeps the `WorkerThreads` pipeline array size in sync.
-    const COUNT: usize = 3;
-
-    /// Ordered list of all variants, used by the shutdown loop.
-    const ALL: [Self; Self::COUNT] = [Self::Generator, Self::Analyser, Self::Mapper];
-
-    fn spec(self) -> WorkerSpec {
-        match self {
-            Self::Generator => WorkerSpec {
-                name: "generator",
-                success_message: "- Generator shutdown complete",
-                timeout_ms: GENERATOR_SHUTDOWN_TIMEOUT_MS,
-            },
-            Self::Analyser => WorkerSpec {
-                name: "analyser",
-                success_message: "- Analyser shutdown complete",
-                timeout_ms: ANALYSER_SHUTDOWN_TIMEOUT_MS,
-            },
-            Self::Mapper => WorkerSpec {
-                name: "mapper",
-                success_message: "- Mapper shutdown complete",
-                timeout_ms: MAPPER_SHUTDOWN_TIMEOUT_MS,
-            },
-        }
-    }
-}
-
-/// Identifies which output transport an entry in `WorkerThreads::outputs`
-/// belongs to. One variant per [`crate::config::OutputConfig`] variant.
-#[derive(Debug, Clone, Copy)]
-pub(crate) enum OutputWorker {
+pub(crate) enum WorkerKind {
+    Generator,
+    Analyser,
+    Mapper,
+    MidiInput,
     WebSocket,
     Osc,
 }
 
-impl OutputWorker {
-    fn spec(self) -> WorkerSpec {
-        match self {
-            Self::WebSocket => WorkerSpec {
-                name: "websocket-server",
-                success_message: "- WebSocket server shutdown complete",
-                timeout_ms: SERVER_SHUTDOWN_TIMEOUT_MS,
-            },
-            Self::Osc => WorkerSpec {
-                name: "osc-sender",
-                success_message: "- OSC sender shutdown complete",
-                timeout_ms: OSC_SENDER_SHUTDOWN_TIMEOUT_MS,
-            },
-        }
-    }
-}
-
-fn midi_input_spec() -> WorkerSpec {
-    WorkerSpec {
-        name: "midi-input",
-        success_message: "- MIDI input shutdown complete",
-        timeout_ms: MIDI_INPUT_SHUTDOWN_TIMEOUT_MS,
-    }
-}
-
-/// Owns the [`JoinHandle`] for each fixed pipeline stage, plus one handle per
-/// configured output transport worker.
+/// Owns worker handles and shutdown metadata in registration order.
 #[derive(Default)]
 pub(crate) struct WorkerThreads {
-    pub(crate) pipeline: [Option<JoinHandle<()>>; PipelineWorker::COUNT],
-    pub(crate) midi_input: Option<JoinHandle<()>>,
-    pub(crate) outputs: Vec<(OutputWorker, JoinHandle<()>)>,
+    registered_workers: Vec<(WorkerSpec, JoinHandle<()>)>,
 }
 
 impl WorkerThreads {
-    /// Constructs a `WorkerThreads` from the fixed pipeline handles and a list
-    /// of output transport handles, one entry per spawned output.
-    ///
-    /// Any pipeline handle that is `None` is skipped during shutdown.
-    pub(crate) fn new(
-        generator: Option<JoinHandle<()>>,
-        analyser: Option<JoinHandle<()>>,
-        mapper: Option<JoinHandle<()>>,
-        midi_input: Option<JoinHandle<()>>,
-        outputs: Vec<(OutputWorker, JoinHandle<()>)>,
-    ) -> Self {
-        let mut pipeline = [None, None, None];
-        pipeline[PipelineWorker::Generator as usize] = generator;
-        pipeline[PipelineWorker::Analyser as usize] = analyser;
-        pipeline[PipelineWorker::Mapper as usize] = mapper;
-        Self {
-            pipeline,
-            midi_input,
-            outputs,
+    /// Registers a started worker at the end of the shutdown sequence.
+    /// Callers register the generator, analyser, mapper and MIDI input first,
+    /// followed by output transports in their configured order.
+    pub(crate) fn register(&mut self, kind: WorkerKind, handle: JoinHandle<()>) {
+        self.registered_workers.push((kind.spec(), handle));
+    }
+
+    /// Joins workers in registration order, waiting a bounded time for each.
+    /// The caller must first clear `keep_running`. Joining does not set the
+    /// shutdown flag. Workers that exceed their grace period are detached.
+    /// Draining the collection makes repeated shutdown calls harmless.
+    pub(crate) fn shutdown(&mut self) {
+        for (spec, handle) in self.registered_workers.drain(..) {
+            Self::join_and_log(spec, handle);
         }
     }
 
-    /// Joins the fixed pipeline stages, MIDI input, then output workers,
-    /// waiting a bounded time for each one. The caller must first clear
-    /// `keep_running`. Joining does not set the shutdown flag.
-    /// Workers that do not stop within their grace period are detached rather
-    /// than blocking the main thread indefinitely.
-    pub(crate) fn shutdown(&mut self) {
-        for worker in PipelineWorker::ALL {
-            let Some(handle) = self.pipeline[worker as usize].take() else {
-                continue;
-            };
-            Self::join_and_log(worker.spec(), handle);
-        }
-
-        if let Some(handle) = self.midi_input.take() {
-            Self::join_and_log(midi_input_spec(), handle);
-        }
-
-        for (worker, handle) in self.outputs.drain(..) {
-            Self::join_and_log(worker.spec(), handle);
-        }
+    #[cfg(test)]
+    pub(crate) fn is_empty(&self) -> bool {
+        self.registered_workers.is_empty()
     }
 
     fn join_and_log(spec: WorkerSpec, handle: JoinHandle<()>) {
@@ -225,6 +135,49 @@ impl WorkerThreads {
     }
 }
 
+impl WorkerKind {
+    fn spec(self) -> WorkerSpec {
+        match self {
+            Self::Generator => WorkerSpec {
+                name: "generator",
+                success_message: "- Generator shutdown complete",
+                timeout_ms: GENERATOR_SHUTDOWN_TIMEOUT_MS,
+            },
+            Self::Analyser => WorkerSpec {
+                name: "analyser",
+                success_message: "- Analyser shutdown complete",
+                timeout_ms: ANALYSER_SHUTDOWN_TIMEOUT_MS,
+            },
+            Self::Mapper => WorkerSpec {
+                name: "mapper",
+                success_message: "- Mapper shutdown complete",
+                timeout_ms: MAPPER_SHUTDOWN_TIMEOUT_MS,
+            },
+            Self::MidiInput => WorkerSpec {
+                name: "midi-input",
+                success_message: "- MIDI input shutdown complete",
+                timeout_ms: MIDI_INPUT_SHUTDOWN_TIMEOUT_MS,
+            },
+            Self::WebSocket => WorkerSpec {
+                name: "websocket-server",
+                success_message: "- WebSocket server shutdown complete",
+                timeout_ms: SERVER_SHUTDOWN_TIMEOUT_MS,
+            },
+            Self::Osc => WorkerSpec {
+                name: "osc-sender",
+                success_message: "- OSC sender shutdown complete",
+                timeout_ms: OSC_SENDER_SHUTDOWN_TIMEOUT_MS,
+            },
+        }
+    }
+}
+
+impl WorkerSpec {
+    fn timeout(self) -> Duration {
+        Duration::from_millis(self.timeout_ms)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -238,7 +191,7 @@ mod tests {
         let handle = thread::spawn(|| {});
 
         assert_eq!(
-            WorkerThreads::join_with_timeout(PipelineWorker::Generator.spec(), handle),
+            WorkerThreads::join_with_timeout(WorkerKind::Generator.spec(), handle),
             JoinOutcome::Joined
         );
     }
@@ -248,7 +201,7 @@ mod tests {
         let handle = thread::spawn(|| panic!("boom"));
 
         assert_eq!(
-            WorkerThreads::join_with_timeout(PipelineWorker::Analyser.spec(), handle),
+            WorkerThreads::join_with_timeout(WorkerKind::Analyser.spec(), handle),
             JoinOutcome::Panicked
         );
     }
@@ -267,7 +220,7 @@ mod tests {
         });
 
         assert_eq!(
-            WorkerThreads::join_with_timeout(PipelineWorker::Generator.spec(), handle),
+            WorkerThreads::join_with_timeout(WorkerKind::Generator.spec(), handle),
             JoinOutcome::TimedOut
         );
 
@@ -300,17 +253,12 @@ mod tests {
             .recv_timeout(READY_TIMEOUT)
             .expect("worker should start");
 
-        let mut workers = WorkerThreads {
-            midi_input: Some(handle),
-            ..WorkerThreads::default()
-        };
+        let mut workers = WorkerThreads::default();
+        workers.register(WorkerKind::MidiInput, handle);
         keep_running.store(false, Ordering::Release);
         workers.shutdown();
 
-        assert!(
-            workers.midi_input.is_none(),
-            "shutdown must consume the handle"
-        );
+        assert!(workers.is_empty(), "shutdown must consume the handle");
         assert!(
             exited.load(Ordering::Acquire),
             "worker must finish before shutdown returns"
@@ -324,44 +272,40 @@ mod tests {
 
     #[test]
     fn shutdown_preserves_join_order_and_consumes_handles_once() {
+        const WEBSOCKET_OUTPUT: (WorkerKind, &str) = (
+            WorkerKind::WebSocket,
+            "- WebSocket server shutdown complete",
+        );
+        const OSC_OUTPUT: (WorkerKind, &str) = (WorkerKind::Osc, "- OSC sender shutdown complete");
+
         for outputs in [
-            [OutputWorker::WebSocket, OutputWorker::Osc],
-            [OutputWorker::Osc, OutputWorker::WebSocket],
+            [WEBSOCKET_OUTPUT, OSC_OUTPUT],
+            [OSC_OUTPUT, WEBSOCKET_OUTPUT],
         ] {
             testing_logger::setup();
-            let mut workers = WorkerThreads::new(
-                Some(thread::spawn(|| {})),
-                Some(thread::spawn(|| {})),
-                Some(thread::spawn(|| {})),
-                Some(thread::spawn(|| {})),
-                outputs
-                    .into_iter()
-                    .map(|worker| (worker, thread::spawn(|| {})))
-                    .collect(),
-            );
-            let expected_outputs = match outputs[0] {
-                OutputWorker::WebSocket => [
-                    "- WebSocket server shutdown complete",
-                    "- OSC sender shutdown complete",
-                ],
-                OutputWorker::Osc => [
-                    "- OSC sender shutdown complete",
-                    "- WebSocket server shutdown complete",
-                ],
-            };
+            let mut workers = WorkerThreads::default();
+            for kind in [
+                WorkerKind::Generator,
+                WorkerKind::Analyser,
+                WorkerKind::Mapper,
+                WorkerKind::MidiInput,
+            ] {
+                workers.register(kind, thread::spawn(|| {}));
+            }
+            for (kind, _) in outputs {
+                workers.register(kind, thread::spawn(|| {}));
+            }
             let expected_messages = [
                 "- Generator shutdown complete",
                 "- Analyser shutdown complete",
                 "- Mapper shutdown complete",
                 "- MIDI input shutdown complete",
-                expected_outputs[0],
-                expected_outputs[1],
+                outputs[0].1,
+                outputs[1].1,
             ];
 
             workers.shutdown();
-            assert!(workers.pipeline.iter().all(Option::is_none));
-            assert!(workers.midi_input.is_none());
-            assert!(workers.outputs.is_empty());
+            assert!(workers.is_empty());
             workers.shutdown();
 
             testing_logger::validate(|logs| {
@@ -375,17 +319,11 @@ mod tests {
     #[test]
     fn shutdown_skips_absent_workers() {
         testing_logger::setup();
-        let mut workers = WorkerThreads::new(
-            None,
-            Some(thread::spawn(|| {})),
-            Some(thread::spawn(|| {})),
-            None,
-            Vec::new(),
-        );
+        let mut workers = WorkerThreads::default();
+        workers.register(WorkerKind::Analyser, thread::spawn(|| {}));
+        workers.register(WorkerKind::Mapper, thread::spawn(|| {}));
         workers.shutdown();
-        assert!(workers.pipeline.iter().all(Option::is_none));
-        assert!(workers.midi_input.is_none());
-        assert!(workers.outputs.is_empty());
+        assert!(workers.is_empty());
 
         testing_logger::validate(|logs| {
             let messages: Vec<_> = logs.iter().map(|entry| entry.body.as_str()).collect();
