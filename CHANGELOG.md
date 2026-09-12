@@ -2,6 +2,16 @@
 
 All notable changes to Phase4 will be documented in this file.
 
+## 0.0.20
+
+### Documentation
+
+- Add the host lifetime ticket ([36ccee4](https://github.com/rayboyd/phase4/commit/36ccee47d1f2e3b1438170bf7a2fa2f0f7f8d83f))
+
+### Features
+
+- Stop with the host and report stream errors ([cb35bfe](https://github.com/rayboyd/phase4/commit/cb35bfe701195bea9fd768483004a963a83e2cb1))
+
 ## 0.0.19
 
 ### Documentation
