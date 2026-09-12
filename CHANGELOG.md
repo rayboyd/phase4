@@ -2,6 +2,18 @@
 
 All notable changes to Phase4 will be documented in this file.
 
+## 0.0.19
+
+### Documentation
+
+- Add the headless mode implementation ticket ([f2bca92](https://github.com/rayboyd/phase4/commit/f2bca925b29f49966aed51bc024b1563508a87c2))
+- Correct stale claims and settle heading case ([f31c400](https://github.com/rayboyd/phase4/commit/f31c40036fdd60f7a5c5a7e620adba997e6fb2d9))
+- Introduce the config section and name the format ([bab610b](https://github.com/rayboyd/phase4/commit/bab610b86bf6f2ff63a0fbab376c273cd2c76abb))
+
+### Features
+
+- Add a headless mode with a JSON event stream ([f98ff1c](https://github.com/rayboyd/phase4/commit/f98ff1cd5b12d2b9366a5fc6059192a5b782ac0f))
+
 ## 0.0.18
 
 ### Documentation
