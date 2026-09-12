@@ -38,7 +38,9 @@ Run Phase4 in an interactive terminal. Analysis and broadcasting run continuousl
 
 Calibration mode drives the full analysis pipeline with a synthetic sine wave. See [docs/calibration.md](docs/calibration.md).
 
-## Config
+## YAML Config
+
+Most flags can live in a YAML file instead, so a working setup does not need a long command line. Phase4 picks up an optional `config.yaml` from the working directory, or an explicit path given with `--config`. Flags override file values, file values override the built-in defaults, and an unknown key is rejected at startup rather than silently ignored.
 
 See [docs/config.md](docs/config.md)
 
