@@ -48,7 +48,7 @@ Pass `--config` with a path to name the file explicitly, which makes it easy to 
 
 With `--config`, the file must exist, a missing file is a startup error.
 
-## Input and output selection
+## Input and Output Selection
 
 At least one output address is required. WebSocket accepts only loopback IP addresses, such as `127.0.0.1` or `::1`. OSC can target a local or remote IP address. Both settings require an IP address and port, not a DNS hostname.
 

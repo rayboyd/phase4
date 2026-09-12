@@ -12,7 +12,7 @@ cargo build --release --locked
 
 > On Windows the binary will be called `phase4.exe`
 
-## Fixed data contract
+## Fixed Data Contract
 
 Every build processes `f32` audio samples, uses 32 vocoder bands per analysed channel, and schedules output snapshots at 60 Hz. Scheduling and transport delays can reduce the delivered rate, and intermediate snapshots can be skipped. These values are Phase4's data contract. No feature flags or build-time configuration are required.
 

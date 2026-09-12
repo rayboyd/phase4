@@ -1,11 +1,11 @@
-# Denormal handling
+# Denormal Handling
 
 Phase4 retains `no_denormals` around the analyser's processing loop. Suppressing
 subnormal arithmetic is an intentional requirement for predictable DSP
 processing. The guard is local to the analyser thread and restores the previous
 floating-point environment when its scope ends.
 
-## Accepted limitation
+## Accepted Limitation
 
 The [package documentation](https://docs.rs/no_denormals/0.3.0/no_denormals/)
 describes the processor controls and explicitly documents undefined behaviour
@@ -20,7 +20,7 @@ project's review. Passing tests establish observed behaviour for the tested
 build and execution environment. They do not prove the absence of undefined
 behaviour or guarantee future compiler behaviour.
 
-## Regression coverage
+## Regression Coverage
 
 [`tests/denormals.rs`](../tests/denormals.rs) checks the following behaviour.
 
@@ -53,7 +53,7 @@ callback deadlines, CPU usage or audio-device reliability. Release tests use
 Cargo's test harness, which unwinds panics even though the application release
 profile uses `panic = "abort"`.
 
-## Running the checks
+## Running the Checks
 
 Run both builds after compiler, dependency, DSP or build-setting changes.
 

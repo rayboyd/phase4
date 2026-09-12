@@ -2,7 +2,7 @@
 
 Calibration mode replaces the hardware input with a synthetic sine wave, making the full pipeline (analysis, WebSocket broadcast, and OSC output) operational with no audio device attached. Use it to verify an installation, exercise a visualisation with a known signal, or pick out how a specific frequency lands in the display bins.
 
-## Fixed tone
+## Fixed Tone
 
 Pass `--test-hz` with a frequency above 0 Hz and no higher than 19,845 Hz. This ceiling is 0.45 times the synthetic 44.1 kHz sample rate and retains anti-aliasing headroom. No `--audio-device` is required, but at least one output transport (`--ws-addr` or `--osc-addr`) must still be given.
 
@@ -12,7 +12,7 @@ Pass `--test-hz` with a frequency above 0 Hz and no higher than 19,845 Hz. This 
 
 The pipeline runs at a synthetic 44.1 kHz stereo configuration with the same signal in both channels. The bands respond according to their filter frequencies, bandwidths and envelope settings. This is useful for checking which bin a frequency of interest falls into.
 
-## Frequency sweep
+## Frequency Sweep
 
 Pass `--test-sweep` with an LFO rate above 0 Hz and no higher than 19,845 Hz. The signal sweeps logarithmically from 20 Hz up to 0.45 times the sample rate, driven by a sine LFO at the given rate. One full up-and-down cycle takes 1 divided by the rate in seconds, so `0.2` produces a five second cycle and `0.1` a ten second cycle.
 

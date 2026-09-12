@@ -1,8 +1,6 @@
 # WebSocket API
 
-The [WebSocket API](https://developer.mozilla.org/en-US/docs/Web/API/WebSockets_API) makes it possible to open a two-way interactive communication session between the browser and a server. With this API, we can receive messages without having to poll the server.
-
-Phase4 streams real-time audio analysis data as a one-way JSON broadcast. Any tool capable of opening a standard WebSocket connection (including browsers, Node.js, Python, or creative coding environments like TouchDesigner) can consume this stream.
+Phase4 streams real-time audio analysis as a one-way JSON broadcast over a standard [WebSocket](https://developer.mozilla.org/en-US/docs/Web/API/WebSockets_API) connection. Any tool that can open one, including browsers, Node.js, Python and creative coding environments such as TouchDesigner, can consume the stream.
 
 ## Connection Details
 

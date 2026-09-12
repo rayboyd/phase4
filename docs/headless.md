@@ -1,4 +1,4 @@
-# Headless mode
+# Headless Mode
 
 `--headless` runs Phase4 without a terminal and writes a newline-delimited JSON event stream to stdout, so a supervising host process can tell when the engine is ready, what it resolved, and why it stopped.
 
@@ -63,7 +63,7 @@ Written once after the workers have drained, immediately before a clean exit.
 {"v":1,"event":"shutdown","reason":"signal"}
 ```
 
-## Signals and exit codes
+## Signals and Exit Codes
 
 SIGINT and SIGTERM both request the same graceful shutdown. Workers drain in their registration order, the `shutdown` event is written, and the process exits 0.
 

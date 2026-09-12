@@ -1,6 +1,6 @@
 # Phase4 Lifecycle Diagrams
 
-## Buffering and delivery
+## Buffering and Delivery
 
 The audio sample callback copies selected `f32` samples into a preallocated SPSC ring buffer. It performs no Phase4 heap allocation, logging or waiting for the analyser. The stream error callback is separate and can log. The host audio backend remains outside this callback-level guarantee.
 
@@ -155,7 +155,7 @@ flowchart LR
 stateDiagram-v2
 		[*] --> Running
 
-		Running --> ExitRequested: Ctrl+C sets keep_running=false
+		Running --> ExitRequested: Ctrl+C, or SIGINT or SIGTERM when headless, sets keep_running=false
 
 		ExitRequested --> Shutdown
 		Shutdown --> [*]
