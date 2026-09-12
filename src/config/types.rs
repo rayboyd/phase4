@@ -372,6 +372,7 @@ pub(super) mod test_support {
     pub(in crate::config) fn args_with_device(device: Option<&str>) -> Args {
         Args {
             config: None,
+            headless: false,
             input: InputArgs {
                 audio_device: device.map(str::to_string),
                 audio_list: false,

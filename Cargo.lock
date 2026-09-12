@@ -1158,6 +1158,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_yaml",
+ "signal-hook",
  "socket2",
  "testing_logger",
  "thiserror 2.0.20",

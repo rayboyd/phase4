@@ -33,6 +33,9 @@ network:
   # --no-browser-origin stays CLI-only and is never read from this file. It is
   # a presence-style flag with no "explicitly off" form, so offering it here
   # would break the rule that a CLI flag always overrides a file value.
+  #
+  # --headless stays CLI-only for the same reason. It is a launch mode chosen by
+  # whoever starts the process, not a persisted preference.
 
 audio:
   # Partial or full name of the audio input device to use.

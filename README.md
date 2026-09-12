@@ -58,6 +58,12 @@ See [docs/osc.md](docs/osc.md)
 
 See [docs/midi.md](docs/midi.md)
 
+### Headless
+
+Phase4 runs without a terminal under `--headless`, writing a newline-delimited JSON event stream to stdout so a host process can supervise it. The stream reports when the engine is ready, the device, sample rate and channels it resolved, the addresses it actually bound, and why it stopped. Logs stay on stderr.
+
+See [docs/headless.md](docs/headless.md)
+
 ## Architecture
 
 See [docs/lifecycle.md](docs/lifecycle.md) for buffering, snapshot delivery, worker ownership and shutdown behaviour.

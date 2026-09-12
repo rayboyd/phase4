@@ -62,4 +62,4 @@ Calibration flags take precedence over an audio device name. A non-empty channel
 
 Vocoder attack and release values are positive, finite time constants in milliseconds. For a constant rectified target, one time constant moves the envelope approximately 63 percent towards that target. It is not a time to reach the target completely. The highest band centre must be at or below 45 percent of the resolved sample rate.
 
-Device listing, calibration and `--no-browser-origin` are CLI-only. Run `phase4 --help` for the complete CLI surface. See [example.config.yaml](../example.config.yaml) for every supported YAML key and its default.
+Device listing, calibration, `--no-browser-origin` and `--headless` are CLI-only. Run `phase4 --help` for the complete CLI surface. See [example.config.yaml](../example.config.yaml) for every supported YAML key and its default.
