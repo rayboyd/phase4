@@ -11,6 +11,7 @@ mod bootstrap;
 pub mod config;
 pub mod controller;
 pub mod dsp;
+pub mod headless;
 pub mod managers;
 pub mod worker;
 
@@ -164,6 +165,13 @@ pub struct Args {
     /// file must exist.
     #[arg(long, value_name = "PATH")]
     pub config: Option<std::path::PathBuf>,
+
+    /// Run without a terminal and emit a newline-delimited JSON event stream on
+    /// stdout for a supervising host process. Logs stay on stderr. This flag is
+    /// CLI-only and is never read from a configuration file, for the same
+    /// reason as --no-browser-origin.
+    #[arg(long)]
+    pub headless: bool,
 
     #[command(flatten)]
     pub calibration: CalibrationArgs,

@@ -14,7 +14,7 @@ Raw and display payloads use watch channels that retain the latest snapshot rath
 
 The allocation-free, lock-free requirement applies to the sample callback. Downstream watch channels use synchronisation. The analyser and mapper reuse payload storage, the WebSocket serialiser allocates shared JSON text, and OSC reuses the encoding buffer prepared during startup. Resource use depends on sample rate, selected channels and connected clients.
 
-Analysis and display publication run continuously after startup. The controller handles `Ctrl+C` to request shutdown.
+Analysis and display publication run continuously after startup. The controller handles `Ctrl+C` to request shutdown. Under `--headless` there is no controller and no raw mode. The run blocks until SIGINT or SIGTERM arrives, and both request the same drain. See [docs/headless.md](headless.md).
 
 Worker handles and their shutdown metadata are stored in one private ordered collection. Startup registers the generator when present, then the analyser, mapper, MIDI input when present and each configured output. Shutdown drains that collection in registration order, preserving each worker's existing timeout and unparking behaviour. A repeated shutdown has no remaining handles to join.
 
@@ -47,9 +47,11 @@ flowchart TD
 		C -->|yes| D[List input devices and exit]
 		C -->|no| C2{--midi-list?}
 		C2 -->|yes| D2[List MIDI input devices and exit]
-		C2 -->|no| C3{Interactive terminal?}
+		C2 -->|no| C5{--headless?}
+		C5 -->|yes| E2[Load explicit config or optional config.yaml]
+		C5 -->|no| C3{Interactive terminal?}
 		C3 -->|no| C4[Exit with interactive-terminal error, non-zero]
-		C3 -->|yes| E2[Load explicit config or optional config.yaml]
+		C3 -->|yes| E2
 		E2 --> E[Build AppConfig: CLI overrides file, file overrides defaults]
 		E --> E3{At least one of --ws-addr, --osc-addr configured?}
 		E3 -->|no| E4[Exit: NoOutputConfigured, non-zero]

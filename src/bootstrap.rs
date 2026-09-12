@@ -12,12 +12,14 @@ use crate::config::{
 };
 use crate::dsp::vocoder::bandpass_coefficients;
 use crate::dsp::{DisplayPayload, RawPayload};
+use crate::headless::ReadyAudio;
 use crate::managers::audio::{ChannelMode, StreamSink};
 use crate::managers::{
     Generator, Input, Mapper, MidiInputSource, MidiListener, OscSender, Processor, Server, Specs,
 };
 use crate::worker::{WorkerKind, WorkerThreads};
 use anyhow::Result;
+use cpal::traits::DeviceTrait;
 use std::net::SocketAddr;
 use std::sync::{atomic::Ordering, Arc};
 use tokio::sync::watch;
@@ -57,6 +59,9 @@ pub(crate) struct Bootstrapped {
     /// resolves to the real OS-assigned port. `None` when the WebSocket
     /// output is not configured.
     pub(crate) ws_bound_addr: Option<SocketAddr>,
+
+    /// The resolved audio input, reported by the headless `ready` event.
+    pub(crate) audio: ReadyAudio,
 }
 
 /// Resolves the given configuration into hardware handles, shared state, and
@@ -82,6 +87,19 @@ pub(crate) fn bootstrap(config: &AppConfig) -> Result<Bootstrapped> {
     // the analyser (the generator always writes every hardware channel).
     let resolved = resolve_audio_hardware(config, &mut input_device)?;
     let (hw_specs, input_source) = (resolved.hw_specs, resolved.source);
+    let audio = ReadyAudio {
+        device: match &input_source {
+            InputSource::Hardware(device, _) => {
+                device.description().ok().map(|d| d.name().to_string())
+            }
+            InputSource::Calibration(_) => None,
+        },
+        sample_rate: hw_specs.sample_rate,
+        channels: resolved
+            .analyse_channels
+            .as_deref()
+            .map_or_else(|| (0..hw_specs.channels).collect(), <[u16]>::to_vec),
+    };
     let midi_source = resolve_midi_hardware(config, &state)?;
     let midi_enabled = midi_source.is_some();
 
@@ -163,6 +181,7 @@ pub(crate) fn bootstrap(config: &AppConfig) -> Result<Bootstrapped> {
         state,
         workers,
         ws_bound_addr,
+        audio,
     })
 }
 

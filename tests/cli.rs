@@ -22,7 +22,7 @@ fn serving_requires_an_interactive_terminal() {
         "stderr must explain the interactive terminal requirement, got: {stderr}"
     );
     assert!(
-        !stderr.to_lowercase().contains("headless"),
-        "stderr must not offer the removed headless mode, got: {stderr}"
+        stderr.contains("--headless"),
+        "stderr must offer headless mode as the alternative, got: {stderr}"
     );
 }

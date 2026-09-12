@@ -13,15 +13,22 @@
 
 use crate::bootstrap::bootstrap;
 use crate::config::AppConfig;
+use crate::config::{ConfigMidiInput, OutputConfig};
 use crate::controller::Controller;
+use crate::headless::{ReadyOutputs, ReadyReport};
 use crate::managers::{Input, MIDI_TRANSPORT_NONE};
 use crate::worker::WorkerThreads;
-use anyhow::Result;
+use anyhow::{Context, Result};
+use signal_hook::consts::{SIGINT, SIGTERM};
 use std::net::SocketAddr;
 use std::sync::{
     atomic::{AtomicBool, AtomicU32, AtomicU8, Ordering},
     Arc,
 };
+use std::time::Duration;
+
+/// How often the headless wait loop checks for a shutdown request.
+const HEADLESS_POLL_RATE_MS: u64 = 50;
 
 /// Shared application state flags for cross-thread synchronisation.
 pub struct AppState {
@@ -70,8 +77,9 @@ pub struct App {
     /// All worker threads owned by the application runtime.
     workers: WorkerThreads,
 
-    /// Keyboard input handler for shutdown requests.
-    controller: Controller,
+    /// Keyboard input handler for shutdown requests. `None` in headless mode,
+    /// where there is no terminal to put into raw mode.
+    controller: Option<Controller>,
 
     /// Tracks whether shutdown has already started, so drop remains idempotent.
     shutdown_started: bool,
@@ -81,6 +89,10 @@ pub struct App {
     /// resolves to the real one. `None` when the WebSocket output is not
     /// configured.
     ws_bound_addr: Option<SocketAddr>,
+
+    /// The facts resolved during construction, reported by the headless
+    /// `ready` event.
+    ready_report: ReadyReport,
 }
 
 impl App {
@@ -98,17 +110,57 @@ impl App {
     ///
     /// Panics if worker thread startup fails internally.
     pub fn new(config: &AppConfig) -> Result<Self> {
+        Self::build(config, true)
+    }
+
+    /// Constructs the audio pipeline without a terminal controller, for
+    /// supervision by a host process under `--headless`.
+    ///
+    /// # Errors
+    ///
+    /// Returns the same errors as [`App::new`].
+    ///
+    /// # Panics
+    ///
+    /// Panics if worker thread startup fails internally.
+    pub fn new_headless(config: &AppConfig) -> Result<Self> {
+        Self::build(config, false)
+    }
+
+    fn build(config: &AppConfig, interactive: bool) -> Result<Self> {
         let bootstrapped = bootstrap(config)?;
-        let controller_state = Arc::clone(&bootstrapped.state);
+        let controller = interactive.then(|| Controller::new(Arc::clone(&bootstrapped.state)));
+        let osc = config.outputs.iter().find_map(|output| match output {
+            OutputConfig::Osc { addr } => Some(*addr),
+            OutputConfig::WebSocket { .. } => None,
+        });
+        let midi_device = match &config.midi_input {
+            Some(ConfigMidiInput::Device(name)) => Some(name.clone()),
+            Some(ConfigMidiInput::TestClock(_)) | None => None,
+        };
 
         Ok(Self {
             input_device: Some(bootstrapped.input_device),
             state: bootstrapped.state,
             workers: bootstrapped.workers,
-            controller: Controller::new(controller_state),
+            controller,
             shutdown_started: false,
             ws_bound_addr: bootstrapped.ws_bound_addr,
+            ready_report: ReadyReport {
+                audio: bootstrapped.audio,
+                midi_device,
+                outputs: ReadyOutputs {
+                    websocket: bootstrapped.ws_bound_addr,
+                    osc,
+                },
+            },
         })
+    }
+
+    /// The facts resolved during construction, for the headless `ready` event.
+    #[must_use]
+    pub fn ready_report(&self) -> &ReadyReport {
+        &self.ready_report
     }
 
     /// The WebSocket listener's actually bound address, obtained from
@@ -126,7 +178,49 @@ impl App {
     ///
     /// Returns an error if the controller encounters a terminal or I/O failure.
     pub fn run(&self) -> Result<()> {
-        self.controller.run()
+        let controller = self
+            .controller
+            .as_ref()
+            .context("App was constructed headless and has no interactive controller")?;
+        controller.run()
+    }
+
+    /// Blocks until SIGINT or SIGTERM arrives, without a terminal or keyboard
+    /// handling. Both signals request the same graceful shutdown.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if either signal handler cannot be registered.
+    fn run_headless(&self) -> Result<()> {
+        let shutdown_requested = Arc::new(AtomicBool::new(false));
+        for signal in [SIGINT, SIGTERM] {
+            signal_hook::flag::register(signal, Arc::clone(&shutdown_requested))
+                .with_context(|| format!("Failed to register signal handler for {signal}"))?;
+        }
+
+        log::info!("Ready. Send SIGINT or SIGTERM to exit.");
+
+        while self.state.keep_running.load(Ordering::Acquire) {
+            if shutdown_requested.load(Ordering::Acquire) {
+                self.state.keep_running.store(false, Ordering::Release);
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(HEADLESS_POLL_RATE_MS));
+        }
+
+        Ok(())
+    }
+
+    /// Runs the headless wait loop and always performs shutdown afterwards.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if signal registration fails. Shutdown is still
+    /// attempted before the error is returned.
+    pub fn run_headless_until_shutdown(&mut self) -> Result<()> {
+        let run_result = self.run_headless();
+        self.shutdown();
+        run_result
     }
 
     /// Runs the controller loop and always performs shutdown afterwards.
@@ -204,9 +298,21 @@ mod tests {
             input_device: None,
             state: state.clone(),
             workers,
-            controller: Controller::new(state.clone()),
+            controller: Some(Controller::new(state.clone())),
             shutdown_started: false,
             ws_bound_addr: None,
+            ready_report: ReadyReport {
+                audio: crate::headless::ReadyAudio {
+                    device: None,
+                    sample_rate: 48_000,
+                    channels: vec![0],
+                },
+                midi_device: None,
+                outputs: ReadyOutputs {
+                    websocket: None,
+                    osc: None,
+                },
+            },
         };
 
         app.shutdown();
