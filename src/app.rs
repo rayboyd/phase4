@@ -15,7 +15,10 @@ use crate::bootstrap::bootstrap;
 use crate::config::AppConfig;
 use crate::config::{ConfigMidiInput, OutputConfig};
 use crate::controller::Controller;
-use crate::headless::{ReadyOutputs, ReadyReport};
+use crate::headless::{
+    headless_stop, watch_stdin, HeadlessStop, ReadyOutputs, ReadyReport, ShutdownReason,
+};
+use crate::managers::audio::DeviceError;
 use crate::managers::{Input, MIDI_TRANSPORT_NONE};
 use crate::worker::WorkerThreads;
 use anyhow::{Context, Result};
@@ -23,14 +26,19 @@ use signal_hook::consts::{SIGINT, SIGTERM};
 use std::net::SocketAddr;
 use std::sync::{
     atomic::{AtomicBool, AtomicU32, AtomicU8, Ordering},
-    Arc,
+    Arc, Mutex, PoisonError,
 };
 use std::time::Duration;
 
 /// How often the headless wait loop checks for a shutdown request.
 const HEADLESS_POLL_RATE_MS: u64 = 50;
 
-/// Shared application state flags for cross-thread synchronisation.
+/// Message for a run the engine stopped without recording a reason.
+const ENGINE_STOPPED_MESSAGE: &str = "The engine stopped without a shutdown request.";
+
+/// Shared application state for cross-thread synchronisation. The flags are
+/// atomics, and the recorded hardware stream error sits behind a mutex that no
+/// realtime path takes.
 pub struct AppState {
     /// Signals every worker thread to exit.
     /// Set false by the controller (Ctrl+C) or `App::shutdown`.
@@ -47,6 +55,11 @@ pub struct AppState {
     /// synthetic clock and read by the mapper. Resets on Start, wraps on u32
     /// overflow, and continues if clock ticks arrive while transport is stopped.
     pub midi_steps: AtomicU32,
+
+    /// The first hardware stream error of the run. Written by the stream error
+    /// callback before it clears `keep_running`, and read by the headless loop.
+    /// This is the one mutex on `AppState`, and no realtime path takes it.
+    pub hardware_stream_error: Mutex<Option<String>>,
 }
 
 impl Default for AppState {
@@ -55,6 +68,7 @@ impl Default for AppState {
             keep_running: AtomicBool::new(true),
             midi_last_transport: AtomicU8::new(MIDI_TRANSPORT_NONE),
             midi_steps: AtomicU32::new(0),
+            hardware_stream_error: Mutex::new(None),
         }
     }
 }
@@ -63,6 +77,25 @@ impl AppState {
     #[must_use]
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Records the first hardware stream error, then requests shutdown. A later
+    /// error does not replace the first.
+    pub fn fail_hardware_stream(&self, message: String) {
+        self.hardware_stream_error
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get_or_insert(message);
+        self.keep_running.store(false, Ordering::Release);
+    }
+
+    /// Takes the recorded hardware stream error, if one was recorded.
+    #[must_use]
+    pub fn take_hardware_stream_error(&self) -> Option<String> {
+        self.hardware_stream_error
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .take()
     }
 }
 
@@ -185,39 +218,59 @@ impl App {
         controller.run()
     }
 
-    /// Blocks until SIGINT or SIGTERM arrives, without a terminal or keyboard
-    /// handling. Both signals request the same graceful shutdown.
+    /// Blocks until SIGINT or SIGTERM arrives, stdin reaches end of file, or the
+    /// engine stops itself, without a terminal or keyboard handling. Both
+    /// signals and a closed stdin request the same graceful shutdown.
     ///
     /// # Errors
     ///
-    /// Returns an error if either signal handler cannot be registered.
-    fn run_headless(&self) -> Result<()> {
+    /// Returns an error if either signal handler or the stdin watcher cannot be
+    /// started, or if the engine stopped itself. A recorded hardware stream
+    /// error is returned as [`DeviceError::HardwareStreamError`].
+    fn run_headless(&self) -> Result<ShutdownReason> {
         let shutdown_requested = Arc::new(AtomicBool::new(false));
         for signal in [SIGINT, SIGTERM] {
             signal_hook::flag::register(signal, Arc::clone(&shutdown_requested))
                 .with_context(|| format!("Failed to register signal handler for {signal}"))?;
         }
 
-        log::info!("Ready. Send SIGINT or SIGTERM to exit.");
+        let stdin_closed = Arc::new(AtomicBool::new(false));
+        watch_stdin(std::io::stdin(), Arc::clone(&stdin_closed))
+            .context("Failed to start the stdin watcher")?;
 
-        while self.state.keep_running.load(Ordering::Acquire) {
-            if shutdown_requested.load(Ordering::Acquire) {
-                self.state.keep_running.store(false, Ordering::Release);
-                break;
+        log::info!("Ready. Send SIGINT or SIGTERM, or close stdin, to exit.");
+
+        loop {
+            let stop = headless_stop(
+                shutdown_requested.load(Ordering::Acquire),
+                stdin_closed.load(Ordering::Acquire),
+                self.state.keep_running.load(Ordering::Acquire),
+            );
+            match stop {
+                Some(HeadlessStop::Requested(reason)) => {
+                    self.state.keep_running.store(false, Ordering::Release);
+                    return Ok(reason);
+                }
+                Some(HeadlessStop::Engine) => {
+                    return match self.state.take_hardware_stream_error() {
+                        Some(message) => Err(DeviceError::HardwareStreamError { message }.into()),
+                        None => Err(anyhow::anyhow!(ENGINE_STOPPED_MESSAGE)),
+                    };
+                }
+                None => std::thread::sleep(Duration::from_millis(HEADLESS_POLL_RATE_MS)),
             }
-            std::thread::sleep(Duration::from_millis(HEADLESS_POLL_RATE_MS));
         }
-
-        Ok(())
     }
 
-    /// Runs the headless wait loop and always performs shutdown afterwards.
+    /// Runs the headless wait loop and always performs shutdown afterwards,
+    /// returning what requested the shutdown.
     ///
     /// # Errors
     ///
-    /// Returns an error if signal registration fails. Shutdown is still
-    /// attempted before the error is returned.
-    pub fn run_headless_until_shutdown(&mut self) -> Result<()> {
+    /// Returns an error if signal registration or the stdin watcher fails, or
+    /// if the engine stopped itself. Shutdown is still attempted before the
+    /// error is returned.
+    pub fn run_headless_until_shutdown(&mut self) -> Result<ShutdownReason> {
         let run_result = self.run_headless();
         self.shutdown();
         run_result
@@ -336,5 +389,27 @@ mod tests {
             MIDI_TRANSPORT_NONE
         );
         assert_eq!(state.midi_steps.load(Ordering::Acquire), 0);
+    }
+
+    #[test]
+    fn a_hardware_stream_error_is_recorded_and_requests_shutdown() {
+        let state = AppState::new();
+        state.fail_hardware_stream("device unplugged".to_owned());
+
+        assert!(!state.keep_running.load(Ordering::Acquire));
+        assert_eq!(
+            state.take_hardware_stream_error().as_deref(),
+            Some("device unplugged")
+        );
+        assert_eq!(state.take_hardware_stream_error(), None);
+    }
+
+    #[test]
+    fn the_first_hardware_stream_error_is_kept() {
+        let state = AppState::new();
+        state.fail_hardware_stream("first".to_owned());
+        state.fail_hardware_stream("second".to_owned());
+
+        assert_eq!(state.take_hardware_stream_error().as_deref(), Some("first"));
     }
 }

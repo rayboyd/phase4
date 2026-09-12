@@ -20,7 +20,6 @@ use anyhow::{Context, Result};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::SampleFormat;
 use ringbuf::traits::{Producer, Split};
-use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
 /// Typed device-resolution failures with user-facing messages.
@@ -47,6 +46,10 @@ pub enum DeviceError {
          Run with --audio-list to see available devices."
     )]
     UnsupportedFormat { format: String },
+
+    /// The input stream failed while the engine was running.
+    #[error("The audio input stream failed: {message}. Check the device is still connected.")]
+    HardwareStreamError { message: String },
 }
 
 /// Stream channel count and sample rate used for buffer sizing.
@@ -454,9 +457,11 @@ impl Input {
             move |data: &[f32], _| {
                 let _ = analyse.push(data, hw_channels);
             },
+            // The error callback is not the realtime data callback, so
+            // allocating the message here is permitted.
             move |err| {
                 log::error!("Hardware Stream Error: {err}");
-                error_state.keep_running.store(false, Ordering::Release);
+                error_state.fail_hardware_stream(err.to_string());
             },
             None,
         )?;
