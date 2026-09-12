@@ -14,7 +14,7 @@ Raw and display payloads use watch channels that retain the latest snapshot rath
 
 The allocation-free, lock-free requirement applies to the sample callback. Downstream watch channels use synchronisation. The analyser and mapper reuse payload storage, the WebSocket serialiser allocates shared JSON text, and OSC reuses the encoding buffer prepared during startup. Resource use depends on sample rate, selected channels and connected clients.
 
-Analysis and display publication run continuously after startup. The controller handles `Ctrl+C` to request shutdown. Under `--headless` there is no controller and no raw mode. The run blocks until SIGINT or SIGTERM arrives, and both request the same drain. See [docs/headless.md](headless.md).
+Analysis and display publication run continuously after startup. The controller handles `Ctrl+C` to request shutdown. Under `--headless` there is no controller and no raw mode. The run blocks until SIGINT or SIGTERM arrives or stdin closes, and each requests the same drain. A hardware stream error stops the run and is reported as an error. See [docs/headless.md](headless.md).
 
 Worker handles and their shutdown metadata are stored in one private ordered collection. Startup registers the generator when present, then the analyser, mapper, MIDI input when present and each configured output. Shutdown drains that collection in registration order, preserving each worker's existing timeout and unparking behaviour. A repeated shutdown has no remaining handles to join.
 
@@ -155,7 +155,7 @@ flowchart LR
 stateDiagram-v2
 		[*] --> Running
 
-		Running --> ExitRequested: Ctrl+C, or SIGINT or SIGTERM when headless, sets keep_running=false
+		Running --> ExitRequested: Ctrl+C, or SIGINT, SIGTERM or stdin closing when headless, sets keep_running=false
 
 		ExitRequested --> Shutdown
 		Shutdown --> [*]

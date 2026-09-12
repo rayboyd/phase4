@@ -2,7 +2,7 @@ use anyhow::Result;
 use clap::Parser;
 use phase4::app::App;
 use phase4::config::AppConfig;
-use phase4::headless::{write_event, Event, ShutdownReason};
+use phase4::headless::{is_broken_pipe, write_event, Event};
 use phase4::managers::audio::Input;
 use phase4::managers::MidiListener;
 use phase4::Args;
@@ -87,12 +87,12 @@ fn run_headless(args: &Args) -> Result<()> {
     write_event(&mut stdout, &Event::Ready(app.ready_report().clone()))?;
     drop(stdout);
 
-    app.run_headless_until_shutdown()?;
+    let reason = app.run_headless_until_shutdown()?;
 
-    write_event(
-        &mut std::io::stdout().lock(),
-        &Event::Shutdown {
-            reason: ShutdownReason::Signal,
-        },
-    )
+    // A host that has exited no longer reads stdout. The drain has already
+    // completed, so a closed pipe on the final event is not a failure.
+    match write_event(&mut std::io::stdout().lock(), &Event::Shutdown { reason }) {
+        Err(error) if is_broken_pipe(&error) => Ok(()),
+        result => result,
+    }
 }

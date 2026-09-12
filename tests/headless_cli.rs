@@ -1,9 +1,10 @@
 //! End to end supervision of the headless binary.
 //!
 //! These tests drive the real process the way a host does. They spawn it with
-//! no terminal, read the event stream from stdout, and signal it to stop.
+//! no terminal and stdin held open, read the event stream from stdout, and
+//! stop it with a signal or by closing stdin.
 
-use std::io::{BufRead, BufReader, Read};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpStream;
 use std::process::{Child, ChildStdout, Command, Stdio};
 use std::time::Duration;
@@ -14,14 +15,28 @@ const EXIT_TIMEOUT: Duration = Duration::from_secs(10);
 /// How often to check whether the child has exited.
 const EXIT_POLL: Duration = Duration::from_millis(25);
 
-fn spawn(args: &[&str]) -> Child {
+/// How long to leave written stdin bytes with the engine before stopping it,
+/// several headless poll intervals, so a run that wrongly reacted to them
+/// would already have stopped.
+const STDIN_SETTLE: Duration = Duration::from_millis(250);
+
+/// Arguments for a hardware-free headless run on an automatic port.
+const CALIBRATION_ARGS: [&str; 5] = ["--headless", "--test-hz", "440", "--ws-addr", "127.0.0.1:0"];
+
+fn spawn_with_stdin(args: &[&str], stdin: Stdio) -> Child {
     Command::new(env!("CARGO_BIN_EXE_phase4"))
         .args(args)
-        .stdin(Stdio::null())
+        .stdin(stdin)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
         .expect("failed to spawn phase4")
+}
+
+/// Spawns the way a host does, with stdin piped. The returned child owns the
+/// pipe, so stdin stays open until the test takes and drops it.
+fn spawn(args: &[&str]) -> Child {
+    spawn_with_stdin(args, Stdio::piped())
 }
 
 fn read_event(reader: &mut BufReader<ChildStdout>) -> serde_json::Value {
@@ -56,9 +71,20 @@ fn wait_for_exit(child: &mut Child) -> std::process::ExitStatus {
     }
 }
 
+fn assert_no_further_events(mut reader: BufReader<ChildStdout>) {
+    let mut trailing = String::new();
+    reader
+        .read_to_string(&mut trailing)
+        .expect("failed to drain stdout");
+    assert!(
+        trailing.trim().is_empty(),
+        "stdout must carry the event stream alone, got: {trailing}"
+    );
+}
+
 #[test]
 fn a_headless_run_reports_ready_then_shuts_down_on_a_signal() {
-    let mut child = spawn(&["--headless", "--test-hz", "440", "--ws-addr", "127.0.0.1:0"]);
+    let mut child = spawn(&CALIBRATION_ARGS);
     let mut reader = BufReader::new(child.stdout.take().expect("stdout must be piped"));
 
     let ready = read_event(&mut reader);
@@ -102,20 +128,12 @@ fn a_headless_run_reports_ready_then_shuts_down_on_a_signal() {
 
     let status = wait_for_exit(&mut child);
     assert!(status.success(), "a signalled shutdown must exit zero");
-
-    let mut trailing = String::new();
-    reader
-        .read_to_string(&mut trailing)
-        .expect("failed to drain stdout");
-    assert!(
-        trailing.trim().is_empty(),
-        "stdout must carry the event stream alone, got: {trailing}"
-    );
+    assert_no_further_events(reader);
 }
 
 #[test]
 fn an_interrupt_shuts_a_headless_run_down_the_same_way() {
-    let mut child = spawn(&["--headless", "--test-hz", "440", "--ws-addr", "127.0.0.1:0"]);
+    let mut child = spawn(&CALIBRATION_ARGS);
     let mut reader = BufReader::new(child.stdout.take().expect("stdout must be piped"));
 
     assert_eq!(read_event(&mut reader)["event"], "ready");
@@ -125,6 +143,73 @@ fn an_interrupt_shuts_a_headless_run_down_the_same_way() {
         wait_for_exit(&mut child).success(),
         "an interrupted shutdown must exit zero"
     );
+}
+
+#[test]
+fn closing_stdin_shuts_a_headless_run_down() {
+    let mut child = spawn(&CALIBRATION_ARGS);
+    let mut reader = BufReader::new(child.stdout.take().expect("stdout must be piped"));
+    assert_eq!(read_event(&mut reader)["event"], "ready");
+
+    drop(child.stdin.take().expect("stdin must be piped"));
+
+    let shutdown = read_event(&mut reader);
+    assert_eq!(shutdown["event"], "shutdown");
+    assert_eq!(shutdown["reason"], "stdin_closed");
+    assert!(
+        wait_for_exit(&mut child).success(),
+        "a shutdown on stdin close must exit zero"
+    );
+    assert_no_further_events(reader);
+}
+
+#[test]
+fn bytes_on_stdin_are_ignored() {
+    let mut child = spawn(&CALIBRATION_ARGS);
+    let mut reader = BufReader::new(child.stdout.take().expect("stdout must be piped"));
+    assert_eq!(read_event(&mut reader)["event"], "ready");
+
+    let stdin = child.stdin.as_mut().expect("stdin must be piped");
+    stdin
+        .write_all(b"stop\nquit\n")
+        .expect("failed to write to stdin");
+    stdin.flush().expect("failed to flush stdin");
+    std::thread::sleep(STDIN_SETTLE);
+
+    signal(&child, "-TERM");
+    let shutdown = read_event(&mut reader);
+    assert_eq!(
+        shutdown["reason"], "signal",
+        "bytes on stdin must not stop the run"
+    );
+    assert!(wait_for_exit(&mut child).success());
+}
+
+#[test]
+fn a_host_that_goes_away_leaves_no_engine_running() {
+    let mut child = spawn(&CALIBRATION_ARGS);
+    let mut reader = BufReader::new(child.stdout.take().expect("stdout must be piped"));
+    assert_eq!(read_event(&mut reader)["event"], "ready");
+
+    drop(reader);
+    drop(child.stdin.take().expect("stdin must be piped"));
+
+    assert!(
+        wait_for_exit(&mut child).success(),
+        "a broken pipe on the final event must still exit zero"
+    );
+}
+
+#[test]
+fn a_headless_run_with_null_stdin_stops_at_once() {
+    let mut child = spawn_with_stdin(&CALIBRATION_ARGS, Stdio::null());
+    let mut reader = BufReader::new(child.stdout.take().expect("stdout must be piped"));
+
+    assert_eq!(read_event(&mut reader)["event"], "ready");
+    let shutdown = read_event(&mut reader);
+    assert_eq!(shutdown["event"], "shutdown");
+    assert_eq!(shutdown["reason"], "stdin_closed");
+    assert!(wait_for_exit(&mut child).success());
 }
 
 #[test]
@@ -166,7 +251,7 @@ fn a_headless_startup_failure_reports_a_typed_code() {
 
 #[test]
 fn headless_logs_stay_on_stderr_without_the_raw_mode_line_ending() {
-    let mut child = spawn(&["--headless", "--test-hz", "440", "--ws-addr", "127.0.0.1:0"]);
+    let mut child = spawn(&CALIBRATION_ARGS);
     let mut reader = BufReader::new(child.stdout.take().expect("stdout must be piped"));
     assert_eq!(read_event(&mut reader)["event"], "ready");
     signal(&child, "-TERM");

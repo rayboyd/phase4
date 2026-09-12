@@ -5,6 +5,9 @@
 //! can tell when the engine is ready, what it resolved, and why it stopped.
 //! Logs stay on stderr and stdout carries the event stream alone.
 //!
+//! A headless run also watches stdin and stops when it reaches end of file, so
+//! the engine cannot outlive its host. Bytes arriving on stdin are discarded.
+//!
 //! This is a control plane. The WebSocket and OSC data planes are unaffected.
 
 use crate::config::AppConfigError;
@@ -12,8 +15,13 @@ use crate::managers::audio::DeviceError;
 use anyhow::Result;
 use serde::ser::SerializeMap;
 use serde::{Serialize, Serializer};
-use std::io::Write;
+use std::io::{ErrorKind, Read, Write};
 use std::net::SocketAddr;
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
+use std::thread::JoinHandle;
 
 /// Schema version carried by every event line. A host reads this to establish
 /// which contract it is supervising against.
@@ -21,6 +29,12 @@ pub const EVENT_SCHEMA_VERSION: u32 = 1;
 
 /// The event code reported when the process panics.
 pub const PANIC_EVENT_CODE: &str = "Panic";
+
+/// Name of the thread that watches stdin for end of file.
+pub const STDIN_WATCHER_THREAD_NAME: &str = "headless-stdin";
+
+/// Size of the buffer the stdin watcher reads into. Every byte read is discarded.
+const STDIN_WATCH_BUFFER_BYTES: usize = 1024;
 
 /// The audio input the engine actually resolved.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -63,10 +77,23 @@ pub struct ReadyReport {
 
 /// Why the engine stopped.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "snake_case")]
 pub enum ShutdownReason {
     /// SIGINT or SIGTERM was received.
     Signal,
+
+    /// stdin reached end of file, because the host closed it or exited.
+    StdinClosed,
+}
+
+/// What ended a headless run, decided once per poll.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HeadlessStop {
+    /// A shutdown was requested and the run drains cleanly.
+    Requested(ShutdownReason),
+
+    /// The engine cleared `keep_running` itself, so the run failed.
+    Engine,
 }
 
 /// One line of the headless event stream.
@@ -197,8 +224,75 @@ impl EventCode for DeviceError {
             Self::EmptyQuery => "EmptyQuery",
             Self::NoMatch { .. } => "NoMatch",
             Self::UnsupportedFormat { .. } => "UnsupportedFormat",
+            Self::HardwareStreamError { .. } => "HardwareStreamError",
         }
     }
+}
+
+/// Decides whether a headless run stops. A signal takes precedence over a
+/// closed stdin, and both take precedence over a stop raised by the engine.
+#[must_use]
+pub fn headless_stop(
+    signal_received: bool,
+    stdin_closed: bool,
+    keep_running: bool,
+) -> Option<HeadlessStop> {
+    if signal_received {
+        Some(HeadlessStop::Requested(ShutdownReason::Signal))
+    } else if stdin_closed {
+        Some(HeadlessStop::Requested(ShutdownReason::StdinClosed))
+    } else if keep_running {
+        None
+    } else {
+        Some(HeadlessStop::Engine)
+    }
+}
+
+/// Spawns a detached thread that reads `reader` until end of file or a read
+/// error, discarding every byte, then sets `closed`. An interrupted read is
+/// retried.
+///
+/// A blocking read on stdin cannot be interrupted portably, so the thread is
+/// not registered with the worker registry and ends with the process.
+///
+/// # Errors
+///
+/// Returns an error if the thread cannot be spawned.
+pub fn watch_stdin(
+    mut reader: impl Read + Send + 'static,
+    closed: Arc<AtomicBool>,
+) -> std::io::Result<JoinHandle<()>> {
+    std::thread::Builder::new()
+        .name(STDIN_WATCHER_THREAD_NAME.to_owned())
+        .spawn(move || {
+            let mut buffer = [0_u8; STDIN_WATCH_BUFFER_BYTES];
+            loop {
+                match reader.read(&mut buffer) {
+                    Ok(0) => break,
+                    Ok(_) => {}
+                    Err(error) if error.kind() == ErrorKind::Interrupted => {}
+                    Err(error) => {
+                        log::warn!("Treating stdin as closed after a read error: {error}");
+                        break;
+                    }
+                }
+            }
+            closed.store(true, Ordering::Release);
+        })
+}
+
+/// Reports whether an event write failed because the reader of stdout has gone.
+#[must_use]
+pub fn is_broken_pipe(error: &anyhow::Error) -> bool {
+    let kind = error
+        .downcast_ref::<std::io::Error>()
+        .map(std::io::Error::kind)
+        .or_else(|| {
+            error
+                .downcast_ref::<serde_json::Error>()
+                .and_then(serde_json::Error::io_error_kind)
+        });
+    kind == Some(ErrorKind::BrokenPipe)
 }
 
 /// Writes one event as a single JSON line, then flushes.

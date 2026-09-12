@@ -18,6 +18,8 @@ stdout carries the event stream and nothing else. Logs go to stderr, as they do 
 
 A host that only wants supervision can read stdout line by line and ignore stderr entirely.
 
+stdin is watched for end of file, and every byte arriving on it is discarded. It tells the engine its host is still there, and is never read as a command.
+
 ## Events
 
 One JSON object per line. Every line carries `"v"`, the schema version, so a host can tell which contract it is supervising against.
@@ -53,6 +55,8 @@ Written once when startup or the run fails. The process then exits non-zero.
 
 Codes come from the configuration and device error sets, for example `MissingDevice`, `NoOutputConfigured`, `NonLoopbackBindAddress`, `InvalidMaxClients`, `ChannelIndexOutOfRange`, `EmptyQuery`, `NoMatch` and `UnsupportedFormat`. A failure carrying no typed error reports `Unknown`. A panic reports `Panic`.
 
+`HardwareStreamError` is written when the input stream fails during a run, for example when the interface is unplugged. The workers drain before the event is written.
+
 Adding an error variant adds a code. Renaming one breaks this contract and is a breaking change.
 
 ### shutdown
@@ -63,11 +67,22 @@ Written once after the workers have drained, immediately before a clean exit.
 {"v":1,"event":"shutdown","reason":"signal"}
 ```
 
-## Signals and Exit Codes
+| Reason | Meaning |
+| --- | --- |
+| `signal` | SIGINT or SIGTERM was received |
+| `stdin_closed` | stdin reached end of file, because the host closed it or exited |
 
-SIGINT and SIGTERM both request the same graceful shutdown. Workers drain in their registration order, the `shutdown` event is written, and the process exits 0.
+A host should treat an unrecognised reason as a clean stop.
 
-A startup or runtime failure writes an `error` event and exits non-zero.
+## Stopping and Exit Codes
+
+SIGINT, SIGTERM and stdin reaching end of file all request the same graceful shutdown. Workers drain in their registration order, the `shutdown` event is written, and the process exits 0. When a signal and a closed stdin arrive together, the reason is `signal`.
+
+A headless run started with stdin at `/dev/null` reads end of file at once. It writes `ready`, then shuts down with reason `stdin_closed`.
+
+A startup failure, or a hardware stream error during the run, writes an `error` event and exits non-zero.
+
+If the host has gone by the time the `shutdown` event is written, the write fails on a broken pipe. The workers have already drained, so the process still exits 0.
 
 Interactive runs are unchanged. Without `--headless` Phase4 still requires a terminal, still puts it into raw mode, and still shuts down on Ctrl+C as a key event.
 
@@ -75,9 +90,11 @@ Interactive runs are unchanged. Without `--headless` Phase4 still requires a ter
 
 A host spawns the binary, reads the first line, and has everything it needs.
 
-1. Spawn with `--headless`, stdin redirected away from any terminal, and stdout piped.
+1. Spawn with `--headless`, stdin piped and held open, and stdout piped.
 2. Read one line. On `ready`, connect to `outputs.websocket`. On `error`, report `code` and stop.
-3. Read further lines in the background. A `shutdown` line means the engine stopped cleanly.
-4. To stop the engine, send SIGTERM and wait for the process to exit.
+3. Read further lines in the background. A `shutdown` line means the engine stopped cleanly. An `error` line means the run failed.
+4. To stop the engine, send SIGTERM or close stdin, then wait for the process to exit.
+
+A host that exits for any reason, a crash or SIGKILL included, has its end of the stdin pipe closed by the operating system, and the engine drains and exits.
 
 Settings are changed through the configuration file and the command line, then applied by restarting the process. There is no control channel, by design.
