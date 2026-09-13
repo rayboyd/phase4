@@ -2,6 +2,14 @@
 
 All notable changes to Phase4 will be documented in this file.
 
+## 0.0.21
+
+[7ad1f78](https://github.com/rayboyd/phase4/compare/7ad1f78594825499ae9dee42b580041aefb46947...7cf0706c5f1906cf1f46b30a9a25025b3a14d9e4)
+
+### Features
+
+- Report typed codes for MIDI device failures ([dc711e9](https://github.com/rayboyd/phase4/commit/dc711e9fb843a56c138a750bcab5f58dd06c62f4))
+
 ## 0.0.20
 
 ### Documentation
