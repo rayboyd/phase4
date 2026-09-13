@@ -53,7 +53,7 @@ Written once when startup or the run fails. The process then exits non-zero.
 
 `code` is a stable identifier taken from the originating error variant, so a host can act on it rather than parsing prose. A host should treat an unrecognised code as a generic failure and show `message`.
 
-Codes come from the configuration and device error sets, for example `MissingDevice`, `NoOutputConfigured`, `NonLoopbackBindAddress`, `InvalidMaxClients`, `ChannelIndexOutOfRange`, `EmptyQuery`, `NoMatch` and `UnsupportedFormat`. A failure carrying no typed error reports `Unknown`. A panic reports `Panic`.
+Codes come from the configuration and device error sets, for example `MissingDevice`, `NoOutputConfigured`, `NonLoopbackBindAddress`, `InvalidMaxClients`, `ChannelIndexOutOfRange`, `EmptyQuery`, `NoMatch` and `UnsupportedFormat`. MIDI device failures report `MidiUnavailable`, `MidiNoMatch` or `MidiConnectFailed`. A failure carrying no typed error reports `Unknown`. A panic reports `Panic`.
 
 `HardwareStreamError` is written when the input stream fails during a run, for example when the interface is unplugged. The workers drain before the event is written.
 
