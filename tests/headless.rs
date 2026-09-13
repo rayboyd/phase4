@@ -10,6 +10,7 @@ use phase4::headless::{
     STDIN_WATCHER_THREAD_NAME,
 };
 use phase4::managers::audio::DeviceError;
+use phase4::managers::midi::MidiDeviceError;
 use std::io::{Cursor, ErrorKind, Read, Write};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
@@ -229,6 +230,46 @@ fn a_hardware_stream_error_reports_its_code_and_text() {
     };
     assert_eq!(code, "HardwareStreamError");
     assert!(message.contains("device unplugged"), "got: {message}");
+}
+
+#[test]
+fn midi_device_error_codes_are_the_variant_names() {
+    let cases: [(MidiDeviceError, &str); 3] = [
+        (
+            MidiDeviceError::MidiUnavailable {
+                message: "no backend".to_owned(),
+            },
+            "MidiUnavailable",
+        ),
+        (
+            MidiDeviceError::MidiNoMatch {
+                query: "Loopback".to_owned(),
+            },
+            "MidiNoMatch",
+        ),
+        (
+            MidiDeviceError::MidiConnectFailed {
+                device: "Loopback".to_owned(),
+                message: "port busy".to_owned(),
+            },
+            "MidiConnectFailed",
+        ),
+    ];
+    for (error, expected) in cases {
+        assert_eq!(error.event_code(), expected);
+    }
+}
+
+#[test]
+fn a_midi_device_error_is_recovered_from_an_anyhow_chain() {
+    let error = anyhow::Error::from(MidiDeviceError::MidiNoMatch {
+        query: "Loopback".to_owned(),
+    });
+    let Event::Error { code, message } = Event::from_anyhow(&error) else {
+        panic!("from_anyhow must build an error event");
+    };
+    assert_eq!(code, "MidiNoMatch");
+    assert!(message.contains("Loopback"), "got: {message}");
 }
 
 #[test]

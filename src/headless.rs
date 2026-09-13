@@ -12,6 +12,7 @@
 
 use crate::config::AppConfigError;
 use crate::managers::audio::DeviceError;
+use crate::managers::midi::MidiDeviceError;
 use anyhow::Result;
 use serde::ser::SerializeMap;
 use serde::{Serialize, Serializer};
@@ -172,6 +173,11 @@ impl Event {
                     .downcast_ref::<DeviceError>()
                     .map(EventCode::event_code)
             })
+            .or_else(|| {
+                error
+                    .downcast_ref::<MidiDeviceError>()
+                    .map(EventCode::event_code)
+            })
             .unwrap_or("Unknown");
         Self::Error {
             code: code.to_owned(),
@@ -225,6 +231,16 @@ impl EventCode for DeviceError {
             Self::NoMatch { .. } => "NoMatch",
             Self::UnsupportedFormat { .. } => "UnsupportedFormat",
             Self::HardwareStreamError { .. } => "HardwareStreamError",
+        }
+    }
+}
+
+impl EventCode for MidiDeviceError {
+    fn event_code(&self) -> &'static str {
+        match self {
+            Self::MidiUnavailable { .. } => "MidiUnavailable",
+            Self::MidiNoMatch { .. } => "MidiNoMatch",
+            Self::MidiConnectFailed { .. } => "MidiConnectFailed",
         }
     }
 }

@@ -20,7 +20,7 @@ Pass `--midi-device` with a device name, or `--test-midi-clock` with a tempo in 
 ./phase4 --audio-device "Duet 3" --ws-addr 127.0.0.1:8889 --test-midi-clock 120.0
 ```
 
-The synthetic clock tempo must be finite and positive, and its MIDI tick interval must be representable and non-zero. A real MIDI device is opened during startup, if the selected device disappears or cannot be opened, Phase4 exits before starting any workers.
+The synthetic clock tempo must be finite and positive, and its MIDI tick interval must be representable and non-zero. A real MIDI device is opened during startup, if the selected device disappears or cannot be opened, Phase4 exits before starting any workers. Under `--headless` the error event carries `MidiUnavailable`, `MidiNoMatch` or `MidiConnectFailed`, see [Headless](headless.md#error).
 
 MIDI input supplies transport events and a count derived from clock ticks. Notes, velocity, controller messages and song-position messages are not forwarded. Audio and MIDI are sampled independently, and the output contains no shared sample timestamp.
 

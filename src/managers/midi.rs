@@ -16,7 +16,7 @@
 
 use crate::app::AppState;
 use crate::ListFormat;
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result};
 use serde::Serialize;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
@@ -109,6 +109,26 @@ fn record_byte(byte: u8, state: &AppState, ticks_since_step: &mut u8) {
         }
         _ => {}
     }
+}
+
+/// Typed MIDI device failures. Variant names are headless event codes.
+///
+/// Message texts are part of the user-facing, not machine-read, surface.
+#[derive(Debug, thiserror::Error)]
+pub enum MidiDeviceError {
+    /// The MIDI backend could not be initialised.
+    #[error("MIDI input could not be initialised: {message}")]
+    MidiUnavailable { message: String },
+
+    /// No MIDI input port matched the query, exactly or as a substring.
+    #[error(
+        "No MIDI input device matched \"{query}\". Run with --midi-list to see available devices."
+    )]
+    MidiNoMatch { query: String },
+
+    /// A port matched the query but could not be opened.
+    #[error("Failed to connect to MIDI device \"{device}\": {message}")]
+    MidiConnectFailed { device: String, message: String },
 }
 
 /// Resolved MIDI input source, either a synthetic clock spec or an open real
@@ -216,15 +236,15 @@ pub(crate) fn connect_midi_device(
     name_query: &str,
     state: Arc<AppState>,
 ) -> Result<MidiInputSource> {
-    let midi_in = midir::MidiInput::new("phase4").context("Failed to initialise MIDI input")?;
+    let midi_in =
+        midir::MidiInput::new("phase4").map_err(|error| MidiDeviceError::MidiUnavailable {
+            message: error.to_string(),
+        })?;
 
     let ports = midi_in.ports();
     let port = find_matching_midi_device(ports, name_query, |port| midi_in.port_name(port).ok())
-        .with_context(|| {
-            format!(
-                "No MIDI input device matching '{name_query}' found. \
-                 Run with --midi-list to see available devices."
-            )
+        .ok_or_else(|| MidiDeviceError::MidiNoMatch {
+            query: name_query.to_owned(),
         })?;
 
     let port_name = midi_in
@@ -242,7 +262,10 @@ pub(crate) fn connect_midi_device(
             },
             0u8,
         )
-        .map_err(|error| anyhow!("Failed to connect to MIDI device '{port_name}': {error}"))?;
+        .map_err(|error| MidiDeviceError::MidiConnectFailed {
+            device: port_name.clone(),
+            message: error.to_string(),
+        })?;
 
     log::info!("MIDI input connected: {port_name}");
     Ok(MidiInputSource::Hardware(connection))
@@ -343,12 +366,21 @@ mod tests {
     }
 
     #[test]
-    fn connect_midi_device_fails_for_an_unmatched_name() {
-        let result = connect_midi_device(
+    fn connect_midi_device_reports_a_typed_error_for_an_unmatched_name() {
+        let Err(error) = connect_midi_device(
             "a-name-no-real-device-will-ever-have",
             Arc::new(AppState::new()),
+        ) else {
+            panic!("an unmatched MIDI device name must fail");
+        };
+        // A machine without a MIDI backend cannot enumerate ports, which is also a typed failure.
+        assert!(
+            matches!(
+                error.downcast_ref::<MidiDeviceError>(),
+                Some(MidiDeviceError::MidiNoMatch { .. } | MidiDeviceError::MidiUnavailable { .. })
+            ),
+            "got: {error:#}"
         );
-        assert!(result.is_err());
     }
 
     #[test]
