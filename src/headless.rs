@@ -165,25 +165,33 @@ impl Event {
     /// with no typed source reports the code `Unknown`.
     #[must_use]
     pub fn from_anyhow(error: &anyhow::Error) -> Self {
-        let code = error
-            .downcast_ref::<AppConfigError>()
-            .map(EventCode::event_code)
-            .or_else(|| {
-                error
-                    .downcast_ref::<DeviceError>()
-                    .map(EventCode::event_code)
-            })
-            .or_else(|| {
-                error
-                    .downcast_ref::<MidiDeviceError>()
-                    .map(EventCode::event_code)
-            })
-            .unwrap_or("Unknown");
         Self::Error {
-            code: code.to_owned(),
+            code: error_code(error).to_owned(),
             message: format!("{error:#}"),
         }
     }
+}
+
+/// The code reported for an error with no typed source.
+pub const UNKNOWN_EVENT_CODE: &str = "Unknown";
+
+/// The stable code of the typed error in `error`'s chain, or `Unknown`.
+#[must_use]
+pub fn error_code(error: &anyhow::Error) -> &'static str {
+    error
+        .downcast_ref::<AppConfigError>()
+        .map(EventCode::event_code)
+        .or_else(|| {
+            error
+                .downcast_ref::<DeviceError>()
+                .map(EventCode::event_code)
+        })
+        .or_else(|| {
+            error
+                .downcast_ref::<MidiDeviceError>()
+                .map(EventCode::event_code)
+        })
+        .unwrap_or(UNKNOWN_EVENT_CODE)
 }
 
 /// A stable identifier for the `error` event's `code` field.

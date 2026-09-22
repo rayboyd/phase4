@@ -128,3 +128,31 @@ fn transport_code_to_str(code: u8) -> Option<&'static str> {
         _ => None,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn reading_a_snapshot_clears_the_last_transport_and_keeps_the_latest() {
+        let state = AppState::new();
+        state
+            .midi_last_transport
+            .store(MIDI_TRANSPORT_STOP, Ordering::Release);
+        state
+            .midi_transport_latest
+            .store(MIDI_TRANSPORT_STOP, Ordering::Release);
+
+        let snapshot = read_midi_snapshot(&state, true).expect("MIDI is enabled");
+
+        assert_eq!(snapshot.transport, Some("stop"));
+        assert_eq!(
+            state.midi_last_transport.load(Ordering::Acquire),
+            MIDI_TRANSPORT_NONE
+        );
+        assert_eq!(
+            state.midi_transport_latest.load(Ordering::Acquire),
+            MIDI_TRANSPORT_STOP
+        );
+    }
+}

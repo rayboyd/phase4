@@ -56,6 +56,14 @@ pub struct AppState {
     /// overflow, and continues if clock ticks arrive while transport is stopped.
     pub midi_steps: AtomicU32,
 
+    /// Start, Stop and Continue events received, wrapping on overflow. Written
+    /// by the MIDI callback or synthetic clock and never cleared.
+    pub midi_transport_count: AtomicU32,
+
+    /// The most recent transport event, one of the `MIDI_TRANSPORT_*` codes.
+    /// Written with `midi_last_transport` and never cleared by the mapper.
+    pub midi_transport_latest: AtomicU8,
+
     /// The first hardware stream error of the run. Written by the stream error
     /// callback before it clears `keep_running`, and read by the headless loop.
     /// This is the one mutex on `AppState`, and no realtime path takes it.
@@ -68,6 +76,8 @@ impl Default for AppState {
             keep_running: AtomicBool::new(true),
             midi_last_transport: AtomicU8::new(MIDI_TRANSPORT_NONE),
             midi_steps: AtomicU32::new(0),
+            midi_transport_count: AtomicU32::new(0),
+            midi_transport_latest: AtomicU8::new(MIDI_TRANSPORT_NONE),
             hardware_stream_error: Mutex::new(None),
         }
     }
@@ -166,6 +176,8 @@ impl App {
         let osc = config.outputs.iter().find_map(|output| match output {
             OutputConfig::Osc { addr } => Some(*addr),
             OutputConfig::WebSocket { .. } => None,
+            #[cfg(target_os = "macos")]
+            OutputConfig::FrameRegion(_) => None,
         });
         let midi_device = match &config.midi_input {
             Some(ConfigMidiInput::Device(name)) => Some(name.clone()),
@@ -203,6 +215,24 @@ impl App {
     #[must_use]
     pub fn ws_bound_addr(&self) -> Option<SocketAddr> {
         self.ws_bound_addr
+    }
+
+    /// Why the engine stopped itself, for a host that polls instead of
+    /// blocking. `None` while `keep_running` is set. Call only before
+    /// `shutdown`, which also clears `keep_running`.
+    ///
+    /// A recorded hardware stream error is returned as
+    /// [`DeviceError::HardwareStreamError`], and is taken, so a second call
+    /// reports the engine stop without it.
+    #[must_use]
+    pub fn engine_failure(&self) -> Option<anyhow::Error> {
+        if self.state.keep_running.load(Ordering::Acquire) {
+            return None;
+        }
+        Some(match self.state.take_hardware_stream_error() {
+            Some(message) => DeviceError::HardwareStreamError { message }.into(),
+            None => anyhow::anyhow!(ENGINE_STOPPED_MESSAGE),
+        })
     }
 
     /// Hands control to the interactive controller, blocking until shutdown.
@@ -252,10 +282,9 @@ impl App {
                     return Ok(reason);
                 }
                 Some(HeadlessStop::Engine) => {
-                    return match self.state.take_hardware_stream_error() {
-                        Some(message) => Err(DeviceError::HardwareStreamError { message }.into()),
-                        None => Err(anyhow::anyhow!(ENGINE_STOPPED_MESSAGE)),
-                    };
+                    return Err(self
+                        .engine_failure()
+                        .unwrap_or_else(|| anyhow::anyhow!(ENGINE_STOPPED_MESSAGE)));
                 }
                 None => std::thread::sleep(Duration::from_millis(HEADLESS_POLL_RATE_MS)),
             }

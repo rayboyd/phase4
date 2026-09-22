@@ -12,12 +12,18 @@ use crate::config::{
 };
 use crate::dsp::vocoder::bandpass_coefficients;
 use crate::dsp::{DisplayPayload, RawPayload};
+#[cfg(target_os = "macos")]
+use crate::frames::FrameRegion;
 use crate::headless::ReadyAudio;
 use crate::managers::audio::{ChannelMode, StreamSink};
+#[cfg(target_os = "macos")]
+use crate::managers::FrameWriter;
 use crate::managers::{
     Generator, Input, Mapper, MidiInputSource, MidiListener, OscSender, Processor, Server, Specs,
 };
 use crate::worker::{WorkerKind, WorkerThreads};
+#[cfg(target_os = "macos")]
+use anyhow::Context;
 use anyhow::Result;
 use cpal::traits::DeviceTrait;
 use std::net::SocketAddr;
@@ -139,6 +145,11 @@ pub(crate) fn bootstrap(config: &AppConfig) -> Result<Bootstrapped> {
         analyser.spawn(analyse_rx, raw_tx, analyser_specs, analyser_state),
     );
 
+    // The frame writer reads analysis snapshots directly, so it takes its own
+    // receiver before the mapper consumes this one.
+    #[cfg(target_os = "macos")]
+    let frame_raw_rx = raw_rx.clone();
+
     workers.register(
         WorkerKind::Mapper,
         Mapper::spawn(
@@ -159,14 +170,17 @@ pub(crate) fn bootstrap(config: &AppConfig) -> Result<Bootstrapped> {
 
     // Retain each output handle as it starts so a later output failure can
     // shut down every worker through the normal bounded join path.
-    let ws_bound_addr = match spawn_outputs(
-        &config.outputs,
-        &display_rx,
+    let sources = OutputSources {
+        display_rx: &display_rx,
+        #[cfg(target_os = "macos")]
+        raw_rx: &frame_raw_rx,
         display_channels,
-        &state,
+        #[cfg(target_os = "macos")]
+        sample_rate: analyser_specs.sample_rate,
+        state: &state,
         midi_enabled,
-        &mut workers,
-    ) {
+    };
+    let ws_bound_addr = match spawn_outputs(&config.outputs, &sources, &mut workers) {
         Ok(bound_addr) => bound_addr,
         Err(error) => {
             drop(input_device);
@@ -185,6 +199,29 @@ pub(crate) fn bootstrap(config: &AppConfig) -> Result<Bootstrapped> {
     })
 }
 
+/// The pipeline handles and resolved facts every output transport spawns from.
+struct OutputSources<'a> {
+    /// The mapper's 60 Hz display snapshots, for the network outputs.
+    display_rx: &'a watch::Receiver<DisplayPayload>,
+
+    /// The analyser's snapshots, for the frame region.
+    #[cfg(target_os = "macos")]
+    raw_rx: &'a watch::Receiver<RawPayload>,
+
+    /// Analysed channels, which every snapshot carries.
+    display_channels: usize,
+
+    /// The resolved sample rate in Hz, written into the frame region header.
+    #[cfg(target_os = "macos")]
+    sample_rate: u32,
+
+    /// Shared runtime state.
+    state: &'a Arc<AppState>,
+
+    /// Whether MIDI input is configured.
+    midi_enabled: bool,
+}
+
 /// Spawns one worker thread per configured output transport, matching each
 /// [`OutputConfig`] descriptor to its spawn call.
 ///
@@ -195,14 +232,12 @@ pub(crate) fn bootstrap(config: &AppConfig) -> Result<Bootstrapped> {
 ///
 /// # Errors
 ///
-/// Returns an error if a transport fails to bind (WebSocket listener) or
-/// fails to acquire its local socket (OSC sender).
+/// Returns an error if a transport fails to bind (WebSocket listener), fails
+/// to acquire its local socket (OSC sender), or cannot map or share its frame
+/// region.
 fn spawn_outputs(
     outputs: &ConfigOutputs,
-    display_rx: &watch::Receiver<DisplayPayload>,
-    display_channels: usize,
-    state: &Arc<AppState>,
-    midi_enabled: bool,
+    sources: &OutputSources<'_>,
     workers: &mut WorkerThreads,
 ) -> Result<Option<SocketAddr>> {
     let mut ws_bound_addr = None;
@@ -215,7 +250,8 @@ fn spawn_outputs(
                 no_browser_origin,
             } => {
                 let server = Server::new(*addr, *no_browser_origin, *max_clients);
-                let (bound_addr, handle) = server.spawn(display_rx.clone(), Arc::clone(state))?;
+                let (bound_addr, handle) =
+                    server.spawn(sources.display_rx.clone(), Arc::clone(sources.state))?;
                 log::info!("WebSocket server listening on ws://{bound_addr}");
                 ws_bound_addr = Some(bound_addr);
                 workers.register(WorkerKind::WebSocket, handle);
@@ -223,13 +259,34 @@ fn spawn_outputs(
             OutputConfig::Osc { addr } => {
                 let sender = OscSender::new(*addr);
                 let handle = sender.spawn(
-                    display_rx.clone(),
-                    display_channels,
-                    Arc::clone(state),
-                    midi_enabled,
+                    sources.display_rx.clone(),
+                    sources.display_channels,
+                    Arc::clone(sources.state),
+                    sources.midi_enabled,
                 )?;
                 log::info!("OSC sender transmitting to udp://{addr}");
                 workers.register(WorkerKind::Osc, handle);
+            }
+            #[cfg(target_os = "macos")]
+            OutputConfig::FrameRegion(slot) => {
+                let region = Arc::new(
+                    FrameRegion::new(
+                        sources.display_channels,
+                        sources.sample_rate,
+                        sources.midi_enabled,
+                    )
+                    .context("Failed to map the frame region")?,
+                );
+                if !slot.fill(Arc::clone(&region)) {
+                    anyhow::bail!("The frame region slot was already filled");
+                }
+                let handle =
+                    FrameWriter::spawn(sources.raw_rx.clone(), region, Arc::clone(sources.state));
+                log::info!(
+                    "Frame region publishing {} channels",
+                    sources.display_channels
+                );
+                workers.register(WorkerKind::FrameWriter, handle);
             }
         }
     }

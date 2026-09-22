@@ -94,24 +94,24 @@ impl Specs {
 /// device's hardware configuration could not be queried, the text-mode
 /// equivalent is the "Configuration unavailable" warning line.
 #[derive(serde::Serialize)]
-struct DeviceInfo {
+pub(crate) struct DeviceInfo {
     /// Zero-based position in the host's input device enumeration.
-    index: usize,
+    pub(crate) index: usize,
 
     /// Device name, or "Unknown Device" if the description could not be read.
-    name: String,
+    pub(crate) name: String,
 
     /// Hardware sample rate in Hz.
-    sample_rate: Option<u32>,
+    pub(crate) sample_rate: Option<u32>,
 
     /// Number of hardware input channels.
-    channels: Option<u16>,
+    pub(crate) channels: Option<u16>,
 
     /// Sample format of the default input configuration, e.g. "F32".
-    sample_format: Option<String>,
+    pub(crate) sample_format: Option<String>,
 
     /// Whether the device's default configuration is `f32`, phase4's required sample format.
-    supported: bool,
+    pub(crate) supported: bool,
 }
 
 /// Describes which channels to extract from the hardware interleaved stream.
@@ -258,7 +258,7 @@ impl Input {
         }
     }
 
-    fn enumerate_devices() -> Result<Vec<DeviceInfo>> {
+    pub(crate) fn enumerate_devices() -> Result<Vec<DeviceInfo>> {
         let host = cpal::default_host();
         let devices = host
             .input_devices()

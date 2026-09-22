@@ -72,6 +72,12 @@ Phase4 runs without a terminal under `--headless`, writing a newline-delimited J
 
 See [docs/headless.md](docs/headless.md)
 
+## XPC Service
+
+On macOS, Phase4 also builds as an XPC service, `Phase4Engine.xpc`, for the Phase4 macOS app to embed. The app controls it through XPC messages, and the engine writes every analysis snapshot and the MIDI state into a shared memory frame region the app reads each frame. `scripts/build-xpc.sh` assembles the bundle. The service opens no network outputs.
+
+See [docs/xpc.md](docs/xpc.md)
+
 ## Architecture
 
 See [docs/lifecycle.md](docs/lifecycle.md) for buffering, snapshot delivery, worker ownership and shutdown behaviour.

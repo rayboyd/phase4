@@ -2,8 +2,9 @@
 //! synthetic clock at a configured tempo, mirroring the calibration or device
 //! split the audio input already has.
 //!
-//! The device callback or synthetic clock writes two atomics on `AppState`.
-//! The mapper samples them once per published frame. The synthetic clock
+//! The device callback or synthetic clock writes the MIDI atomics on
+//! `AppState`. The mapper samples them once per published frame, and on macOS
+//! the frame writer reads them for every analysis snapshot. The synthetic clock
 //! runs on this worker at a lower priority than the analyser. A real device
 //! delivers bytes on midir's own backend thread, and this worker only holds
 //! the connection open.
@@ -27,12 +28,12 @@ use thread_priority::{set_current_thread_priority, ThreadPriority, ThreadPriorit
 /// A single enumerated MIDI input device, serialised as one entry in the
 /// JSON array produced by `--midi-list-format json`.
 #[derive(Debug, Serialize)]
-struct MidiDeviceInfo {
+pub(crate) struct MidiDeviceInfo {
     /// Zero-based position in the port enumeration.
-    index: usize,
+    pub(crate) index: usize,
 
     /// Device name, or "Unknown Device" if the port name could not be read.
-    name: String,
+    pub(crate) name: String,
 }
 
 /// MIDI listener thread priority. Set lower than analyser.
@@ -88,18 +89,12 @@ fn record_byte(byte: u8, state: &AppState, ticks_since_step: &mut u8) {
         MIDI_STATUS_START => {
             *ticks_since_step = 0;
             state.midi_steps.store(0, Ordering::Release);
-            state
-                .midi_last_transport
-                .store(MIDI_TRANSPORT_START, Ordering::Release);
+            record_transport(state, MIDI_TRANSPORT_START);
             #[cfg(test)]
             observe_published_midi_start(state);
         }
-        MIDI_STATUS_STOP => state
-            .midi_last_transport
-            .store(MIDI_TRANSPORT_STOP, Ordering::Release),
-        MIDI_STATUS_CONTINUE => state
-            .midi_last_transport
-            .store(MIDI_TRANSPORT_CONTINUE, Ordering::Release),
+        MIDI_STATUS_STOP => record_transport(state, MIDI_TRANSPORT_STOP),
+        MIDI_STATUS_CONTINUE => record_transport(state, MIDI_TRANSPORT_CONTINUE),
         MIDI_STATUS_TIMING_CLOCK => {
             *ticks_since_step += 1;
             if *ticks_since_step >= MIDI_CLOCK_TICKS_PER_STEP {
@@ -109,6 +104,15 @@ fn record_byte(byte: u8, state: &AppState, ticks_since_step: &mut u8) {
         }
         _ => {}
     }
+}
+
+/// Records one transport event. The mapper reads and clears
+/// `midi_last_transport` for each broadcast frame, while the frame region
+/// reads the running count and the latest code, which nothing clears.
+fn record_transport(state: &AppState, code: u8) {
+    state.midi_last_transport.store(code, Ordering::Release);
+    state.midi_transport_latest.store(code, Ordering::Release);
+    state.midi_transport_count.fetch_add(1, Ordering::AcqRel);
 }
 
 /// Typed MIDI device failures. Variant names are headless event codes.
@@ -169,7 +173,7 @@ impl MidiListener {
         }
     }
 
-    fn enumerate_devices() -> Result<Vec<MidiDeviceInfo>> {
+    pub(crate) fn enumerate_devices() -> Result<Vec<MidiDeviceInfo>> {
         let midi_in = midir::MidiInput::new("phase4").context("Failed to initialise MIDI input")?;
         let ports = midi_in.ports();
 
@@ -453,6 +457,41 @@ mod tests {
         assert_eq!(
             state.midi_last_transport.load(Ordering::Acquire),
             MIDI_TRANSPORT_CONTINUE
+        );
+    }
+
+    #[test]
+    fn each_transport_event_is_counted_and_kept_as_the_latest() {
+        let state = AppState::new();
+
+        for (byte, code) in [
+            (MIDI_STATUS_START, MIDI_TRANSPORT_START),
+            (MIDI_STATUS_STOP, MIDI_TRANSPORT_STOP),
+            (MIDI_STATUS_CONTINUE, MIDI_TRANSPORT_CONTINUE),
+        ] {
+            let before = state.midi_transport_count.load(Ordering::Acquire);
+            record_byte(byte, &state, &mut 0u8);
+            assert_eq!(
+                state.midi_transport_count.load(Ordering::Acquire),
+                before + 1
+            );
+            assert_eq!(state.midi_transport_latest.load(Ordering::Acquire), code);
+        }
+    }
+
+    #[test]
+    fn timing_clock_bytes_leave_the_transport_count_and_latest_alone() {
+        let state = AppState::new();
+        let mut ticks_since_step = 0u8;
+
+        for _ in 0..MIDI_CLOCK_TICKS_PER_STEP {
+            record_byte(MIDI_STATUS_TIMING_CLOCK, &state, &mut ticks_since_step);
+        }
+
+        assert_eq!(state.midi_transport_count.load(Ordering::Acquire), 0);
+        assert_eq!(
+            state.midi_transport_latest.load(Ordering::Acquire),
+            MIDI_TRANSPORT_NONE
         );
     }
 
