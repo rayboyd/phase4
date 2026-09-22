@@ -7,13 +7,17 @@
 //! latest 32-band analysis snapshot into the display payload at 60 Hz. [`midi`]
 //! listens to MIDI input and writes transport and clock state atomics.
 //! [`osc`] broadcasts bin values over UDP to a configured target address.
-//! [`server`] broadcasts pre-serialised JSON to WebSocket clients.
+//! [`server`] broadcasts pre-serialised JSON to WebSocket clients. On macOS,
+//! `frame_writer` publishes every analysis snapshot into the XPC service's
+//! frame region.
 
 use std::future::Future;
 use std::thread::{self, JoinHandle};
 
 pub mod analyser;
 pub mod audio;
+#[cfg(target_os = "macos")]
+pub mod frame_writer;
 pub mod generator;
 pub mod mapper;
 pub mod midi;
@@ -22,6 +26,8 @@ pub mod server;
 
 pub use analyser::Processor;
 pub use audio::{Input, Specs};
+#[cfg(target_os = "macos")]
+pub use frame_writer::FrameWriter;
 pub use generator::Generator;
 pub use mapper::Mapper;
 pub use midi::MidiListener;

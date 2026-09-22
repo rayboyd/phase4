@@ -33,6 +33,10 @@ const SERVER_SHUTDOWN_TIMEOUT_MS: u64 = 1_500;
 /// Grace period for the OSC sender to observe display channel closure after the mapper exits.
 const OSC_SENDER_SHUTDOWN_TIMEOUT_MS: u64 = 1_500;
 
+/// Grace period for the frame writer to observe analyser channel closure.
+#[cfg(target_os = "macos")]
+const FRAME_WRITER_SHUTDOWN_TIMEOUT_MS: u64 = 1_000;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum JoinOutcome {
     /// The thread finished and joined cleanly.
@@ -69,6 +73,8 @@ pub(crate) enum WorkerKind {
     MidiInput,
     WebSocket,
     Osc,
+    #[cfg(target_os = "macos")]
+    FrameWriter,
 }
 
 impl WorkerKind {
@@ -103,6 +109,12 @@ impl WorkerKind {
                 name: "osc-sender",
                 success_message: "- OSC sender shutdown complete",
                 timeout_ms: OSC_SENDER_SHUTDOWN_TIMEOUT_MS,
+            },
+            #[cfg(target_os = "macos")]
+            Self::FrameWriter => WorkerSpec {
+                name: "frame-writer",
+                success_message: "- Frame writer shutdown complete",
+                timeout_ms: FRAME_WRITER_SHUTDOWN_TIMEOUT_MS,
             },
         }
     }

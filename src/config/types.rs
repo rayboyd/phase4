@@ -23,6 +23,8 @@ pub(crate) const CALIBRATION_MAX_FREQUENCY_HZ: f32 =
 /// Stable output names used in duplicate-transport configuration errors.
 const WEBSOCKET_OUTPUT_NAME: &str = "WebSocket";
 const OSC_OUTPUT_NAME: &str = "OSC";
+#[cfg(target_os = "macos")]
+const FRAME_REGION_OUTPUT_NAME: &str = "Frame region";
 
 /// The synthetic calibration signal, a simple sine wave in one of two modes.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -70,8 +72,8 @@ pub enum ConfigMidiInput {
 }
 
 /// One configured output transport, carrying everything that transport needs
-/// to spawn. Built exactly once in `resolve_config` from the merged CLI and
-/// file configuration.
+/// to spawn. Built exactly once in `resolve_with_outputs` from the merged CLI
+/// and file configuration and any extra outputs.
 #[derive(Debug, Clone, PartialEq)]
 pub enum OutputConfig {
     /// WebSocket JSON broadcast. `addr` is a listen address, phase4 binds it
@@ -84,6 +86,11 @@ pub enum OutputConfig {
 
     /// OSC UDP messages. `addr` is a target address, phase4 sends to it.
     Osc { addr: SocketAddr },
+
+    /// The shared memory frame region the XPC service hands its client.
+    /// Bootstrap creates the region and fills the slot with it.
+    #[cfg(target_os = "macos")]
+    FrameRegion(crate::frames::FrameRegionSlot),
 }
 
 /// The resolved output set, non-empty by construction. Phase4 is a consumer
@@ -112,12 +119,18 @@ impl ConfigOutputs {
 
         let mut websocket_configured = false;
         let mut osc_configured = false;
+        #[cfg(target_os = "macos")]
+        let mut frame_region_configured = false;
         for output in &outputs {
             let (configured, transport) = match output {
                 OutputConfig::WebSocket { .. } => {
                     (&mut websocket_configured, WEBSOCKET_OUTPUT_NAME)
                 }
                 OutputConfig::Osc { .. } => (&mut osc_configured, OSC_OUTPUT_NAME),
+                #[cfg(target_os = "macos")]
+                OutputConfig::FrameRegion(_) => {
+                    (&mut frame_region_configured, FRAME_REGION_OUTPUT_NAME)
+                }
             };
             if *configured {
                 return Err(AppConfigError::DuplicateOutputTransport { transport });
@@ -417,6 +430,8 @@ pub(super) mod test_support {
                     no_browser_origin,
                 } => Some((*addr, *max_clients, *no_browser_origin)),
                 OutputConfig::Osc { .. } => None,
+                #[cfg(target_os = "macos")]
+                OutputConfig::FrameRegion(_) => None,
             })
             .expect("test config should configure a WebSocket output")
     }

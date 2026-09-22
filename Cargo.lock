@@ -1145,11 +1145,13 @@ version = "0.0.21"
 dependencies = [
  "anyhow",
  "biquad",
+ "block2",
  "clap",
  "cpal",
  "crossterm",
  "env_logger",
  "futures-util",
+ "libc",
  "log",
  "midir",
  "no_denormals",

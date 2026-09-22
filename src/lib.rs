@@ -11,9 +11,13 @@ mod bootstrap;
 pub mod config;
 pub mod controller;
 pub mod dsp;
+#[cfg(target_os = "macos")]
+pub mod frames;
 pub mod headless;
 pub mod managers;
 pub mod worker;
+#[cfg(target_os = "macos")]
+pub mod xpc;
 
 use clap::Parser;
 use std::net::SocketAddr;

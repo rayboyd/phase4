@@ -10,6 +10,8 @@ mod resolve;
 mod types;
 mod validate;
 
+#[cfg(target_os = "macos")]
+pub(crate) use resolve::{parse_file_config, resolve_with_outputs};
 pub use types::{
     AppConfig, AppConfigError, ConfigInput, ConfigMidiInput, ConfigOutputs, FileAudioConfig,
     FileConfig, FileMidiConfig, FileNetworkConfig, FileVocoderConfig, OutputConfig, TestSignal,

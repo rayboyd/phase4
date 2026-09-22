@@ -15,8 +15,18 @@ impl TryFrom<&Args> for AppConfig {
 
     fn try_from(args: &Args) -> Result<Self, Self::Error> {
         let file_opt = load_file_config(args.config.as_deref())?;
-        resolve_config(args, file_opt.unwrap_or_default())
+        resolve_with_outputs(args, file_opt.unwrap_or_default(), Vec::new())
     }
+}
+
+/// Parses YAML text as a `FileConfig`, rejecting unknown keys.
+///
+/// # Errors
+///
+/// Returns [`AppConfigError::ConfigFileParseError`] when the text is not valid
+/// YAML or does not match the configuration schema.
+pub(crate) fn parse_file_config(text: &str) -> Result<FileConfig, AppConfigError> {
+    serde_yaml::from_str(text).map_err(|e| AppConfigError::ConfigFileParseError(e.to_string()))
 }
 
 /// Attempts to load and deserialise a configuration file.
@@ -38,16 +48,20 @@ fn load_file_config(explicit: Option<&Path>) -> Result<Option<FileConfig>, AppCo
     }
     let content = std::fs::read_to_string(path)
         .map_err(|e| AppConfigError::ConfigFileParseError(e.to_string()))?;
-    let config: FileConfig = serde_yaml::from_str(&content)
-        .map_err(|e| AppConfigError::ConfigFileParseError(e.to_string()))?;
+    let config = parse_file_config(&content)?;
     log::info!("Configuration loaded from {}", path.display());
     Ok(Some(config))
 }
 
 /// Merges three configuration layers (CLI > file > default) and validates the
-/// result.  Separated from `TryFrom` so tests can inject a `FileConfig`
-/// without touching the filesystem.
-fn resolve_config(args: &Args, file: FileConfig) -> Result<AppConfig, AppConfigError> {
+/// result, with `extra_outputs` added to the outputs the layers name.
+/// Separated from `TryFrom` so tests can inject a `FileConfig` without
+/// touching the filesystem, and so the XPC service can add its frame region.
+pub(crate) fn resolve_with_outputs(
+    args: &Args,
+    file: FileConfig,
+    extra_outputs: Vec<OutputConfig>,
+) -> Result<AppConfig, AppConfigError> {
     let voc_def = VocoderConfig::default();
 
     // Network. Both transports are opt-in, an address arrives only from the
@@ -137,6 +151,8 @@ fn resolve_config(args: &Args, file: FileConfig) -> Result<AppConfig, AppConfigE
     if let Some(addr) = osc_addr {
         outputs.push(OutputConfig::Osc { addr });
     }
+
+    outputs.extend(extra_outputs);
 
     Ok(AppConfig {
         outputs: ConfigOutputs::new(outputs)?,
@@ -500,7 +516,7 @@ mod tests {
             },
             ..Default::default()
         };
-        let config = resolve_config(&args, file).unwrap();
+        let config = resolve_with_outputs(&args, file, Vec::new()).unwrap();
         let (_addr, max_clients, _no_browser_origin) = websocket_output(&config);
         assert_eq!(max_clients, 4);
     }
@@ -517,7 +533,7 @@ mod tests {
             },
             ..Default::default()
         };
-        let config = resolve_config(&args, file).unwrap();
+        let config = resolve_with_outputs(&args, file, Vec::new()).unwrap();
         assert_eq!(config.vocoder_config.attack_ms, Milliseconds(15.0));
     }
 
@@ -531,7 +547,7 @@ mod tests {
             },
             ..Default::default()
         };
-        let config = resolve_config(&args, file).unwrap();
+        let config = resolve_with_outputs(&args, file, Vec::new()).unwrap();
         assert!(matches!(
             config.input,
             ConfigInput::Device { ref name, .. } if name == "Focusrite 2i2"
@@ -549,7 +565,7 @@ mod tests {
             },
             ..Default::default()
         };
-        let result = resolve_config(&args, file);
+        let result = resolve_with_outputs(&args, file, Vec::new());
         assert!(matches!(result, Err(AppConfigError::InvalidMaxClients)));
     }
 
@@ -557,7 +573,7 @@ mod tests {
     fn cli_no_browser_origin_flag_is_forwarded() {
         let mut args = args_with_device(Some("test"));
         args.network.no_browser_origin = true;
-        let config = resolve_config(&args, FileConfig::default()).unwrap();
+        let config = resolve_with_outputs(&args, FileConfig::default(), Vec::new()).unwrap();
         let (_addr, _max_clients, no_browser_origin) = websocket_output(&config);
         assert!(no_browser_origin);
     }
@@ -579,7 +595,7 @@ mod tests {
             },
             ..Default::default()
         };
-        let result = resolve_config(&args, file);
+        let result = resolve_with_outputs(&args, file, Vec::new());
         assert!(matches!(result, Err(AppConfigError::MissingDevice)));
     }
 
@@ -592,7 +608,7 @@ mod tests {
             },
             ..Default::default()
         };
-        let config = resolve_config(&args, file).unwrap();
+        let config = resolve_with_outputs(&args, file, Vec::new()).unwrap();
         assert!(matches!(
             config.midi_input,
             Some(ConfigMidiInput::Device(ref name)) if name == "Loopback"
@@ -609,7 +625,7 @@ mod tests {
             },
             ..Default::default()
         };
-        let config = resolve_config(&args, file).unwrap();
+        let config = resolve_with_outputs(&args, file, Vec::new()).unwrap();
         assert!(matches!(
             config.midi_input,
             Some(ConfigMidiInput::Device(ref name)) if name == "Hardware Port"
@@ -626,7 +642,7 @@ mod tests {
             },
             ..Default::default()
         };
-        let config = resolve_config(&args, file).unwrap();
+        let config = resolve_with_outputs(&args, file, Vec::new()).unwrap();
         assert!(
             matches!(config.midi_input, Some(ConfigMidiInput::TestClock(bpm)) if (bpm - 120.0).abs() < f32::EPSILON),
             "the synthetic clock must win over a file-configured device, not error or silently prefer the device"
@@ -642,7 +658,7 @@ mod tests {
             },
             ..Default::default()
         };
-        let config = resolve_config(&args, file).unwrap();
+        let config = resolve_with_outputs(&args, file, Vec::new()).unwrap();
         assert_eq!(config.midi_input, None);
     }
 
@@ -782,5 +798,41 @@ mod tests {
             .outputs
             .iter()
             .any(|o| matches!(o, OutputConfig::Osc { .. })));
+    }
+
+    #[test]
+    fn parse_file_config_reads_known_sections() {
+        let file = parse_file_config("vocoder:\n  attack_ms: 12.0\n").unwrap();
+        assert_eq!(file.vocoder.attack_ms, Some(12.0));
+    }
+
+    #[test]
+    fn parse_file_config_rejects_malformed_yaml() {
+        let result = parse_file_config("vocoder: [");
+        assert!(matches!(
+            result,
+            Err(AppConfigError::ConfigFileParseError(_))
+        ));
+    }
+
+    #[test]
+    fn parse_file_config_rejects_unknown_keys() {
+        let result = parse_file_config("vocoder:\n  attack: 12.0\n");
+        assert!(matches!(
+            result,
+            Err(AppConfigError::ConfigFileParseError(_))
+        ));
+    }
+
+    #[test]
+    fn resolve_with_outputs_appends_the_extra_outputs() {
+        let args = args_with_device(Some("test"));
+        let extra = OutputConfig::Osc {
+            addr: "127.0.0.1:7000".parse().unwrap(),
+        };
+        let config =
+            resolve_with_outputs(&args, FileConfig::default(), vec![extra.clone()]).unwrap();
+        assert_eq!(config.outputs.len(), 2);
+        assert_eq!(config.outputs[1], extra);
     }
 }

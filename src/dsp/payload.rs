@@ -8,7 +8,7 @@ use crate::dsp::BAND_COUNT;
 use serde::Serialize;
 
 /// One channel's peak and 32 logarithmically spaced frequency bands.
-#[derive(Debug, Clone, Copy, Default, Serialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize)]
 pub struct ChannelLevel {
     /// Peak absolute sample value over the latest analysis chunk, not clamped.
     pub peak: f32,
