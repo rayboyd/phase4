@@ -2,6 +2,16 @@
 
 All notable changes to Phase4 will be documented in this file.
 
+## 0.0.22
+
+### Documentation
+
+- Add the XPC service implementation ticket ([49aa58f](https://github.com/rayboyd/phase4/commit/49aa58fae22321b2e729d4a06f51f08af376923b))
+
+### Features
+
+- Add the Phase4Engine XPC service ([026ba69](https://github.com/rayboyd/phase4/commit/026ba695fada8dc629953189f8390501653017a3))
+
 ## 0.0.21
 
 [7ad1f78](https://github.com/rayboyd/phase4/compare/7ad1f78594825499ae9dee42b580041aefb46947...7cf0706c5f1906cf1f46b30a9a25025b3a14d9e4)
