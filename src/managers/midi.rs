@@ -240,10 +240,12 @@ pub(crate) fn connect_midi_device(
     name_query: &str,
     state: Arc<AppState>,
 ) -> Result<MidiInputSource> {
-    let midi_in =
+    let mut midi_in =
         midir::MidiInput::new("phase4").map_err(|error| MidiDeviceError::MidiUnavailable {
             message: error.to_string(),
         })?;
+    // Filter before connecting because the backend assembles SysEx before the callback.
+    midi_in.ignore(midir::Ignore::Sysex);
 
     let ports = midi_in.ports();
     let port = find_matching_midi_device(ports, name_query, |port| midi_in.port_name(port).ok())
@@ -333,6 +335,78 @@ fn run_real_device(_connection: midir::MidiInputConnection<u8>, state: &Arc<AppS
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    #[ignore = "requires a running CoreMIDI service"]
+    fn real_device_preserves_transport_and_clock_after_sysex_fragments() {
+        use midir::os::unix::VirtualOutput;
+
+        const SOURCE_NAME: &str = "phase4-sysex-filter-regression";
+        const SYSEX_START: u8 = 0xF0;
+        const SYSEX_END: u8 = 0xF7;
+        const SYSEX_NON_COMMERCIAL_ID: u8 = 0x7D;
+        const FRAGMENT_COUNT: usize = 1024;
+        const FRAGMENT_SIZE: usize = 256;
+        const DELIVERY_TIMEOUT: Duration = Duration::from_secs(2);
+        const DELIVERY_POLL_INTERVAL: Duration = Duration::from_millis(10);
+        const DISCARD_SETTLE_INTERVAL: Duration = Duration::from_millis(100);
+
+        let mut producer = midir::MidiOutput::new(SOURCE_NAME)
+            .expect("virtual MIDI producer must initialise")
+            .create_virtual(SOURCE_NAME)
+            .expect("virtual MIDI source must open");
+        let state = Arc::new(AppState::new());
+        let _connection = connect_midi_device(SOURCE_NAME, Arc::clone(&state))
+            .expect("real-device path must connect to the virtual source");
+
+        producer
+            .send(&[SYSEX_START, SYSEX_NON_COMMERCIAL_ID])
+            .expect("initial SysEx fragment must send");
+        let fragment = [0u8; FRAGMENT_SIZE];
+        for _ in 0..FRAGMENT_COUNT {
+            producer.send(&fragment).expect("SysEx fragment must send");
+        }
+        producer
+            .send(&[SYSEX_END])
+            .expect("SysEx terminator must send");
+        thread::sleep(DISCARD_SETTLE_INTERVAL);
+        assert_eq!(state.midi_transport_count.load(Ordering::Acquire), 0);
+
+        for (status, expected_count) in [
+            (MIDI_STATUS_START, 1),
+            (MIDI_STATUS_STOP, 2),
+            (MIDI_STATUS_CONTINUE, 3),
+        ] {
+            producer.send(&[status]).expect("transport must send");
+            let deadline = Instant::now() + DELIVERY_TIMEOUT;
+            while state.midi_transport_count.load(Ordering::Acquire) < expected_count
+                && Instant::now() < deadline
+            {
+                thread::sleep(DELIVERY_POLL_INTERVAL);
+            }
+            assert_eq!(
+                state.midi_transport_count.load(Ordering::Acquire),
+                expected_count
+            );
+        }
+
+        for _ in 0..MIDI_CLOCK_TICKS_PER_STEP {
+            producer
+                .send(&[MIDI_STATUS_TIMING_CLOCK])
+                .expect("clock must send");
+        }
+        let deadline = Instant::now() + DELIVERY_TIMEOUT;
+        while state.midi_steps.load(Ordering::Acquire) == 0 && Instant::now() < deadline {
+            thread::sleep(DELIVERY_POLL_INTERVAL);
+        }
+        assert_eq!(state.midi_steps.load(Ordering::Acquire), 1);
+        assert_eq!(state.midi_transport_count.load(Ordering::Acquire), 3);
+        assert_eq!(
+            state.midi_transport_latest.load(Ordering::Acquire),
+            MIDI_TRANSPORT_CONTINUE
+        );
+    }
 
     #[test]
     fn text_device_listing_preserves_device_indices_and_names() {
