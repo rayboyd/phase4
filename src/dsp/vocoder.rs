@@ -178,12 +178,26 @@ impl VocoderAnalyser {
     /// Each band is updated sample by sample across the provided chunk. After
     /// this returns, [`current_bins`](Self::current_bins) exposes the latest
     /// envelope follower state for each band.
+    ///
+    /// Non-finite samples leave this channel's state unchanged. A non-finite
+    /// filter or envelope result clears the affected band to silence so later
+    /// finite samples can resume analysis without resetting other bands.
     pub fn process_interleaved(&mut self, buffer: &[f32], channel: usize, total_channels: usize) {
         let mut i = channel;
         while i < buffer.len() {
             let sample = buffer[i];
+            if !sample.is_finite() {
+                i += total_channels;
+                continue;
+            }
             for (band_idx, filter) in self.filters.iter_mut().enumerate() {
                 let filtered = filter.run(sample);
+                if !filtered.is_finite() {
+                    filter.reset_state();
+                    self.envelopes[band_idx].reset();
+                    self.bins[band_idx] = 0.0;
+                    continue;
+                }
                 // Rectify (abs) so the envelope follower tracks the band's
                 // amplitude rather than its raw, sign-alternating waveform.
                 self.bins[band_idx] = self.envelopes[band_idx].process_sample(
@@ -191,6 +205,11 @@ impl VocoderAnalyser {
                     self.attack_coeff,
                     self.release_coeff,
                 );
+                if !self.bins[band_idx].is_finite() {
+                    filter.reset_state();
+                    self.envelopes[band_idx].reset();
+                    self.bins[band_idx] = 0.0;
+                }
             }
             i += total_channels;
         }
@@ -223,6 +242,43 @@ mod tests {
     use super::*;
 
     const SUPPORTED_TEST_SAMPLE_RATES: [u32; 5] = [22_050, 44_100, 48_000, 96_000, 192_000];
+    const RECOVERY_TEST_SAMPLE_RATE: u32 = 44_100;
+    const OVERFLOW_TEST_GAIN: f32 = 2.0;
+    const RECOVERY_TEST_SAMPLE: f32 = 0.25;
+
+    #[test]
+    #[allow(clippy::float_cmp)]
+    fn filter_overflow_resets_only_the_affected_band() {
+        let mut analyser =
+            VocoderAnalyser::new(RECOVERY_TEST_SAMPLE_RATE, &VocoderConfig::default());
+        analyser.filters[0] = DirectForm1::new(Coefficients {
+            a1: 0.0,
+            a2: 0.0,
+            b0: OVERFLOW_TEST_GAIN,
+            b1: 0.0,
+            b2: 0.0,
+        });
+        analyser.process_interleaved(&[f32::MAX], 0, 1);
+        assert_eq!(analyser.bins[0], 0.0);
+        assert!(analyser.bins.iter().all(|bin| bin.is_finite()));
+        assert!(analyser.bins[1..].iter().any(|bin| *bin > 0.0));
+        analyser.process_interleaved(&[RECOVERY_TEST_SAMPLE], 0, 1);
+        assert!(analyser.bins.iter().all(|bin| bin.is_finite()));
+        assert!(analyser.bins[0] > 0.0);
+    }
+
+    #[test]
+    #[allow(clippy::float_cmp)]
+    fn invalid_envelope_state_recovers_on_the_next_finite_sample() {
+        let mut analyser =
+            VocoderAnalyser::new(RECOVERY_TEST_SAMPLE_RATE, &VocoderConfig::default());
+        analyser.envelopes[0].value = f32::NAN;
+        analyser.process_interleaved(&[RECOVERY_TEST_SAMPLE], 0, 1);
+        assert_eq!(analyser.bins[0], 0.0);
+        analyser.process_interleaved(&[RECOVERY_TEST_SAMPLE], 0, 1);
+        assert!(analyser.bins.iter().all(|bin| bin.is_finite()));
+        assert!(analyser.bins[0] > 0.0);
+    }
 
     #[test]
     fn default_filters_remain_stable_across_audio_sample_rates() {
