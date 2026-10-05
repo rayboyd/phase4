@@ -24,6 +24,8 @@ The synthetic clock tempo must be finite and positive, and its MIDI tick interva
 
 MIDI input supplies transport events and a count derived from clock ticks. Notes, velocity, controller messages and song-position messages are not forwarded. Audio and MIDI are sampled independently, and the output contains no shared sample timestamp.
 
+SysEx is unsupported and is filtered by the MIDI backend before message assembly. Ordinary Clock, Start, Stop and Continue messages remain enabled. On macOS, real-time bytes embedded in SysEx packets are discarded with those packets. Sources must send transport and clock messages outside SysEx.
+
 A MIDI input device can also be pinned in `config.yaml`.
 
 ```yaml
