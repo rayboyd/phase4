@@ -2,6 +2,15 @@
 
 All notable changes to Phase4 will be documented in this file.
 
+## 0.0.23
+
+[0d29c2c](https://github.com/rayboyd/phase4/compare/0d29c2c0d6a510a695b5a08a7a6be51e0237b242...9f6be433b81fc9af52097056930ea93c96485f5a)
+
+### Bug Fixes
+
+- Recover vocoder state after invalid audio samples ([6e8242e](https://github.com/rayboyd/phase4/commit/6e8242e2467d7c3483b72643664706450ee70fbe))
+- Filter unsupported SysEx before backend assembly ([bbcf21a](https://github.com/rayboyd/phase4/commit/bbcf21a453fcc7d0c158bbad0f84be283096de9e))
+
 ## 0.0.22
 
 ### Documentation
@@ -13,8 +22,6 @@ All notable changes to Phase4 will be documented in this file.
 - Add the Phase4Engine XPC service ([026ba69](https://github.com/rayboyd/phase4/commit/026ba695fada8dc629953189f8390501653017a3))
 
 ## 0.0.21
-
-[7ad1f78](https://github.com/rayboyd/phase4/compare/7ad1f78594825499ae9dee42b580041aefb46947...7cf0706c5f1906cf1f46b30a9a25025b3a14d9e4)
 
 ### Features
 
