@@ -2,9 +2,13 @@
 
 All notable changes to Phase4 will be documented in this file.
 
-## 0.0.23
+## 0.0.24
 
-[0d29c2c](https://github.com/rayboyd/phase4/compare/0d29c2c0d6a510a695b5a08a7a6be51e0237b242...9f6be433b81fc9af52097056930ea93c96485f5a)
+### Bug Fixes
+
+- Clippy assertion fix ([b9cc5ae](https://github.com/rayboyd/phase4/commit/b9cc5ae1ab4d96e49b2896edebd3ff758fb809de))
+
+## 0.0.23
 
 ### Bug Fixes
 
