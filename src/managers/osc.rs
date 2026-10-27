@@ -404,7 +404,7 @@ mod tests {
             assert_eq!(encoded.len(), expected_bytes);
             let (remainder, decoded) = rosc::decoder::decode_udp(&encoded)
                 .expect("startup buffer should contain a valid OSC bundle");
-            assert!(remainder.is_empty());
+            assert_eq!(remainder, &[] as &[u8]);
             assert_eq!(decoded, bundle);
         }
     }
