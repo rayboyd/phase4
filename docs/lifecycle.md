@@ -8,7 +8,7 @@ Buffer capacity is calculated from 500 ms of audio at the resolved sample rate a
 
 The analyser consumes queued audio in FIFO order. When the buffer is full, the callback drops incoming complete frames and retains older queued audio. This preserves channel order during overflow but introduces gaps in analysis. The capture callback currently discards the overflow indicator, so the output does not report those gaps.
 
-The analyser processes available whole frames in chunks of up to approximately 10 ms and sleeps when empty. Filter and envelope state persists across chunks. The all-channel callback publishes accepted slices together. Selected-channel capture publishes samples individually, and the analyser carries partial frames between reads.
+The analyser processes available whole frames in chunks of up to approximately 10 ms. When the buffer is empty, it sleeps for 1 ms before checking again, without adding signalling to the audio callback. The operating system may wake it later. Filter and envelope state persists across chunks. The all-channel callback publishes accepted slices together. Selected-channel capture publishes samples individually, and the analyser carries partial frames between reads.
 
 Raw and display payloads use watch channels that retain the latest snapshot rather than a queue of every analysis result. The mapper schedules display publication at 60 Hz and skips missed timer ticks. It can repeat the latest analysis values or skip intermediate analysis chunks. Neither output includes an audio timestamp or sequence number.
 

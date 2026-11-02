@@ -26,7 +26,7 @@ use tokio::sync::watch;
 const CHUNK_SIZE_MS: u32 = 10;
 
 /// Thread sleep duration (ms) when the ringbuf is empty, avoids busy-waiting.
-const IDLE_SLEEP_MS: u64 = 10;
+const IDLE_SLEEP_MS: u64 = 1;
 
 /// Processor thread priority in the crate's cross-platform 0-99 scale.
 const ANALYSER_THREAD_PRIORITY: u8 = 40;
@@ -225,8 +225,8 @@ impl Processor {
                             if samples > 0 {
                                 dsp_state.process(samples);
                             } else if state.keep_running.load(Ordering::Acquire) {
-                                // Idle backoff, not a timing path. Throughput is set by the
-                                // producer, and the ring buffer absorbs a late wake-up.
+                                // A short wait limits idle latency without adding a signal,
+                                // lock or allocation to the realtime audio callback.
                                 thread::sleep(Duration::from_millis(IDLE_SLEEP_MS));
                             }
                         }
@@ -240,6 +240,81 @@ impl Processor {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::managers::audio::Input;
+    use ringbuf::traits::{Observer, Producer};
+
+    const UPDATE_TIMEOUT: Duration = Duration::from_secs(1);
+    const IDLE_SETTLE: Duration = Duration::from_millis(5);
+
+    #[tokio::test]
+    #[allow(clippy::float_cmp)]
+    async fn incomplete_frame_is_completed_after_the_analyser_is_idle() {
+        let specs = Specs {
+            sample_rate: 48_000,
+            channels: 2,
+        };
+        let (mut producer, consumer) = Input::create_audio_buffer_pair(specs, CHUNK_SIZE_MS);
+        let (raw_tx, mut raw_rx) = watch::channel(RawPayload::new(2));
+        let state = Arc::new(AppState::new());
+        let handle = Processor::new(VocoderConfig::default()).spawn(
+            consumer,
+            raw_tx,
+            specs,
+            Arc::clone(&state),
+        );
+
+        producer
+            .try_push(0.25)
+            .expect("buffer must accept the first sample");
+        let first_sample_consumed = tokio::time::timeout(UPDATE_TIMEOUT, async {
+            while !producer.is_empty() {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await;
+        tokio::time::sleep(IDLE_SETTLE).await;
+        let premature_update = raw_rx.has_changed();
+        producer
+            .try_push(0.75)
+            .expect("buffer must accept the second sample");
+
+        let update = tokio::time::timeout(UPDATE_TIMEOUT, raw_rx.changed()).await;
+        state.keep_running.store(false, Ordering::Release);
+        handle.join().expect("analyser must shut down");
+        first_sample_consumed.expect("analyser must consume the first sample");
+        assert!(!premature_update.expect("analyser must stay connected"));
+        update
+            .expect("analyser must publish the completed frame")
+            .expect("analyser must stay connected");
+        let payload = raw_rx.borrow_and_update();
+        assert_eq!(payload.channels[0].peak, 0.25);
+        assert_eq!(payload.channels[1].peak, 0.75);
+    }
+
+    #[test]
+    #[allow(clippy::float_cmp)]
+    fn shutdown_drains_audio_already_in_the_ring() {
+        let specs = Specs {
+            sample_rate: 48_000,
+            channels: 2,
+        };
+        let (mut producer, consumer) = Input::create_audio_buffer_pair(specs, CHUNK_SIZE_MS);
+        let (raw_tx, raw_rx) = watch::channel(RawPayload::new(2));
+        let state = Arc::new(AppState::new());
+        assert_eq!(producer.push_slice(&[0.375, 0.875]), 2);
+        state.keep_running.store(false, Ordering::Release);
+        // The analyser may not be scheduled until after shutdown is requested.
+        let handle = Processor::new(VocoderConfig::default()).spawn(
+            consumer,
+            raw_tx,
+            specs,
+            Arc::clone(&state),
+        );
+        handle.join().expect("analyser must drain and shut down");
+        let payload = raw_rx.borrow();
+        assert_eq!(payload.channels[0].peak, 0.375);
+        assert_eq!(payload.channels[1].peak, 0.875);
+    }
 
     fn make_state(channels: u16) -> (State, watch::Receiver<RawPayload>) {
         let specs = Specs {
