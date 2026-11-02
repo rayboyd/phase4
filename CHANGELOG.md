@@ -6,7 +6,7 @@ All notable changes to Phase4 will be documented in this file.
 
 ### Performance
 
-- Shorten the idle wait for audio input ([915eea0](https://github.com/rayboyd/phase4/commit/915eea0cf5bd8a05776db0c51d868c914199c786)), Co-Authored-By:Codex <noreply@openai.com>
+- Shorten the idle wait for audio input ([915eea0](https://github.com/rayboyd/phase4/commit/915eea0cf5bd8a05776db0c51d868c914199c786))
 
 ## 0.0.24
 
